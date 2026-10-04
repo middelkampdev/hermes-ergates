@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
 import { RADIUS, SIZE, SPACE, TYPE } from '@/theme/tokens'
-import { MarkdownText } from '@/ui/MarkdownText'
+import { MARKDOWN_PARAGRAPH_SPACING, MarkdownText } from '@/ui/MarkdownText'
 
 /** Avatar footprint (docs/10 section 4) plus the row's gap, so the author label lines up with the bubble, not the avatar. */
 const AVATAR_SIZE = SIZE.small
@@ -44,6 +44,6 @@ const styles = StyleSheet.create({
   name: { ...TYPE.footnote, marginBottom: SPACE.extraSmall, marginLeft: AVATAR_SIZE + AVATAR_GAP },
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: AVATAR_GAP },
   bubble: { paddingVertical: SPACE.medium, paddingHorizontal: SPACE.large, flexShrink: 1 },
-  // Cancels the last paragraph's bottom margin (MarkdownText's SPACE.small).
-  markdown: { marginBottom: -SPACE.small }
+  // Cancels the last paragraph's bottom margin.
+  markdown: { marginBottom: -MARKDOWN_PARAGRAPH_SPACING }
 })

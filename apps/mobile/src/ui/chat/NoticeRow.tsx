@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
 import { ICON_SIZE, LEADING, SIZE, SPACE, TYPE } from '@/theme/tokens'
+import { ROW_HIT_SLOP } from '@/ui/chat/Rows'
 import { Icon } from '@/ui/icons'
 
 export interface NoticeRowProps {
@@ -29,7 +30,7 @@ export function NoticeRow({ text, label, onPress }: NoticeRowProps) {
 
   if (onPress) {
     return (
-      <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} hitSlop={8} style={styles.row}>
+      <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} hitSlop={ROW_HIT_SLOP} style={styles.row}>
         {content}
       </Pressable>
     )

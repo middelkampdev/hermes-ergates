@@ -15,7 +15,6 @@ import { EDIT_ITEM_HEIGHT } from '@/features/agents'
 import { useTheme } from '@/theme/provider'
 import { OPACITY, RADIUS, RULE, SPACE, TYPE } from '@/theme/tokens'
 
-
 export function SectionGhostRow({ progress, gutter }: { progress: SharedValue<number>; gutter: number }) {
   const theme = useTheme()
   const fade = useAnimatedStyle(() => ({ opacity: progress.get() }))

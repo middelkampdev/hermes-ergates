@@ -6,6 +6,9 @@ import { useTheme } from '@/theme/provider'
 import { ICON_SIZE, LEADING, RADIUS, RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { Icon, type IconName } from '@/ui/icons'
 
+/** The slop that lifts a compact centered row (`SIZE.small` tall) to the `RULE.touch` target, for the tappable ones. */
+export const ROW_HIT_SLOP = (RULE.touch - SIZE.small) / 2
+
 /** Compact centered event row (routine created, renamed, messaged X). */
 export function EventRow({ text, icon = 'zap' }: { text: string; icon?: IconName }) {
   const theme = useTheme()
@@ -57,6 +60,7 @@ export function ToolRow({ item, onPress, label, text }: { item: ToolItem; onPres
       onPress={onPress}
       accessibilityRole={onPress ? 'button' : undefined}
       accessibilityLabel={label ?? text ?? `${computedLabel}${detail ? `, ${detail}` : ''}`}
+      hitSlop={ROW_HIT_SLOP}
       style={styles.event}
     >
       <Icon name={item.error ? 'alert-circle' : item.done ? 'check' : 'loader'} size={ICON_SIZE.small} color={item.error ? theme.colors.destructive : theme.colors.mutedForeground} />

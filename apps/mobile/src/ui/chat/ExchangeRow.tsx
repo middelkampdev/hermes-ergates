@@ -2,7 +2,8 @@ import React, { type ReactNode } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { LEADING, RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
+import { LEADING, SIZE, SPACE, TYPE } from '@/theme/tokens'
+import { ROW_HIT_SLOP } from '@/ui/chat/Rows'
 
 export interface ExchangeRowProps {
   text: string
@@ -13,9 +14,6 @@ export interface ExchangeRowProps {
   /** Rendered avatar, e.g. `<PeerAvatar peer={...} size={SIZE.extraSmall} connectionId={...} />`. */
   avatar: ReactNode
 }
-
-/** The row is `SIZE.small` tall like `EventRow`; slop lifts the tap target to `RULE.touch` (docs/10 section 4). */
-const HIT_SLOP = (RULE.touch - SIZE.small) / 2
 
 /**
  * One-line summary of a bot-to-bot exchange in the timeline (docs 5.4), in the reference's
@@ -38,7 +36,7 @@ export function ExchangeRow({ text, label, openable, marked, onPress, avatar }: 
 
   if (openable && onPress) {
     return (
-      <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} hitSlop={HIT_SLOP} style={styles.row}>
+      <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} hitSlop={ROW_HIT_SLOP} style={styles.row}>
         {content}
       </Pressable>
     )

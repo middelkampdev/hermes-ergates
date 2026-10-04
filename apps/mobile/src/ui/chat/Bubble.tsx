@@ -5,7 +5,7 @@ import type { ChatItem } from '@/features/chat'
 import { formatClock } from '@/lib/time'
 import { useTheme } from '@/theme/provider'
 import { LEADING, RADIUS, SPACE, TYPE } from '@/theme/tokens'
-import { MarkdownText } from '@/ui/MarkdownText'
+import { MARKDOWN_PARAGRAPH_SPACING, MarkdownText } from '@/ui/MarkdownText'
 
 type UserItem = Extract<ChatItem, { kind: 'user' }>
 type AssistantItem = Extract<ChatItem, { kind: 'assistant' }>
@@ -77,7 +77,7 @@ const styles = StyleSheet.create({
   leftWrap: { alignItems: 'flex-start', maxWidth: '88%', alignSelf: 'flex-start', marginVertical: SPACE.extraSmall },
   rightWrap: { alignItems: 'flex-end', maxWidth: '88%', alignSelf: 'flex-end', marginVertical: SPACE.extraSmall },
   bubble: { paddingVertical: SPACE.medium, paddingHorizontal: SPACE.large },
-  markdown: { marginBottom: -SPACE.small },
+  markdown: { marginBottom: -MARKDOWN_PARAGRAPH_SPACING },
   body: { ...TYPE.body, lineHeight: LEADING.body },
   cursor: { ...TYPE.body, lineHeight: LEADING.body },
   meta: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: SPACE.extraSmall, marginHorizontal: SPACE.small }

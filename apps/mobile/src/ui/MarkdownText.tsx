@@ -14,6 +14,9 @@ import { LEADING, RADIUS, RULE, SPACE, TYPE, type MobileTheme } from '@/theme/to
 
 import { astTableToRows, tableToStacked } from './markdown-table'
 
+/** The space under each paragraph. A bubble cancels it under its last paragraph with a negative bottom margin of the same size. */
+export const MARKDOWN_PARAGRAPH_SPACING = SPACE.small
+
 export interface MarkdownTextProps {
   children: string
 }
@@ -33,7 +36,7 @@ function buildStyle(theme: MobileTheme): Record<string, TextStyle> {
   return {
     body: { color: theme.colors.foreground, ...TYPE.body, lineHeight: LEADING.body },
     // Space between paragraphs only; the first paragraph starts flush with the container.
-    paragraph: { marginTop: 0, marginBottom: SPACE.small },
+    paragraph: { marginTop: 0, marginBottom: MARKDOWN_PARAGRAPH_SPACING },
     heading1: { color: theme.colors.foreground, ...TYPE.largeTitle },
     heading2: { color: theme.colors.foreground, ...TYPE.title },
     heading3: { color: theme.colors.foreground, ...TYPE.title3 },

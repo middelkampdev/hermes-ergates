@@ -19,9 +19,10 @@
  * BASELINE lists the files that still hold values the `step` rule rejects. It
  * only shrinks: a file leaves it when it is clean, and a test fails until it
  * does. GEOMETRY lists the files that keep drag, motion or platform geometry
- * in named UPPER_CASE constants, each with its reason. Only those constants
- * pass there: an inline literal in a GEOMETRY file is still reported, so a new
- * design value cannot hide behind the file's entry.
+ * in named UPPER_CASE constants: each entry names those constants and gives
+ * its reason. Only the named constants pass there: an inline literal or
+ * another constant in a GEOMETRY file is still reported, so a new design
+ * value cannot hide behind the file's entry.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
@@ -35,17 +36,23 @@ const NUMERIC_KEYS = new Set(['fontSize', 'lineHeight', 'letterSpacing', 'border
 const SPACING_KEY = /^(padding|margin)(Top|Bottom|Left|Right|Horizontal|Vertical|Start|End)?$|^(gap|rowGap|columnGap)$/
 const SIZE_KEYS = new Set(['width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight', 'top', 'right', 'bottom', 'left'])
 const STEP_CONSTANT = /SIZE|RADIUS|WIDTH|HEIGHT|PADDING|GAP|INSET|SPACING|MARGIN|OPACITY|LEADING|LINE_HEIGHT|WEIGHT|FONT|TOUCH/
-/** A module-level constant's name, the only kind of finding a GEOMETRY entry exempts. */
+/** A module-level constant's name, the only kind of finding a GEOMETRY entry can exempt. */
 const CONSTANT_NAME = /^[A-Z][A-Z0-9_]*$/
 const HEX = /^#[0-9a-f]{3,8}$/i
 const RGB = /^rgba?\(/i
 
 const BASELINE: ReadonlySet<string> = new Set<string>([])
 
-/** A file goes here only when it keeps drag, motion or platform geometry in named constants; the reason says which. */
-const GEOMETRY: ReadonlyMap<string, string> = new Map<string, string>([
-  ['src/ui/SwitchRow.tsx', 'the height of the native iOS switch frame, which sits beside its translateY offset'],
-  ['src/ui/home-list/PinnedArea.tsx', 'PIN_WIDTH, the pin cell width that pinCells, swipe to select and the drag between pins and rows measure with']
+/** Named constants of one file that hold drag, motion or platform geometry, and why. */
+type Geometry = { constants: readonly string[]; reason: string }
+
+/** A file goes here only when it keeps drag, motion or platform geometry in named constants; only those constants pass. */
+const GEOMETRY: ReadonlyMap<string, Geometry> = new Map<string, Geometry>([
+  ['src/ui/SwitchRow.tsx', { constants: ['NATIVE_SWITCH_HEIGHT'], reason: 'the height of the native iOS switch frame, which sits beside its translateY offset' }],
+  [
+    'src/ui/home-list/PinnedArea.tsx',
+    { constants: ['PIN_WIDTH'], reason: 'the pin cell width that pinCells, swipe to select and the drag between pins and rows measure with' }
+  ]
 ])
 
 /** `token`: a type, radius, opacity or color value. `step`: a spacing, size, size prop or size constant. */
@@ -117,10 +124,11 @@ export const Inline = ({ size, gutter, pressed, progress }) => (
 )
 `
 
-/** A file with drag geometry: its named constants may stay, its inline literals may not. */
+/** A file with drag geometry: the constants its entry names may stay, another constant and its inline literals may not. */
 const GEOMETRY_SOURCE = `
 const PIN_WIDTH = 96
 const PIN_GAP = SPACE.huge
+const BADGE_SIZE = 32
 const styles = StyleSheet.create({
   pin: { gap: 8, width: PIN_WIDTH },
   dot: { top: 2, width: SIZE.tiny }
@@ -252,9 +260,9 @@ function scanApp(): Map<string, Finding[]> {
   return result
 }
 
-/** The `step` findings a file must fix: all of them, or in a GEOMETRY file all but its named constants. */
-function stepFindings(found: Finding[], geometry: boolean): Finding[] {
-  return found.filter(({ rule, key }) => rule === 'step' && !(geometry && CONSTANT_NAME.test(key)))
+/** The `step` findings a file must fix: all of them but the geometry constants its GEOMETRY entry names. */
+function stepFindings(found: Finding[], geometry: readonly string[] = []): Finding[] {
+  return found.filter(({ rule, key }) => rule === 'step' && !geometry.includes(key))
 }
 
 const offender = (file: string, { line, key, text }: Finding): string => `${file}:${line} ${key} ${text}`
@@ -312,11 +320,11 @@ describe('design tokens', () => {
     expect(findRawStyleValues(GOOD, 'good.tsx')).toEqual([])
   })
 
-  it('in a geometry file lets only the named constants through', () => {
+  it('in a geometry file lets only the constants its entry names through', () => {
     const found = findRawStyleValues(GEOMETRY_SOURCE, 'geometry.tsx')
-    const listed = (geometry: boolean) => stepFindings(found, geometry).map(({ key, text }) => `${key} ${text}`)
-    expect(listed(false)).toEqual(['PIN_WIDTH 96', 'gap 8', 'top 2', 'size 19'])
-    expect(listed(true)).toEqual(['gap 8', 'top 2', 'size 19'])
+    const listed = (geometry?: readonly string[]) => stepFindings(found, geometry).map(({ key, text }) => `${key} ${text}`)
+    expect(listed()).toEqual(['PIN_WIDTH 96', 'BADGE_SIZE 32', 'gap 8', 'top 2', 'size 19'])
+    expect(listed(['PIN_WIDTH'])).toEqual(['BADGE_SIZE 32', 'gap 8', 'top 2', 'size 19'])
   })
 
   it(
@@ -335,7 +343,7 @@ describe('design tokens', () => {
     () => {
       const offenders = [...scanApp()]
         .filter(([file]) => !BASELINE.has(file))
-        .flatMap(([file, found]) => stepFindings(found, GEOMETRY.has(file)).map(finding => offender(file, finding)))
+        .flatMap(([file, found]) => stepFindings(found, GEOMETRY.get(file)?.constants).map(finding => offender(file, finding)))
       expect(
         offenders,
         `use a step from src/theme/tokens.ts, or a named rule for a length that is neither a step nor geometry:\n${offenders.join('\n')}`
@@ -355,12 +363,15 @@ describe('design tokens', () => {
   )
 
   it(
-    'the geometry list only holds files that still have such a value, each with a reason',
+    'the geometry list only names constants that still hold such a value, each file with a reason',
     () => {
       const scan = scanApp()
-      const stale = [...GEOMETRY.keys()].filter(file => !(scan.get(file) ?? []).some(({ rule, key }) => rule === 'step' && CONSTANT_NAME.test(key)))
-      expect(stale, `remove from GEOMETRY, these files keep no geometry constant:\n${stale.join('\n')}`).toEqual([])
-      const noReason = [...GEOMETRY].filter(([, reason]) => reason.trim() === '' || reason.includes('\n')).map(([file]) => file)
+      const stale = [...GEOMETRY].flatMap(([file, { constants }]) => {
+        const flagged = (scan.get(file) ?? []).filter(({ rule }) => rule === 'step').map(({ key }) => key)
+        return constants.length === 0 ? [`${file}: names no constant`] : constants.filter(name => !CONSTANT_NAME.test(name) || !flagged.includes(name)).map(name => `${file}: ${name}`)
+      })
+      expect(stale, `remove from GEOMETRY, these are not flagged geometry constants:\n${stale.join('\n')}`).toEqual([])
+      const noReason = [...GEOMETRY].filter(([, { reason }]) => reason.trim() === '' || reason.includes('\n')).map(([file]) => file)
       expect(noReason, `give each file one line saying which drag, motion or platform value it holds:\n${noReason.join('\n')}`).toEqual([])
       const both = [...GEOMETRY.keys()].filter(file => BASELINE.has(file))
       expect(both, `a file is in BASELINE or GEOMETRY, not both:\n${both.join('\n')}`).toEqual([])

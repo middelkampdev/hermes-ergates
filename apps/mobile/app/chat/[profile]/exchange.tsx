@@ -11,7 +11,7 @@ import { Button } from '@/ui/Button'
 import { PeerAvatar } from '@/ui/chat/PeerAvatar'
 import { DateSeparator } from '@/ui/chat/Rows'
 import { IconButton } from '@/ui/IconButton'
-import { MarkdownText } from '@/ui/MarkdownText'
+import { MARKDOWN_PARAGRAPH_SPACING, MarkdownText } from '@/ui/MarkdownText'
 import { usePagePadding } from '@/ui/Screen'
 import { useFontScaleKey } from '@/ui/use-font-scale-key'
 import { useBottomInset } from '@/ui/use-bottom-inset'
@@ -161,8 +161,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: SPACE.small },
   rowSelf: { justifyContent: 'flex-end' },
   bubble: { paddingVertical: SPACE.medium, paddingHorizontal: SPACE.large, flexShrink: 1 },
-  // Cancels the last paragraph's bottom margin (MarkdownText's SPACE.small).
-  markdown: { marginBottom: -SPACE.small },
+  // Cancels the last paragraph's bottom margin.
+  markdown: { marginBottom: -MARKDOWN_PARAGRAPH_SPACING },
   state: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: SPACE.extraSmall },
   stateCenter: { textAlign: 'center' }
 })

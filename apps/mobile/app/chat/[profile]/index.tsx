@@ -323,14 +323,14 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
           </View>
         ) : null}
         {session.needsReauth ? (
-          <Pressable onPress={() => router.push('/settings')} accessibilityRole="button" accessibilityLabel="Sign in again" style={[styles.errorLine, { backgroundColor: theme.colors.muted }]}>
+          <Pressable onPress={() => router.push('/settings')} accessibilityRole="button" accessibilityLabel="Sign in again" style={[styles.errorLine, { marginHorizontal: gutter, backgroundColor: theme.colors.muted }]}>
             <Text style={[styles.errorText, { color: theme.colors.destructive }]}>
               {session.connectionError ?? 'Sign-in required.'} Tap to sign in again.
             </Text>
           </Pressable>
         ) : null}
         {session.state.lastError ? (
-          <Pressable onPress={session.clearError} accessibilityRole="button" accessibilityLabel="Dismiss error" style={[styles.errorLine, { backgroundColor: theme.colors.muted }]}>
+          <Pressable onPress={session.clearError} accessibilityRole="button" accessibilityLabel="Dismiss error" style={[styles.errorLine, { marginHorizontal: gutter, backgroundColor: theme.colors.muted }]}>
             <Text style={[styles.errorText, { color: theme.colors.destructive }]} numberOfLines={3}>
               {session.state.lastError}
             </Text>
@@ -362,7 +362,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
           maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
         />
         {!atBottom ? (
-          <Pressable onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })} accessibilityRole="button" accessibilityLabel="Jump to latest" style={[styles.jump, { backgroundColor: theme.colors.popover, borderColor: theme.colors.border }]}>
+          <Pressable onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })} accessibilityRole="button" accessibilityLabel="Jump to latest" style={[styles.jump, { right: gutter, backgroundColor: theme.colors.popover, borderColor: theme.colors.border }]}>
             <Icon name="arrow-down" size={ICON_SIZE.small} color={theme.colors.foreground} />
           </Pressable>
         ) : null}
@@ -403,9 +403,9 @@ const styles = StyleSheet.create({
   list: { paddingVertical: SPACE.extraLarge },
   center: { padding: SPACE.extraLarge },
   error: { ...TYPE.callout, lineHeight: LEADING.callout, textAlign: 'center' },
-  errorLine: { marginHorizontal: SPACE.extraLarge, marginTop: SPACE.extraSmall, padding: SPACE.small, borderRadius: RADIUS.medium },
+  errorLine: { marginTop: SPACE.extraSmall, padding: SPACE.small, borderRadius: RADIUS.medium },
   errorText: { ...TYPE.footnote, lineHeight: LEADING.footnote },
   state: { ...TYPE.footnote, lineHeight: LEADING.footnote, textAlign: 'center', marginVertical: SPACE.small },
-  jump: { position: 'absolute', right: SPACE.extraLarge, bottom: RULE.floatingBottom, width: RULE.touch, height: RULE.touch, borderRadius: RULE.touch / 2, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  jump: { position: 'absolute', bottom: RULE.floatingBottom, width: RULE.touch, height: RULE.touch, borderRadius: RULE.touch / 2, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   composer: { paddingTop: SPACE.extraSmall }
 })
