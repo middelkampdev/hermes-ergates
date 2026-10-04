@@ -10,7 +10,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
 import { useEditBotContext } from '@/features/agents'
 import { useTheme } from '@/theme/provider'
-import { LEADING, TYPE } from '@/theme/tokens'
+import { LEADING, SPACE, TYPE } from '@/theme/tokens'
 import { Field } from '@/ui/Field'
 import { Group } from '@/ui/Group'
 import { ListRow } from '@/ui/ListRow'
@@ -143,9 +143,9 @@ function EmptyRow({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  loading: { marginTop: 40 },
-  search: { marginBottom: -12 },
-  emptyRow: { paddingVertical: 12, paddingHorizontal: 16 },
+  loading: { marginTop: SPACE.giant },
+  search: { marginBottom: -SPACE.medium },
+  emptyRow: { paddingVertical: SPACE.medium, paddingHorizontal: SPACE.large },
   empty: { ...TYPE.callout, lineHeight: LEADING.callout },
   error: { ...TYPE.footnote },
   note: { ...TYPE.footnote, lineHeight: LEADING.footnote }

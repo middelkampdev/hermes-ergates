@@ -13,7 +13,7 @@ import { usePrimaryConnection } from '@/features/settings'
 import { useGateway } from '@/gateway/registry'
 import type { ModelProvider } from '@/gateway/types'
 import { useTheme } from '@/theme/provider'
-import { ICON, LEADING, TYPE } from '@/theme/tokens'
+import { ICON_SIZE, LEADING, SPACE, TYPE } from '@/theme/tokens'
 import { Field } from '@/ui/Field'
 import { Group } from '@/ui/Group'
 import { Icon } from '@/ui/icons'
@@ -120,7 +120,7 @@ function ExpandRow({ label, expanded, onPress }: { label: string; expanded: bool
     <ListRow
       title={label}
       expanded={expanded}
-      right={<Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={ICON.chevron} color={theme.colors.mutedForeground} />}
+      right={<Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={ICON_SIZE.small} color={theme.colors.mutedForeground} />}
       onPress={onPress}
     />
   )
@@ -132,15 +132,15 @@ function PickRow({ label, selected, onPress }: { label: string; selected: boolea
     <ListRow
       title={label}
       selected={selected}
-      right={selected ? <Icon name="check" size={ICON.row} color={theme.colors.primary} /> : <View style={styles.noCheck} />}
+      right={selected ? <Icon name="check" size={ICON_SIZE.medium} color={theme.colors.primary} /> : <View style={styles.noCheck} />}
       onPress={onPress}
     />
   )
 }
 
 const styles = StyleSheet.create({
-  loading: { marginTop: 40 },
-  provider: { gap: 12 },
-  noCheck: { width: ICON.row },
+  loading: { marginTop: SPACE.giant },
+  provider: { gap: SPACE.medium },
+  noCheck: { width: ICON_SIZE.medium },
   note: { ...TYPE.footnote, lineHeight: LEADING.footnote }
 })

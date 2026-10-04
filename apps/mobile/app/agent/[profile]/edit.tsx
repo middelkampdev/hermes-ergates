@@ -15,7 +15,7 @@ import { botsMeta, instructionsSummary, modelSummary, useEditBotContext, type Sa
 import { pickAvatar } from '@/features/files'
 import { userMessage } from '@/gateway/errors'
 import { useTheme } from '@/theme/provider'
-import { AVATAR, LEADING, TYPE } from '@/theme/tokens'
+import { LEADING, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { Avatar } from '@/ui/Avatar'
 import { Button } from '@/ui/Button'
 import { Field } from '@/ui/Field'
@@ -188,7 +188,7 @@ function EditBotForm({
       headerRight={<Button label="Save" onPress={() => void save()} loading={phase === 'saving'} disabled={!canSave} accessibilityLabel="Save" />}
     >
       <View style={styles.avatar}>
-        <Avatar name={draft.name || profile} color={avatarColor} imageUri={previewUri} size={AVATAR.editor} />
+        <Avatar name={draft.name || profile} color={avatarColor} imageUri={previewUri} size={SIZE.giant} />
       </View>
       <View style={styles.photoButtons}>
         <Button label="Choose photo" variant="secondary" onPress={() => void onChoosePhoto()} accessibilityLabel="Choose photo" />
@@ -245,12 +245,12 @@ function EditBotForm({
 }
 
 const styles = StyleSheet.create({
-  loading: { marginVertical: 40 },
-  errorText: { ...TYPE.callout, lineHeight: LEADING.callout, marginBottom: 16 },
-  avatar: { alignItems: 'center', paddingVertical: 12 },
-  photoButtons: { gap: 12, marginBottom: 16 },
-  fieldError: { ...TYPE.footnote, marginTop: 2 },
-  groups: { gap: 24, marginTop: 12, marginBottom: 16 },
-  outcome: { gap: 4, marginBottom: 24 },
+  loading: { marginVertical: SPACE.giant },
+  errorText: { ...TYPE.callout, lineHeight: LEADING.callout, marginBottom: SPACE.large },
+  avatar: { alignItems: 'center', paddingVertical: SPACE.medium },
+  photoButtons: { gap: SPACE.medium, marginBottom: SPACE.large },
+  fieldError: { ...TYPE.footnote, marginTop: SPACE.hairline },
+  groups: { gap: SPACE.huge, marginTop: SPACE.medium, marginBottom: SPACE.large },
+  outcome: { gap: SPACE.extraSmall, marginBottom: SPACE.huge },
   outcomeLine: { ...TYPE.footnote, lineHeight: LEADING.footnote }
 })

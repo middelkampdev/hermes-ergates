@@ -16,7 +16,7 @@ import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
 import type { DescribeSkill, DescribeToolset, McpServerRow } from '@/gateway/types'
 import { useTheme } from '@/theme/provider'
-import { LEADING, TYPE } from '@/theme/tokens'
+import { LEADING, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Group } from '@/ui/Group'
 import { ListRow } from '@/ui/ListRow'
@@ -172,10 +172,10 @@ function SkillRow({ skill }: { skill: DescribeSkill }) {
 
 const styles = StyleSheet.create({
   hint: { ...TYPE.footnote, lineHeight: LEADING.footnote },
-  spinner: { marginVertical: 12 },
-  emptyRow: { minHeight: 44, paddingVertical: 12, paddingHorizontal: 16 },
+  spinner: { marginVertical: SPACE.medium },
+  emptyRow: { minHeight: SIZE.medium, paddingVertical: SPACE.medium, paddingHorizontal: SPACE.large },
   emptyText: { ...TYPE.footnote, lineHeight: LEADING.footnote },
   stateBadge: { ...TYPE.footnoteStrong },
-  connectorRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: 16, textAlign: 'center' }
+  connectorRight: { flexDirection: 'row', alignItems: 'center', gap: SPACE.medium },
+  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: SPACE.large, textAlign: 'center' }
 })

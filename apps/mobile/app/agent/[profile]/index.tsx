@@ -15,7 +15,7 @@ import { useGateway } from '@/gateway/registry'
 import { lightTap } from '@/lib/haptics'
 import { useDeviceStore } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
-import { AVATAR, LEADING, TYPE } from '@/theme/tokens'
+import { LEADING, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import type { AnchorRect } from '@/ui/ActionMenu'
 import { Avatar } from '@/ui/Avatar'
 import { BotActions } from '@/ui/BotActions'
@@ -36,12 +36,10 @@ export default function AgentDetailsScreen() {
   return <AgentDetails connectionId={connection.id} connectionLabel={connection.label} profile={profile} />
 }
 
-const CONTENT_BOTTOM_PADDING = 40
-
 function AgentDetails({ connectionId, connectionLabel, profile }: { connectionId: string; connectionLabel: string; profile: string }) {
   const theme = useTheme()
   const router = useRouter()
-  const contentBottomInset = useBottomInset(CONTENT_BOTTOM_PADDING)
+  const contentBottomInset = useBottomInset(SPACE.giant)
   const connection = useDeviceStore(s => s.connections.find(c => c.id === connectionId))!
   const gateway = useGateway(connection)
   const home = useHome(gateway, connectionId)
@@ -160,7 +158,7 @@ function Identity({ bot, gateway, connectionId }: { bot: Bot; gateway: ReturnTyp
   const avatar = useAvatar(gateway, connectionId, bot.profile, bot.hasAvatar)
   return (
     <View style={styles.identity} accessibilityRole="header" accessibilityLabel={[bot.name, bot.role].filter(Boolean).join(', ')}>
-      <Avatar name={bot.name} color={bot.color} imageUri={avatar.data ?? null} size={AVATAR.profile} />
+      <Avatar name={bot.name} color={bot.color} imageUri={avatar.data ?? null} size={SIZE.giant} />
       <Text style={[styles.identityName, { color: theme.colors.foreground }]} numberOfLines={1}>
         {bot.name}
       </Text>
@@ -183,14 +181,14 @@ function InfoRow({ label, value, theme }: { label: string; value: string; theme:
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 48, marginBottom: 8, gap: 8 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: SIZE.large, marginBottom: SPACE.small, gap: SPACE.small },
   headerSpacer: { flex: 1 },
-  identity: { alignItems: 'center', gap: 8, paddingTop: 8, paddingBottom: 4 },
+  identity: { alignItems: 'center', gap: SPACE.small, paddingTop: SPACE.small, paddingBottom: SPACE.extraSmall },
   identityName: { ...TYPE.title },
   identityRole: { ...TYPE.callout },
-  errorBlock: { gap: 12, alignItems: 'flex-start', marginTop: 24 },
-  content: { paddingTop: 8, gap: 24 },
-  infoRow: { gap: 2, paddingHorizontal: 16, paddingVertical: 14 },
+  errorBlock: { gap: SPACE.medium, alignItems: 'flex-start', marginTop: SPACE.huge },
+  content: { paddingTop: SPACE.small, gap: SPACE.huge },
+  infoRow: { gap: SPACE.hairline, paddingHorizontal: SPACE.large, paddingVertical: SPACE.medium },
   infoLabel: { ...TYPE.footnote },
   infoValue: { ...TYPE.callout, lineHeight: LEADING.callout }
 })

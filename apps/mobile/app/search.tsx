@@ -13,7 +13,7 @@ import { useGateway } from '@/gateway/registry'
 import { useDeviceStore } from '@/state/device-store'
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { ICON, LEADING, LEGACY_RADIUS, LEGACY_SIZE, TYPE } from '@/theme/tokens'
+import { ICON_SIZE, LEADING, RADIUS, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { BotRow } from '@/ui/BotRow'
 import { Icon } from '@/ui/icons'
 import { IconButton } from '@/ui/IconButton'
@@ -30,12 +30,10 @@ export default function SearchScreen() {
   return <SearchBody connectionId={connection.id} query={query} setQuery={setQuery} onClose={() => router.back()} />
 }
 
-const LIST_BOTTOM_PADDING = 40
-
 function SearchBody({ connectionId, query, setQuery, onClose }: { connectionId: string; query: string; setQuery: (q: string) => void; onClose: () => void }) {
   const theme = useTheme()
   const router = useRouter()
-  const bottomInset = useBottomInset(LIST_BOTTOM_PADDING)
+  const bottomInset = useBottomInset(SPACE.giant)
   // The parent guards on the connection existing, so this is always found; the
   // `!` keeps the hook order stable without a fabricated `baseUrl: ''` record.
   const saved = useDeviceStore(s => s.connections.find(c => c.id === connectionId))!
@@ -48,7 +46,7 @@ function SearchBody({ connectionId, query, setQuery, onClose }: { connectionId: 
       <View style={styles.bar}>
         <IconButton name="x" accessibilityLabel="Close search" onPress={onClose} />
         <View style={[styles.field, { backgroundColor: softFill(theme.colors, theme.colors.background) }]}>
-          <Icon name="search" size={ICON.small} color={theme.colors.mutedForeground} />
+          <Icon name="search" size={ICON_SIZE.small} color={theme.colors.mutedForeground} />
           <TextInput
             autoFocus
             value={query}
@@ -75,8 +73,8 @@ function SearchBody({ connectionId, query, setQuery, onClose }: { connectionId: 
 const styles = StyleSheet.create({
   // `paddingTop` matches the header row other sheets draw (`Sheet`'s own
   // header), so the field does not sit flush against the top safe-area inset.
-  bar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 10, marginBottom: 12 },
-  field: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: LEGACY_SIZE.field, borderRadius: LEGACY_RADIUS.field, paddingHorizontal: 16 },
-  input: { flex: 1, ...TYPE.body, paddingVertical: 10 },
-  empty: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: 24, textAlign: 'center' }
+  bar: { flexDirection: 'row', alignItems: 'center', gap: SPACE.small, paddingTop: SPACE.small, marginBottom: SPACE.medium },
+  field: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACE.small, minHeight: SIZE.large, borderRadius: RADIUS.medium, paddingHorizontal: SPACE.large },
+  input: { flex: 1, ...TYPE.body, paddingVertical: SPACE.small },
+  empty: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: SPACE.huge, textAlign: 'center' }
 })

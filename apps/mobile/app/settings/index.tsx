@@ -16,7 +16,7 @@ import { appearanceSummary, signOut, usePrimaryConnection } from '@/features/set
 import { useGatewayRegistry } from '@/gateway/registry'
 import { useDeviceStore } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
-import { AVATAR, TYPE } from '@/theme/tokens'
+import { SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { listMobileThemes } from '@/theme/resolve'
 import { useSkinStore } from '@/theme/skin-store'
 import { Avatar } from '@/ui/Avatar'
@@ -64,7 +64,7 @@ function SettingsBody({ connection, onBack }: { connection: NonNullable<ReturnTy
   return (
     <Page title="Settings" onBack={onBack} variant="modal">
       <View style={styles.identity} accessible accessibilityLabel={`${connection.label}, ${address}`}>
-        <Avatar name={connection.label} size={AVATAR.identity} />
+        <Avatar name={connection.label} size={SIZE.extraLarge} />
         <View style={styles.identityText}>
           <Text style={[styles.name, { color: theme.colors.foreground }]} numberOfLines={1}>
             {connection.label}
@@ -114,8 +114,8 @@ function SettingsBody({ connection, onBack }: { connection: NonNullable<ReturnTy
 }
 
 const styles = StyleSheet.create({
-  identity: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 8 },
-  identityText: { flex: 1, gap: 2 },
+  identity: { flexDirection: 'row', alignItems: 'center', gap: SPACE.medium, paddingVertical: SPACE.small },
+  identityText: { flex: 1, gap: SPACE.hairline },
   name: { ...TYPE.title },
   address: { ...TYPE.footnote }
 })

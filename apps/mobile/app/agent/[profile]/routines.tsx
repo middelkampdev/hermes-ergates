@@ -15,7 +15,7 @@ import { userMessage } from '@/gateway/errors'
 import type { CronJob } from '@/gateway/types'
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { ICON, LEADING, LEGACY_RADIUS, TYPE } from '@/theme/tokens'
+import { ICON_SIZE, LEADING, RADIUS, SPACE, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Group } from '@/ui/Group'
 import { Icon } from '@/ui/icons'
@@ -113,7 +113,7 @@ function RoutineRow({ job, profile, tz, onPress }: { job: CronJob; profile: stri
               <Text style={[styles.pausedText, { color: theme.colors.mutedForeground }]}>Paused</Text>
             </View>
           ) : null}
-          <Icon name="chevron-right" size={ICON.chevron} color={theme.colors.mutedForeground} />
+          <Icon name="chevron-right" size={ICON_SIZE.small} color={theme.colors.mutedForeground} />
         </View>
       }
     />
@@ -121,8 +121,8 @@ function RoutineRow({ job, profile, tz, onPress }: { job: CronJob; profile: stri
 }
 
 const styles = StyleSheet.create({
-  rowRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  pausedBadge: { borderRadius: LEGACY_RADIUS.badge, paddingHorizontal: 6, paddingVertical: 2 },
+  rowRight: { flexDirection: 'row', alignItems: 'center', gap: SPACE.small },
+  pausedBadge: { borderRadius: RADIUS.small, paddingHorizontal: SPACE.extraSmall, paddingVertical: SPACE.hairline },
   pausedText: { ...TYPE.caption },
-  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: 16, textAlign: 'center' }
+  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: SPACE.large, textAlign: 'center' }
 })

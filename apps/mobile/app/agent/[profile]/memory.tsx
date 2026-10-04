@@ -13,7 +13,7 @@ import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
 import { usePrimaryConnection } from '@/features/settings'
 import { useTheme } from '@/theme/provider'
-import { LEADING, TYPE } from '@/theme/tokens'
+import { LEADING, SPACE, TYPE } from '@/theme/tokens'
 import { Group } from '@/ui/Group'
 import { MarkdownText } from '@/ui/MarkdownText'
 import { Page } from '@/ui/Page'
@@ -69,8 +69,8 @@ function Memory({ connection, profile, onBack }: { connection: NonNullable<Retur
 }
 
 const styles = StyleSheet.create({
-  spinner: { marginVertical: 12 },
-  doc: { paddingHorizontal: 16, paddingVertical: 12 },
+  spinner: { marginVertical: SPACE.medium },
+  doc: { paddingHorizontal: SPACE.large, paddingVertical: SPACE.medium },
   hint: { ...TYPE.footnote, lineHeight: LEADING.footnote },
-  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: 16, textAlign: 'center' }
+  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: SPACE.large, textAlign: 'center' }
 })

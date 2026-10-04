@@ -11,7 +11,7 @@ import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, useWindowDime
 import { useEditBotContext } from '@/features/agents'
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { LEADING, LEGACY_RADIUS, TYPE } from '@/theme/tokens'
+import { LEADING, RADIUS, SPACE, TYPE } from '@/theme/tokens'
 import { Page } from '@/ui/Page'
 import { useSurface } from '@/ui/surface-context'
 
@@ -54,7 +54,7 @@ export default function EditInstructionsScreen() {
 }
 
 const styles = StyleSheet.create({
-  loading: { marginTop: 40 },
-  editor: { borderRadius: LEGACY_RADIUS.field, paddingHorizontal: 14, paddingVertical: 13, ...TYPE.body, lineHeight: LEADING.body },
+  loading: { marginTop: SPACE.giant },
+  editor: { borderRadius: RADIUS.medium, paddingHorizontal: SPACE.medium, paddingVertical: SPACE.medium, ...TYPE.body, lineHeight: LEADING.body },
   note: { ...TYPE.footnote, lineHeight: LEADING.footnote }
 })

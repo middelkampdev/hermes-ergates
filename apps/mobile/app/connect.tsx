@@ -6,19 +6,17 @@ import { connectGateway, probeGateway } from '@/features/settings'
 import { useGatewayRegistry } from '@/gateway/registry'
 import type { BackendStatus } from '@/gateway/types'
 import { useTheme } from '@/theme/provider'
-import { LEADING, TYPE } from '@/theme/tokens'
+import { LEADING, SPACE, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Field } from '@/ui/Field'
 import { Screen } from '@/ui/Screen'
 import { useBottomInset } from '@/ui/use-bottom-inset'
 
-const CONTENT_BOTTOM_PADDING = 40
-
 export default function ConnectScreen() {
   const theme = useTheme()
   const router = useRouter()
   const registry = useGatewayRegistry()
-  const bottomInset = useBottomInset(CONTENT_BOTTOM_PADDING)
+  const bottomInset = useBottomInset(SPACE.giant)
   const [label, setLabel] = useState('Local Hermes')
   const [baseUrl, setBaseUrl] = useState('http://127.0.0.1:9119')
   const [status, setStatus] = useState<BackendStatus | null>(null)
@@ -138,10 +136,10 @@ export default function ConnectScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { gap: 4, paddingTop: 24 },
+  content: { gap: SPACE.extraSmall, paddingTop: SPACE.huge },
   title: { ...TYPE.largeTitle },
-  subtitle: { ...TYPE.body, lineHeight: LEADING.body, marginBottom: 16 },
-  section: { gap: 4, marginTop: 8 },
+  subtitle: { ...TYPE.body, lineHeight: LEADING.body, marginBottom: SPACE.large },
+  section: { gap: SPACE.extraSmall, marginTop: SPACE.small },
   hint: { ...TYPE.callout, lineHeight: LEADING.callout },
-  error: { ...TYPE.callout, lineHeight: LEADING.callout, marginTop: 4 }
+  error: { ...TYPE.callout, lineHeight: LEADING.callout, marginTop: SPACE.extraSmall }
 })

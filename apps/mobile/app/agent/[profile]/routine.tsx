@@ -31,7 +31,7 @@ import { useGateway } from '@/gateway/registry'
 import type { CronJob, CronRun } from '@/gateway/types'
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { LEADING, LEGACY_RADIUS, TYPE } from '@/theme/tokens'
+import { LEADING, RADIUS, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Card } from '@/ui/Card'
 import { Field } from '@/ui/Field'
@@ -332,18 +332,18 @@ function RoutineEditor({
 }
 
 const styles = StyleSheet.create({
-  hint: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: 4 },
-  switchWrap: { marginTop: 16 },
-  actions: { marginTop: 20, gap: 10, marginBottom: 24 },
-  history: { marginBottom: 40 },
-  sectionTitle: { ...TYPE.headline, marginBottom: 8 },
-  spinner: { marginVertical: 12 },
-  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: 16, textAlign: 'center' },
-  runRow: { minHeight: 44, paddingVertical: 10, paddingHorizontal: 16, gap: 2 },
-  runTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  hint: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: SPACE.extraSmall },
+  switchWrap: { marginTop: SPACE.large },
+  actions: { marginTop: SPACE.extraLarge, gap: SPACE.small, marginBottom: SPACE.huge },
+  history: { marginBottom: SPACE.giant },
+  sectionTitle: { ...TYPE.headline, marginBottom: SPACE.small },
+  spinner: { marginVertical: SPACE.medium },
+  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: SPACE.large, textAlign: 'center' },
+  runRow: { minHeight: SIZE.medium, paddingVertical: SPACE.small, paddingHorizontal: SPACE.large, gap: SPACE.hairline },
+  runTitleLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.small },
   runWhen: { ...TYPE.calloutStrong },
   runStatus: { ...TYPE.footnote },
   runLine: { ...TYPE.footnote },
-  runningBadge: { borderRadius: LEGACY_RADIUS.badge, paddingHorizontal: 6, paddingVertical: 2 },
+  runningBadge: { borderRadius: RADIUS.small, paddingHorizontal: SPACE.extraSmall, paddingVertical: SPACE.hairline },
   runningText: { ...TYPE.caption }
 })

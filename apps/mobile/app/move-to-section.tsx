@@ -13,7 +13,7 @@ import { usePrimaryConnection } from '@/features/settings'
 import { useGateway } from '@/gateway/registry'
 import type { Connection } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
-import { ICON, LEADING, TYPE } from '@/theme/tokens'
+import { ICON_SIZE, LEADING, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Field } from '@/ui/Field'
 import { Group } from '@/ui/Group'
@@ -75,7 +75,7 @@ function MoveToSection({ connection, profiles, onDone }: { connection: Connectio
             title={choice.name}
             icon={choice.id === null ? 'inbox' : 'folder'}
             selected={choice.checked}
-            right={choice.checked ? <Icon name="check" size={ICON.row} color={theme.colors.primary} /> : <View style={styles.noCheck} />}
+            right={choice.checked ? <Icon name="check" size={ICON_SIZE.medium} color={theme.colors.primary} /> : <View style={styles.noCheck} />}
             onPress={() => moveTo(choice.id)}
           />
         ))}
@@ -90,5 +90,5 @@ function MoveToSection({ connection, profiles, onDone }: { connection: Connectio
 
 const styles = StyleSheet.create({
   hint: { ...TYPE.callout, lineHeight: LEADING.callout },
-  noCheck: { width: ICON.row }
+  noCheck: { width: ICON_SIZE.medium }
 })

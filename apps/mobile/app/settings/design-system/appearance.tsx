@@ -9,7 +9,7 @@ import React from 'react'
 import { StyleSheet, Text } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { LEADING, TYPE } from '@/theme/tokens'
+import { LEADING, SPACE, TYPE } from '@/theme/tokens'
 import { AppearancePicker } from '@/ui/AppearancePicker'
 import { useDesignSystemPreview } from '@/ui/design-system'
 import { Page } from '@/ui/Page'
@@ -36,5 +36,5 @@ export default function DesignSystemAppearance() {
 }
 
 const styles = StyleSheet.create({
-  hint: { ...TYPE.callout, lineHeight: LEADING.callout, paddingHorizontal: 4 }
+  hint: { ...TYPE.callout, lineHeight: LEADING.callout, paddingHorizontal: SPACE.extraSmall }
 })
