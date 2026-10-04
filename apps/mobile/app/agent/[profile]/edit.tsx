@@ -15,7 +15,7 @@ import { botsMeta, instructionsSummary, modelSummary, useEditBotContext, type Sa
 import { pickAvatar } from '@/features/files'
 import { userMessage } from '@/gateway/errors'
 import { useTheme } from '@/theme/provider'
-import { LEADING, TYPE } from '@/theme/tokens'
+import { AVATAR, LEADING, TYPE } from '@/theme/tokens'
 import { Avatar } from '@/ui/Avatar'
 import { Button } from '@/ui/Button'
 import { Field } from '@/ui/Field'
@@ -188,7 +188,7 @@ function EditBotForm({
       headerRight={<Button label="Save" onPress={() => void save()} loading={phase === 'saving'} disabled={!canSave} accessibilityLabel="Save" />}
     >
       <View style={styles.avatar}>
-        <Avatar name={draft.name || profile} color={avatarColor} imageUri={previewUri} size={80} />
+        <Avatar name={draft.name || profile} color={avatarColor} imageUri={previewUri} size={AVATAR.editor} />
       </View>
       <View style={styles.photoButtons}>
         <Button label="Choose photo" variant="secondary" onPress={() => void onChoosePhoto()} accessibilityLabel="Choose photo" />

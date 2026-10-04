@@ -10,7 +10,7 @@ import { userMessage } from '@/gateway/errors'
 import { lightTap } from '@/lib/haptics'
 import { useDeviceStore, draftKey } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
-import { LEADING, RADIUS, SIZE, TYPE } from '@/theme/tokens'
+import { AVATAR, ICON, LEADING, RADIUS, SIZE, TYPE } from '@/theme/tokens'
 import { Avatar } from '@/ui/Avatar'
 import { BotMessageBubble } from '@/ui/chat/BotMessageBubble'
 import { AssistantBubble, StreamingBubble, UserBubble } from '@/ui/chat/Bubble'
@@ -235,7 +235,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
         case 'state':
           return <Text style={[styles.state, { color: theme.colors.mutedForeground }]}>{line.text}</Text>
         case 'bot_message':
-          return <BotMessageBubble name={line.peer.display.name} text={line.item.text} label={line.label} avatar={<PeerAvatar peer={line.peer} size={28} connectionId={connectionId} />} />
+          return <BotMessageBubble name={line.peer.display.name} text={line.item.text} label={line.label} avatar={<PeerAvatar peer={line.peer} size={AVATAR.chat} connectionId={connectionId} />} />
         case 'exchange':
           return (
             <ExchangeRow
@@ -243,7 +243,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
               label={line.label}
               openable={line.openable}
               marked={line.marked}
-              avatar={<PeerAvatar peer={line.exchange.peer} size={18} connectionId={connectionId} />}
+              avatar={<PeerAvatar peer={line.exchange.peer} size={AVATAR.inline} connectionId={connectionId} />}
               onPress={() =>
                 router.push({
                   pathname: '/chat/[profile]/exchange',
@@ -299,7 +299,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
         {/* A chat opened from a push notification has nothing beneath it: Back goes Home. */}
         <IconButton name="chevron-left" accessibilityLabel="Back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
         <Pressable onPress={() => router.push({ pathname: '/agent/[profile]', params: { profile } })} accessibilityRole="button" accessibilityLabel={`${name}, details`} style={[styles.identity, { borderColor: theme.colors.border, backgroundColor: theme.colors.popover }]}>
-          <Avatar name={name} color={bot?.color} imageUri={avatarUri} size={30} />
+          <Avatar name={name} color={bot?.color} imageUri={avatarUri} size={AVATAR.chatHeader} />
           <Text style={[styles.name, { color: theme.colors.foreground }]} numberOfLines={1}>
             {name}
           </Text>
@@ -355,7 +355,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
         />
         {!atBottom ? (
           <Pressable onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })} accessibilityRole="button" accessibilityLabel="Jump to latest" style={[styles.jump, { backgroundColor: theme.colors.popover, borderColor: theme.colors.border }]}>
-            <Icon name="arrow-down" size={18} color={theme.colors.foreground} />
+            <Icon name="arrow-down" size={ICON.small} color={theme.colors.foreground} />
           </Pressable>
         ) : null}
         <View style={[styles.composer, { paddingHorizontal: theme.pagePadding, paddingBottom: Math.max(composerBottomInset, 8) }]}>

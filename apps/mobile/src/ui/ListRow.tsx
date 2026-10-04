@@ -9,7 +9,7 @@ import type { ReactNode } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { OPACITY, TYPE } from '@/theme/tokens'
+import { ICON, OPACITY, TYPE } from '@/theme/tokens'
 
 import { Icon, type IconName } from './icons'
 
@@ -38,13 +38,13 @@ export function ListRow({ title, subtitle, icon, error, onPress, right, destruct
 
   const content = (
     <View style={styles.row}>
-      {icon ? <Icon name={icon} size={22} color={titleColor} /> : null}
+      {icon ? <Icon name={icon} size={ICON.row} color={titleColor} /> : null}
       <View style={styles.text}>
         <Text style={[styles.title, { color: titleColor }]}>{title}</Text>
         {subtitle ? <Text style={[styles.subtitle, { color: theme.colors.mutedForeground }]}>{subtitle}</Text> : null}
         {error ? <Text style={[styles.subtitle, { color: theme.colors.destructive }]}>{error}</Text> : null}
       </View>
-      {right ?? (onPress ? <Icon name="chevron-right" size={17} color={theme.colors.mutedForeground} /> : null)}
+      {right ?? (onPress ? <Icon name="chevron-right" size={ICON.chevron} color={theme.colors.mutedForeground} /> : null)}
     </View>
   )
 

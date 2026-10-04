@@ -7,7 +7,7 @@ import { createAgent, rosterKey, slugFromTitle, useModelOptions, validateCreate 
 import { usePrimaryConnection } from '@/features/settings'
 import { useGateway } from '@/gateway/registry'
 import { useTheme } from '@/theme/provider'
-import { LEADING, TYPE } from '@/theme/tokens'
+import { ICON, LEADING, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Field } from '@/ui/Field'
 import { Group } from '@/ui/Group'
@@ -43,7 +43,7 @@ function NewAgent({ connection, onClose }: { connection: NonNullable<ReturnType<
   const effectiveName = nameTouched ? name : slugFromTitle(title)
   const errors = validateCreate({ name: effectiveName, title, provider, model })
   const providers = (options.data?.providers ?? []).filter(p => p.authenticated)
-  const check = (on: boolean) => (on ? <Icon name="check" size={22} color={theme.colors.primary} /> : <View style={styles.noCheck} />)
+  const check = (on: boolean) => (on ? <Icon name="check" size={ICON.row} color={theme.colors.primary} /> : <View style={styles.noCheck} />)
 
   const submit = async () => {
     setBusy(true)
@@ -111,7 +111,7 @@ function NewAgent({ connection, onClose }: { connection: NonNullable<ReturnType<
 
 const styles = StyleSheet.create({
   groups: { gap: 24, marginBottom: 16 },
-  noCheck: { width: 22 },
+  noCheck: { width: ICON.row },
   hint: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: 12 },
   actions: { marginTop: 16, marginBottom: 40 }
 })

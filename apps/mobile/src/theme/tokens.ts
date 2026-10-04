@@ -71,7 +71,7 @@ export const TYPE = {
 } as const satisfies Record<TypeRole, { fontSize: number; fontWeight: '400' | '500' | '600' }>
 
 /** Every type role, in the order of the type scale table. */
-export const TYPE_ROLES: TypeRole[] = [
+export const TYPE_ROLES: readonly TypeRole[] = [
   'largeTitle',
   'title',
   'title3',

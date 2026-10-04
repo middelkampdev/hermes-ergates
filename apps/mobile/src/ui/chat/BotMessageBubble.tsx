@@ -2,11 +2,11 @@ import React, { type ReactNode } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { TYPE } from '@/theme/tokens'
+import { AVATAR, TYPE } from '@/theme/tokens'
 import { MarkdownText } from '@/ui/MarkdownText'
 
 /** Avatar footprint (docs/10 section 4) plus the row's gap, so the author label lines up with the bubble, not the avatar. */
-const AVATAR_SIZE = 28
+const AVATAR_SIZE = AVATAR.chat
 const AVATAR_GAP = 8
 
 export interface BotMessageBubbleProps {

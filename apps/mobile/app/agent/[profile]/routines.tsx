@@ -78,7 +78,7 @@ function Routines({
         </Text>
       ) : null}
       {jobs.length > 0 ? (
-        <Group caption="Routines" iconless>
+        <Group iconless>
           {jobs.map(job => (
             <RoutineRow key={job.id} job={job} profile={profile} tz={tz} onPress={() => onOpen(job.id)} />
           ))}

@@ -20,7 +20,7 @@ export default function EditInstructionsScreen() {
   const router = useRouter()
   const { draft, update } = useEditBotContext()
   const surface = useSurface()
-  // Inside a scrolling page the editor cannot fill the screen, so it starts at half its height and grows with the text.
+  // The editor has a fixed height and scrolls its own text, so the caret stays visible above the keyboard instead of sliding under it inside the page's scroll view.
   const { height } = useWindowDimensions()
 
   return (
@@ -33,10 +33,11 @@ export default function EditInstructionsScreen() {
             onChangeText={soul => update({ soul })}
             placeholder="Write the bot's SOUL.md instructions…"
             placeholderTextColor={theme.colors.mutedForeground}
+            scrollEnabled
             textAlignVertical="top"
             accessibilityLabel="Instructions"
             selectionColor={theme.colors.primary}
-            style={[styles.editor, { minHeight: height / 2, color: theme.colors.foreground, backgroundColor: softFill(theme.colors, surface) }]}
+            style={[styles.editor, { height: height / 2, textAlignVertical: 'top', color: theme.colors.foreground, backgroundColor: softFill(theme.colors, surface) }]}
           />
           <Text style={[styles.note, { color: theme.colors.mutedForeground }]}>
             The Bot Chat messaging protocol is added by Hermes at run time; do not paste it here.

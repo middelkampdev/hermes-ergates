@@ -32,7 +32,10 @@ function luminance(hex: string): number | null {
   return 0.2126 * linear(rgb[0]) + 0.7152 * linear(rgb[1]) + 0.0722 * linear(rgb[2])
 }
 
-/** WCAG 2.x contrast ratio, lighter over darker. Null when either color is not a hex value. */
+/**
+ * WCAG 2.x contrast ratio, lighter over darker. Null when either color is not a hex value.
+ * An alpha byte is ignored: colors are treated as opaque.
+ */
 export function contrastRatio(a: string, b: string): number | null {
   const la = luminance(a)
   const lb = luminance(b)

@@ -245,7 +245,7 @@ Line heights for wrapping text (`LEADING`): `body` 24, `callout` 22, `footnote` 
 - A type role never carries a line height.
 - Chat, bubbles, the composer, `MarkdownText`, the Home list and its edit motion, and the action menu keep their own look. Their off-scale values stay as named constants in the component instead of moving onto the scale.
 
-`apps/mobile/test/design-tokens.test.ts` enforces this by parsing every `.tsx` file under `app/` and `src/ui/`, including values in conditional branches. Its message names the file, the line and the role to use.
+`apps/mobile/test/design-tokens.test.ts` enforces this by parsing every `.tsx` file under `app/` and `src/ui/`, including values in conditional branches. Its message lists each offender as the file, the line, the key and the text, and says to use a role from `src/theme/tokens.ts`.
 
 ### Design system page
 

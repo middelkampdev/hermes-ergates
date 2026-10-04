@@ -13,6 +13,7 @@ import { useDeviceStore } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
 import { listMobileThemes } from '@/theme/resolve'
 import { useSkinStore } from '@/theme/skin-store'
+import { ICON } from '@/theme/tokens'
 import { Group } from '@/ui/Group'
 import { Icon, type IconName } from '@/ui/icons'
 import { ListRow } from '@/ui/ListRow'
@@ -30,7 +31,7 @@ export default function AppearanceSettingsScreen() {
   const prefs = useDeviceStore(s => s.prefs)
   const setPrefs = useDeviceStore(s => s.setPrefs)
   const backend = useSkinStore(s => s.state.backend)
-  const check = (on: boolean) => (on ? <Icon name="check" size={22} color={theme.colors.primary} /> : <View style={styles.noCheck} />)
+  const check = (on: boolean) => (on ? <Icon name="check" size={ICON.row} color={theme.colors.primary} /> : <View style={styles.noCheck} />)
 
   return (
     <Page title="Appearance" onBack={() => router.back()}>
@@ -63,5 +64,5 @@ export default function AppearanceSettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  noCheck: { width: 22 }
+  noCheck: { width: ICON.row }
 })

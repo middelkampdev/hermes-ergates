@@ -7,11 +7,11 @@
 import { Pressable, StyleSheet } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { OPACITY } from '@/theme/tokens'
+import { ICON, OPACITY } from '@/theme/tokens'
 
 import { Icon, type IconName } from './icons'
 
-const ICON_SIZE = 22
+const ICON_SIZE = ICON.row
 
 export interface IconButtonProps {
   name: IconName

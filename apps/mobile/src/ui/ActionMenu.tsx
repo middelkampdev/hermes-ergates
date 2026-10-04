@@ -16,7 +16,7 @@ import { Keyboard, Modal, Platform, Pressable, StyleSheet, Text, View, useWindow
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useTheme } from '@/theme/provider'
-import { SCRIM, TYPE } from '@/theme/tokens'
+import { ICON, SCRIM, TYPE } from '@/theme/tokens'
 
 import { Button } from './Button'
 import { Field } from './Field'
@@ -138,7 +138,7 @@ export function ActionMenu({ visible, anchor, items, createSection, onClose }: A
                     ]}
                   >
                     {row.icon ? (
-                      <Icon name={row.icon} size={18} color={row.destructive ? theme.colors.destructive : theme.colors.foreground} />
+                      <Icon name={row.icon} size={ICON.small} color={row.destructive ? theme.colors.destructive : theme.colors.foreground} />
                     ) : null}
                     <Text
                       numberOfLines={1}
@@ -146,7 +146,7 @@ export function ActionMenu({ visible, anchor, items, createSection, onClose }: A
                     >
                       {row.label}
                     </Text>
-                    {row.chevron ? <Icon name="chevron-right" size={18} color={theme.colors.mutedForeground} /> : null}
+                    {row.chevron ? <Icon name="chevron-right" size={ICON.small} color={theme.colors.mutedForeground} /> : null}
                   </Pressable>
                 )
               )}

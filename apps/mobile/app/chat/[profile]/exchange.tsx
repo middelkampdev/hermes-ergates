@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { exchangeTranscript, peerKey, useChatSession, useExchangeAcknowledgement, type TranscriptEntry } from '@/features/chat'
 import { useTheme } from '@/theme/provider'
-import { LEADING, RADIUS, TYPE } from '@/theme/tokens'
+import { AVATAR, LEADING, RADIUS, TYPE } from '@/theme/tokens'
 import { Avatar } from '@/ui/Avatar'
 import { Button } from '@/ui/Button'
 import { PeerAvatar } from '@/ui/chat/PeerAvatar'
@@ -14,7 +14,7 @@ import { IconButton } from '@/ui/IconButton'
 import { MarkdownText } from '@/ui/MarkdownText'
 import { useBottomInset } from '@/ui/use-bottom-inset'
 
-const AVATAR_SIZE = 28
+const AVATAR_SIZE = AVATAR.chat
 
 /**
  * The read-only record of the messages this bot exchanged with one peer

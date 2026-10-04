@@ -8,10 +8,11 @@
 import { View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
+import { ICON } from '@/theme/tokens'
 
 import { Icon } from '../icons'
 
-export function Grip({ size = 22 }: { size?: number }) {
+export function Grip({ size = ICON.row }: { size?: number }) {
   const theme = useTheme()
   return (
     <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">

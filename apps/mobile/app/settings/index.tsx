@@ -16,7 +16,7 @@ import { appearanceSummary, signOut, usePrimaryConnection } from '@/features/set
 import { useGatewayRegistry } from '@/gateway/registry'
 import { useDeviceStore } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
-import { TYPE } from '@/theme/tokens'
+import { AVATAR, TYPE } from '@/theme/tokens'
 import { listMobileThemes } from '@/theme/resolve'
 import { useSkinStore } from '@/theme/skin-store'
 import { Avatar } from '@/ui/Avatar'
@@ -64,7 +64,7 @@ function SettingsBody({ connection, onBack }: { connection: NonNullable<ReturnTy
   return (
     <Page title="Settings" onBack={onBack} variant="modal">
       <View style={styles.identity} accessible accessibilityLabel={`${connection.label}, ${address}`}>
-        <Avatar name={connection.label} size={60} />
+        <Avatar name={connection.label} size={AVATAR.identity} />
         <View style={styles.identityText}>
           <Text style={[styles.name, { color: theme.colors.foreground }]} numberOfLines={1}>
             {connection.label}

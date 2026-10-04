@@ -122,10 +122,17 @@ module.exports = {
     },
     {
       name: 'adr029-4-drag-libraries-in-home-list',
-      comment: 'react-native-sortables and react-native-reanimated back the one Home list, its drag lists and its Edit mode motion; only the files in src/ui/home-list/ may import them, and src/ui/RowContent.tsx, which takes the Home row\'s animated slide for the time and the unread dot.',
+      comment: 'react-native-sortables and react-native-reanimated back the one Home list, its drag lists and its Edit mode motion; only the files in src/ui/home-list/ may import them, except that src/ui/RowContent.tsx may import react-native-reanimated only, for the Home row\'s animated slide of the time and the unread dot.',
       severity: 'error',
       from: { pathNot: `(^src/ui/home-list/|^src/ui/RowContent\\.tsx$|${TEST})` },
       to: { path: '^node_modules/(react-native-sortables|react-native-reanimated)/' }
+    },
+    {
+      name: 'adr029-4-sortables-in-home-list',
+      comment: 'react-native-sortables is for src/ui/home-list/ only; src/ui/RowContent.tsx may import react-native-reanimated, not this.',
+      severity: 'error',
+      from: { path: '^src/ui/RowContent\\.tsx$' },
+      to: { path: '^node_modules/react-native-sortables/' }
     },
     {
       name: 'adr029-4-gesture-handler-at-the-root',

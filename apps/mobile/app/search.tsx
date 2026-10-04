@@ -13,7 +13,7 @@ import { useGateway } from '@/gateway/registry'
 import { useDeviceStore } from '@/state/device-store'
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { LEADING, RADIUS, SIZE, TYPE } from '@/theme/tokens'
+import { ICON, LEADING, RADIUS, SIZE, TYPE } from '@/theme/tokens'
 import { BotRow } from '@/ui/BotRow'
 import { Icon } from '@/ui/icons'
 import { IconButton } from '@/ui/IconButton'
@@ -48,7 +48,7 @@ function SearchBody({ connectionId, query, setQuery, onClose }: { connectionId: 
       <View style={styles.bar}>
         <IconButton name="x" accessibilityLabel="Close search" onPress={onClose} />
         <View style={[styles.field, { backgroundColor: softFill(theme.colors, theme.colors.background) }]}>
-          <Icon name="search" size={18} color={theme.colors.mutedForeground} />
+          <Icon name="search" size={ICON.small} color={theme.colors.mutedForeground} />
           <TextInput
             autoFocus
             value={query}
