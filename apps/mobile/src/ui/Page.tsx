@@ -21,7 +21,7 @@ import { useState, type ReactElement, type ReactNode } from 'react'
 import { ScrollView, type LayoutChangeEvent, type RefreshControlProps, StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { LEGACY_SIZE, TYPE } from '@/theme/tokens'
+import { RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 import { IconButton } from './IconButton'
 import { Screen } from './Screen'
@@ -39,18 +39,15 @@ export interface PageProps {
   children: ReactNode
 }
 
-const BODY_BOTTOM_PADDING = 24
-const FOOTER_BOTTOM_PADDING = 16
-
 export function Page({ title, onBack, variant = 'push', right, refreshControl, footer, children }: PageProps) {
   const theme = useTheme()
-  const bodyInset = useBottomInset(BODY_BOTTOM_PADDING)
-  const footerInset = useBottomInset(FOOTER_BOTTOM_PADDING)
+  const bodyInset = useBottomInset(SPACE.huge)
+  const footerInset = useBottomInset(SPACE.large)
   // A footer carries the inset itself, so the body must not add it again.
-  const bottomInset = footer ? BODY_BOTTOM_PADDING : bodyInset
+  const bottomInset = footer ? SPACE.huge : bodyInset
   const [leftWidth, setLeftWidth] = useState(0)
   const [rightWidth, setRightWidth] = useState(0)
-  const sideWidth = Math.max(LEGACY_SIZE.hit, leftWidth, rightWidth)
+  const sideWidth = Math.max(RULE.touch, leftWidth, rightWidth)
   const measure = (set: (width: number) => void) => (event: LayoutChangeEvent) => set(event.nativeEvent.layout.width)
   return (
     <Screen edges={['top']}>
@@ -85,7 +82,7 @@ export function Page({ title, onBack, variant = 'push', right, refreshControl, f
 
 const styles = StyleSheet.create({
   header: {
-    minHeight: 56,
+    minHeight: SIZE.extraLarge,
     flexDirection: 'row',
     alignItems: 'center'
   },
@@ -109,10 +106,10 @@ const styles = StyleSheet.create({
     flex: 1
   },
   footer: {
-    paddingTop: 8
+    paddingTop: SPACE.small
   },
   body: {
-    paddingTop: 12,
-    gap: 24
+    paddingTop: SPACE.medium,
+    gap: SPACE.huge
   }
 })

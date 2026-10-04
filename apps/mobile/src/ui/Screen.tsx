@@ -32,9 +32,8 @@ export interface ScreenProps {
 
 /** The horizontal padding `Screen` gives this page; a full-bleed list pads its rows by it (see `page-padding.ts`). */
 export function usePagePadding(): number {
-  const theme = useTheme()
   const { width } = useWindowDimensions()
-  return pagePadding(width, theme.pagePadding)
+  return pagePadding(width)
 }
 
 export function Screen({ children, edges, style }: ScreenProps) {

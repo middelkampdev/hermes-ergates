@@ -8,27 +8,25 @@ import { StyleSheet, View } from 'react-native'
 
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
+import { RADIUS, SPACE } from '@/theme/tokens'
 
 import { useSurface } from './surface-context'
-
-/** Left inset for dividers, aligned with a settings row's label text. */
-const DIVIDER_INSET = 16
 
 export interface CardProps {
   children: ReactNode
   /** Draw an inset divider between each child. Default true. */
   divider?: boolean
-  /** Left inset of each divider. Default 16, the text edge of a row without an icon. */
+  /** Left inset of each divider. Default `SPACE.large`, the text edge of a row without an icon. */
   dividerInset?: number
 }
 
-export function Card({ children, divider = true, dividerInset = DIVIDER_INSET }: CardProps) {
+export function Card({ children, divider = true, dividerInset = SPACE.large }: CardProps) {
   const theme = useTheme()
   const surface = useSurface()
   const items = Children.toArray(children)
 
   return (
-    <View style={[styles.card, { backgroundColor: softFill(theme.colors, surface), borderRadius: theme.radius.group }]}>
+    <View style={[styles.card, { backgroundColor: softFill(theme.colors, surface), borderRadius: RADIUS.extraLarge }]}>
       {items.map((child, i) => (
         <Fragment key={i}>
           {i > 0 && divider ? (

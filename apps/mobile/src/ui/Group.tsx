@@ -8,14 +8,14 @@ import type { ReactNode } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { TYPE } from '@/theme/tokens'
+import { ICON_SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 import { Card } from './Card'
 
-/** Row padding 16 + icon 22 + gap 12, plus 2: the divider starts under the row text. */
-const DIVIDER_INSET = 52
+/** A `ListRow`'s padding, icon and gap: the divider starts under the row text. */
+const DIVIDER_INSET = SPACE.large + ICON_SIZE.medium + SPACE.medium
 /** Rows without an icon start their text at the row padding. */
-const ICONLESS_DIVIDER_INSET = 16
+const ICONLESS_DIVIDER_INSET = SPACE.large
 
 export interface GroupProps {
   caption?: string
@@ -36,10 +36,10 @@ export function Group({ caption, iconless, children }: GroupProps) {
 
 const styles = StyleSheet.create({
   group: {
-    gap: 8
+    gap: SPACE.small
   },
   caption: {
     ...TYPE.footnote,
-    paddingHorizontal: 4
+    paddingHorizontal: SPACE.extraSmall
   }
 })

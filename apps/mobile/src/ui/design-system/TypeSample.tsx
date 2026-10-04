@@ -3,7 +3,7 @@
 import { StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { LEGACY_SIZE, TYPE, type TypeRole } from '@/theme/tokens'
+import { SIZE, SPACE, TYPE, type TypeRole } from '@/theme/tokens'
 
 export interface TypeSampleProps {
   role: TypeRole
@@ -23,11 +23,11 @@ export function TypeSample({ role, label }: TypeSampleProps) {
 
 const styles = StyleSheet.create({
   row: {
-    minHeight: LEGACY_SIZE.row,
+    minHeight: SIZE.extraLarge,
     justifyContent: 'center',
-    gap: 3,
-    paddingHorizontal: 16,
-    paddingVertical: 10
+    gap: SPACE.hairline,
+    paddingHorizontal: SPACE.large,
+    paddingVertical: SPACE.small
   },
   label: {
     ...TYPE.footnote

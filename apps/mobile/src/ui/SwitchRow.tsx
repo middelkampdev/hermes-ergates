@@ -1,5 +1,5 @@
 /**
- * Settings switch row (docs/10 section 4: settings row min height 52). Sits
+ * Settings switch row (docs/10 section 4: settings row min height 48). Sits
  * transparent so the caller can wrap a group of these in `Card` for the
  * grouped-row look. `Toggle` is the themed switch on its own, for a
  * `ListRow`'s right side.
@@ -8,10 +8,7 @@
 import { Platform, StyleSheet, Switch, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { TYPE } from '@/theme/tokens'
-
-/** Design floor for the row; never allowed below the shared min hit area. */
-const MIN_HEIGHT = 52
+import { RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 export interface ToggleProps {
   value: boolean
@@ -50,7 +47,7 @@ export function SwitchRow({ label, description, value, onValueChange, disabled, 
   const theme = useTheme()
 
   return (
-    <View style={[styles.row, { minHeight: Math.max(theme.hit, MIN_HEIGHT) }]}>
+    <View style={[styles.row, { minHeight: Math.max(RULE.touch, SIZE.large) }]}>
       <View style={styles.text}>
         <Text style={[styles.label, { color: theme.colors.foreground }]}>{label}</Text>
         {description ? (
@@ -67,12 +64,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
-    paddingHorizontal: 16
+    gap: SPACE.medium,
+    paddingHorizontal: SPACE.large
   },
   text: {
     flex: 1,
-    gap: 2
+    gap: SPACE.hairline
   },
   label: {
     ...TYPE.body
@@ -81,7 +78,7 @@ const styles = StyleSheet.create({
     ...TYPE.footnote
   },
   switch: {
-    height: 31,
+    height: RULE.switchHeight,
     ...Platform.select({ ios: { transform: [{ translateY: 12 }] }, default: {} })
   }
 })

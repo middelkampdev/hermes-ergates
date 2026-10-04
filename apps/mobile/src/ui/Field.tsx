@@ -1,7 +1,7 @@
 /**
  * Labelled text input for forms (docs/10 section 4): the label above in
- * `mutedForeground`, a soft `muted` input without a border, radius 14,
- * minimum height 50 (128 when multiline). An error shows as red text below;
+ * `mutedForeground`, a soft `muted` input without a border, radius 12,
+ * minimum height 48 (128 when multiline). An error shows as red text below;
  * the input itself does not change color.
  */
 
@@ -9,12 +9,9 @@ import { StyleSheet, Text, TextInput, View, type KeyboardTypeOptions } from 'rea
 
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { LEADING, LEGACY_RADIUS, LEGACY_SIZE, TYPE } from '@/theme/tokens'
+import { LEADING, RADIUS, RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 import { useSurface } from './surface-context'
-
-const MIN_HEIGHT = LEGACY_SIZE.field
-const MULTILINE_MIN_HEIGHT = LEGACY_SIZE.fieldMultiline
 
 export interface FieldProps {
   label?: string
@@ -72,22 +69,22 @@ export function Field({
 
 const styles = StyleSheet.create({
   container: {
-    gap: 7,
-    marginBottom: 12
+    gap: SPACE.small,
+    marginBottom: SPACE.medium
   },
   label: {
     ...TYPE.footnote
   },
   input: {
-    minHeight: MIN_HEIGHT,
-    borderRadius: LEGACY_RADIUS.field,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
+    minHeight: SIZE.large,
+    borderRadius: RADIUS.medium,
+    paddingHorizontal: SPACE.medium,
+    paddingVertical: SPACE.medium,
     ...TYPE.body,
     lineHeight: LEADING.body
   },
   multiline: {
-    minHeight: MULTILINE_MIN_HEIGHT,
+    minHeight: RULE.textAreaMinHeight,
     textAlignVertical: 'top'
   },
   error: {

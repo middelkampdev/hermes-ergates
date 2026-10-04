@@ -12,14 +12,12 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } fr
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 
 import { useTheme } from '@/theme/provider'
-import { TYPE } from '@/theme/tokens'
+import { RADIUS, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 import { IconButton } from './IconButton'
 import { SurfaceProvider } from './surface-context'
 import { useBottomInset } from './use-bottom-inset'
 import { useFontScaleKey } from './use-font-scale-key'
-
-const HEADER_MIN_HEIGHT = 48
 
 export interface SheetProps {
   title: string
@@ -55,8 +53,8 @@ export function Sheet({ title, onClose, headerLeft, headerRight, centerTitle, ch
           styles.container,
           {
             backgroundColor: theme.colors.popover,
-            borderTopLeftRadius: theme.radius.sheet,
-            borderTopRightRadius: theme.radius.sheet
+            borderTopLeftRadius: RADIUS.giant,
+            borderTopRightRadius: RADIUS.giant
           }
         ]}
       >
@@ -64,7 +62,7 @@ export function Sheet({ title, onClose, headerLeft, headerRight, centerTitle, ch
             (Field, Card/Group, the secondary Button) read against this color,
             wherever in the sheet's header or body they sit. */}
         <SurfaceProvider key={fontScaleKey} color={theme.colors.popover}>
-          <View style={[styles.header, { paddingHorizontal: theme.pagePadding }]}>
+          <View style={[styles.header, { paddingHorizontal: SPACE.extraLarge }]}>
             {centerTitle ? (
               <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.centered]}>
                 <Text numberOfLines={1} accessibilityRole="header" style={[styles.title, styles.centeredTitle, { color: theme.colors.foreground }]}>
@@ -96,8 +94,7 @@ export function Sheet({ title, onClose, headerLeft, headerRight, centerTitle, ch
  * that provider is a child of `Sheet`, not an ancestor of it.
  */
 function SheetBody({ children }: { children: ReactNode }) {
-  const theme = useTheme()
-  const bottomInset = useBottomInset(theme.spacing[4])
+  const bottomInset = useBottomInset(SPACE.huge)
   return (
     // Sheets carry forms (New Agent, Edit Bot, Routine); iOS ScrollViews do
     // not move for the keyboard on their own, so the lower fields and the
@@ -106,7 +103,7 @@ function SheetBody({ children }: { children: ReactNode }) {
       <ScrollView
         style={styles.scroll}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingHorizontal: theme.pagePadding, paddingTop: theme.spacing[2], paddingBottom: bottomInset }}
+        contentContainerStyle={{ paddingHorizontal: SPACE.extraLarge, paddingTop: SPACE.medium, paddingBottom: bottomInset }}
       >
         {children}
       </ScrollView>
@@ -120,15 +117,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden'
   },
   header: {
-    minHeight: HEADER_MIN_HEIGHT,
-    paddingTop: 10,
-    paddingBottom: 8,
+    minHeight: SIZE.large,
+    paddingTop: SPACE.small,
+    paddingBottom: SPACE.small,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12
+    gap: SPACE.medium
   },
   headerSide: {
-    minWidth: 48,
+    minWidth: SIZE.large,
     alignItems: 'flex-start'
   },
   headerRight: {

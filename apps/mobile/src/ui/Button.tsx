@@ -1,5 +1,5 @@
 /**
- * Control button (docs/10 section 4: minimum height 50, radius 16, 600-weight
+ * Control button (docs/10 section 4: minimum height 48, radius 16, 600-weight
  * label). Primary sits on `primary`; secondary is the soft `muted` button with
  * `foreground` text. Variants map to the paired tokens in docs/10 section 3.
  */
@@ -8,11 +8,9 @@ import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native'
 
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { LEGACY_OPACITY, LEGACY_RADIUS, LEGACY_SIZE, TYPE, type MobileTheme } from '@/theme/tokens'
+import { OPACITY, RADIUS, RULE, SIZE, SPACE, TYPE, type MobileTheme } from '@/theme/tokens'
 
 import { useSurface } from './surface-context'
-
-const MIN_HEIGHT = LEGACY_SIZE.button
 
 export type ButtonVariant = 'primary' | 'secondary' | 'destructive' | 'ghost'
 
@@ -55,7 +53,7 @@ export function Button({ label, onPress, variant = 'primary', loading, disabled,
       accessibilityState={{ disabled: isDisabled, busy: loading }}
       style={({ pressed }) => [
         styles.button,
-        { minHeight: MIN_HEIGHT, minWidth: theme.hit, backgroundColor: background, opacity: isDisabled ? LEGACY_OPACITY.disabled : pressed ? LEGACY_OPACITY.pressed : 1 },
+        { minHeight: SIZE.large, minWidth: RULE.touch, backgroundColor: background, opacity: isDisabled ? OPACITY.medium : pressed ? OPACITY.strong : 1 },
         compact ? styles.compact : null
       ]}
     >
@@ -70,11 +68,11 @@ export function Button({ label, onPress, variant = 'primary', loading, disabled,
 
 const styles = StyleSheet.create({
   button: {
-    borderRadius: LEGACY_RADIUS.button,
+    borderRadius: RADIUS.large,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 16
+    paddingHorizontal: SPACE.large
   },
   compact: {
     paddingHorizontal: 0,

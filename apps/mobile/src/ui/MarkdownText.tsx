@@ -10,20 +10,9 @@ import { Platform, StyleSheet, Text, View, useWindowDimensions, type TextStyle }
 import Markdown, { renderRules as defaultRenderRules, type RenderRules } from 'react-native-markdown-display'
 
 import { useTheme } from '@/theme/provider'
-import { LEADING, LEGACY_RADIUS, TYPE, type MobileTheme } from '@/theme/tokens'
+import { LEADING, RADIUS, RULE, SPACE, TYPE, type MobileTheme } from '@/theme/tokens'
 
 import { astTableToRows, tableToStacked } from './markdown-table'
-
-const NARROW_TABLE_WIDTH = 400
-/** Large headings and bold text are heavier than the type scale's 600. */
-const HEADING_WEIGHT = '700'
-const HEADING2_SIZE = 24
-const HEADING4_SIZE = 18
-const STRONG_WEIGHT = '700'
-/** Inline code is a tighter chip than the shared radii. */
-const CODE_INLINE_RADIUS = 8
-/** The stacked table lines sit a little tighter than the wrapping callout leading. */
-const STACKED_LINE_HEIGHT = 20
 
 export interface MarkdownTextProps {
   children: string
@@ -35,23 +24,23 @@ function buildStyle(theme: MobileTheme): Record<string, TextStyle> {
     backgroundColor: theme.colors.muted,
     color: theme.colors.foreground,
     borderWidth: 0,
-    borderRadius: CODE_INLINE_RADIUS,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    borderRadius: RADIUS.small,
+    paddingHorizontal: SPACE.extraSmall,
+    paddingVertical: SPACE.hairline,
     fontFamily
   }
 
   return {
     body: { color: theme.colors.foreground, ...TYPE.body, lineHeight: LEADING.body },
     // Space between paragraphs only; the first paragraph starts flush with the container.
-    paragraph: { marginTop: 0, marginBottom: 10 },
-    heading1: { color: theme.colors.foreground, ...TYPE.largeTitle, fontWeight: HEADING_WEIGHT },
-    heading2: { color: theme.colors.foreground, fontSize: HEADING2_SIZE, fontWeight: HEADING_WEIGHT },
+    paragraph: { marginTop: 0, marginBottom: SPACE.small },
+    heading1: { color: theme.colors.foreground, ...TYPE.largeTitle },
+    heading2: { color: theme.colors.foreground, ...TYPE.title },
     heading3: { color: theme.colors.foreground, ...TYPE.title3 },
-    heading4: { color: theme.colors.foreground, fontSize: HEADING4_SIZE, fontWeight: TYPE.headline.fontWeight },
+    heading4: { color: theme.colors.foreground, ...TYPE.headline },
     heading5: { color: theme.colors.foreground, ...TYPE.headline },
     heading6: { color: theme.colors.foreground, ...TYPE.headline },
-    strong: { fontWeight: STRONG_WEIGHT },
+    strong: { fontWeight: TYPE.headline.fontWeight },
     em: { fontStyle: 'italic' },
     s: { textDecorationLine: 'line-through' },
     link: { color: theme.colors.primary, textDecorationLine: 'underline' },
@@ -59,22 +48,22 @@ function buildStyle(theme: MobileTheme): Record<string, TextStyle> {
       backgroundColor: 'transparent',
       borderLeftWidth: 3,
       borderLeftColor: theme.colors.border,
-      paddingLeft: 12,
+      paddingLeft: SPACE.medium,
       marginLeft: 0
     },
     code_inline: code,
-    code_block: { ...code, borderRadius: LEGACY_RADIUS.small, padding: 12 },
-    fence: { ...code, borderRadius: LEGACY_RADIUS.small, padding: 12 },
+    code_block: { ...code, borderRadius: RADIUS.medium, padding: SPACE.medium },
+    fence: { ...code, borderRadius: RADIUS.medium, padding: SPACE.medium },
     // The library defaults both list-content boxes to `{ flex: 1 }`, i.e. flexBasis 0. Yoga ignores an
     // explicit `flexBasis: 'auto'` while `flex` is positive, so the shorthand itself must be reset. Inside a
     // shrink-to-fit bubble that measures as zero width, so the text wraps one glyph per line and
     // spills out of the bubble. Grow and shrink as before, but start from the content's own width.
     bullet_list_content: { flex: 0, flexGrow: 1, flexShrink: 1 },
     ordered_list_content: { flex: 0, flexGrow: 1, flexShrink: 1 },
-    table: { borderColor: theme.colors.border, borderWidth: StyleSheet.hairlineWidth, borderRadius: LEGACY_RADIUS.small },
-    th: { padding: 8 },
+    table: { borderColor: theme.colors.border, borderWidth: StyleSheet.hairlineWidth, borderRadius: RADIUS.medium },
+    th: { padding: SPACE.small },
     tr: { borderColor: theme.colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
-    td: { padding: 8 },
+    td: { padding: SPACE.small },
     hr: { backgroundColor: theme.colors.border, height: StyleSheet.hairlineWidth }
   }
 }
@@ -82,7 +71,7 @@ function buildStyle(theme: MobileTheme): Record<string, TextStyle> {
 export function MarkdownText({ children }: MarkdownTextProps) {
   const theme = useTheme()
   const { width } = useWindowDimensions()
-  const narrow = width < NARROW_TABLE_WIDTH
+  const narrow = width < RULE.stackedTableWidth
 
   const style = useMemo(() => buildStyle(theme), [theme])
 
@@ -123,13 +112,13 @@ export function MarkdownText({ children }: MarkdownTextProps) {
 
 const stackedStyles = StyleSheet.create({
   table: {
-    gap: 12
+    gap: SPACE.medium
   },
   row: {
-    gap: 2
+    gap: SPACE.hairline
   },
   line: {
     ...TYPE.callout,
-    lineHeight: STACKED_LINE_HEIGHT
+    lineHeight: LEADING.footnote
   }
 })

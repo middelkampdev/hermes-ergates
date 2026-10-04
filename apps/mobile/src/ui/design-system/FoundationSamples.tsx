@@ -10,15 +10,13 @@ import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native'
 import { colorSwatches, contrastRows, shapeRows, typeRows } from '@/features/design-system'
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { LEGACY_SIZE, TYPE } from '@/theme/tokens'
+import { RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 import { Group } from '../Group'
 import { ListRow } from '../ListRow'
 import { ContrastSample } from './ContrastSample'
 import { Swatch } from './Swatch'
 import { TypeSample } from './TypeSample'
-
-const BAR_HEIGHT = 8
 
 async function copyToken(key: string) {
   try {
@@ -104,16 +102,16 @@ export function ShapeSamples() {
 
 const styles = StyleSheet.create({
   shapeRow: {
-    minHeight: LEGACY_SIZE.row,
+    minHeight: SIZE.extraLarge,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 10
+    gap: SPACE.medium,
+    paddingHorizontal: SPACE.large,
+    paddingVertical: SPACE.small
   },
   shapeText: {
     flex: 1,
-    gap: 2
+    gap: SPACE.hairline
   },
   shapeName: {
     ...TYPE.body
@@ -123,15 +121,15 @@ const styles = StyleSheet.create({
   },
   // Bars and squares share one left column, so every label starts at the same edge.
   slot: {
-    width: LEGACY_SIZE.hit
+    width: RULE.touch
   },
   bar: {
-    height: BAR_HEIGHT
+    height: SIZE.tiny
   },
   // The hairline keeps the shape visible where the fill is close to the card's (light themes).
   square: {
-    width: LEGACY_SIZE.hit,
-    height: LEGACY_SIZE.hit,
+    width: RULE.touch,
+    height: RULE.touch,
     borderWidth: StyleSheet.hairlineWidth
   }
 })

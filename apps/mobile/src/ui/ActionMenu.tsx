@@ -16,7 +16,7 @@ import { Keyboard, Modal, Platform, Pressable, StyleSheet, Text, View, useWindow
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useTheme } from '@/theme/provider'
-import { ICON, SCRIM, TYPE } from '@/theme/tokens'
+import { ICON_SIZE, RADIUS, RULE, SCRIM, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 import { Button } from './Button'
 import { Field } from './Field'
@@ -24,12 +24,10 @@ import { Icon, type IconName } from './icons'
 import { menuPosition } from './menu-position'
 import { SurfaceProvider } from './surface-context'
 
-const MENU_WIDTH = 240
-const MENU_RADIUS = 16
-const MARGIN = 8
-const SEPARATOR_HEIGHT = 9
-/** Rough height of the Create level's field + button, added to the header row's height. */
-const CREATE_FORM_HEIGHT = 140
+/** A separator row: the margin above and below its hairline, with a point for the hairline itself. */
+const SEPARATOR_HEIGHT = SPACE.extraSmall * 2 + 1
+/** The Create level's form: its top padding, the field, the field's bottom margin and the button. */
+const CREATE_FORM_HEIGHT = SPACE.extraSmall + SIZE.large + SPACE.medium + SIZE.large
 
 export interface AnchorRect {
   x: number
@@ -98,11 +96,11 @@ export function ActionMenu({ visible, anchor, items, createSection, onClose }: A
   const { width, height } = useWindowDimensions()
   const keyboardHeight = useKeyboardHeight(Boolean(createSection))
 
-  const rowsHeight = items.reduce((total, row) => total + (row.kind === 'separator' ? SEPARATOR_HEIGHT : theme.hit), 0)
-  const menuHeight = rowsHeight + (createSection ? CREATE_FORM_HEIGHT : 0) + MARGIN * 2
+  const rowsHeight = items.reduce((total, row) => total + (row.kind === 'separator' ? SEPARATOR_HEIGHT : RULE.touch), 0)
+  const menuHeight = rowsHeight + (createSection ? CREATE_FORM_HEIGHT : 0) + SPACE.small * 2
   const insets = useSafeAreaInsets()
   const position = anchor
-    ? menuPosition({ anchor, screen: { width, height }, insets, keyboardHeight, menu: { width: MENU_WIDTH, height: menuHeight }, margin: MARGIN })
+    ? menuPosition({ anchor, screen: { width, height }, insets, keyboardHeight, menu: { width: RULE.panelWidth, height: menuHeight }, margin: SPACE.small })
     : null
 
   return (
@@ -115,7 +113,7 @@ export function ActionMenu({ visible, anchor, items, createSection, onClose }: A
       />
       {position ? (
         <View
-          style={[styles.card, { top: position.top, left: position.left, width: MENU_WIDTH }]}
+          style={[styles.card, { top: position.top, left: position.left, width: RULE.panelWidth }]}
         >
           {/* The card is the Field's surface on the Create level, so its fill stays visible in dark themes. */}
           <SurfaceProvider color={theme.colors.popover}>
@@ -134,11 +132,11 @@ export function ActionMenu({ visible, anchor, items, createSection, onClose }: A
                     accessibilityState={{ selected: row.selected }}
                     style={({ pressed }) => [
                       styles.row,
-                      { minHeight: theme.hit, backgroundColor: pressed ? theme.colors.muted : 'transparent' }
+                      { minHeight: RULE.touch, backgroundColor: pressed ? theme.colors.muted : 'transparent' }
                     ]}
                   >
                     {row.icon ? (
-                      <Icon name={row.icon} size={ICON.small} color={row.destructive ? theme.colors.destructive : theme.colors.foreground} />
+                      <Icon name={row.icon} size={ICON_SIZE.small} color={row.destructive ? theme.colors.destructive : theme.colors.foreground} />
                     ) : null}
                     <Text
                       numberOfLines={1}
@@ -146,7 +144,7 @@ export function ActionMenu({ visible, anchor, items, createSection, onClose }: A
                     >
                       {row.label}
                     </Text>
-                    {row.chevron ? <Icon name="chevron-right" size={ICON.small} color={theme.colors.mutedForeground} /> : null}
+                    {row.chevron ? <Icon name="chevron-right" size={ICON_SIZE.small} color={theme.colors.mutedForeground} /> : null}
                   </Pressable>
                 )
               )}
@@ -181,16 +179,16 @@ const styles = StyleSheet.create({
     position: 'absolute'
   },
   surface: {
-    borderRadius: MENU_RADIUS,
+    borderRadius: RADIUS.large,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: MARGIN,
+    paddingVertical: SPACE.small,
     overflow: 'hidden'
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14
+    gap: SPACE.small,
+    paddingHorizontal: SPACE.medium
   },
   label: {
     ...TYPE.callout,
@@ -199,11 +197,11 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: StyleSheet.hairlineWidth,
-    marginHorizontal: 14,
-    marginVertical: 4
+    marginHorizontal: SPACE.medium,
+    marginVertical: SPACE.extraSmall
   },
   createForm: {
-    paddingHorizontal: 14,
-    paddingTop: 4
+    paddingHorizontal: SPACE.medium,
+    paddingTop: SPACE.extraSmall
   }
 })

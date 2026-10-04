@@ -7,11 +7,9 @@
 import { Pressable, StyleSheet } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { ICON, LEGACY_OPACITY } from '@/theme/tokens'
+import { ICON_SIZE, OPACITY, RULE } from '@/theme/tokens'
 
 import { Icon, type IconName } from './icons'
-
-const ICON_SIZE = ICON.row
 
 export interface IconButtonProps {
   name: IconName
@@ -22,7 +20,7 @@ export interface IconButtonProps {
   disabled?: boolean
 }
 
-export function IconButton({ name, onPress, accessibilityLabel, size = ICON_SIZE, filled, disabled }: IconButtonProps) {
+export function IconButton({ name, onPress, accessibilityLabel, size = ICON_SIZE.medium, filled, disabled }: IconButtonProps) {
   const theme = useTheme()
 
   return (
@@ -34,9 +32,9 @@ export function IconButton({ name, onPress, accessibilityLabel, size = ICON_SIZE
       accessibilityState={{ disabled: !!disabled }}
       style={({ pressed }) => [
         styles.hitArea,
-        { width: theme.hit, height: theme.hit },
-        filled ? { backgroundColor: theme.colors.muted, borderRadius: theme.hit / 2 } : null,
-        { opacity: disabled ? LEGACY_OPACITY.disabled : pressed ? LEGACY_OPACITY.pressed : 1 }
+        { width: RULE.touch, height: RULE.touch },
+        filled ? { backgroundColor: theme.colors.muted, borderRadius: RULE.touch / 2 } : null,
+        { opacity: disabled ? OPACITY.medium : pressed ? OPACITY.strong : 1 }
       ]}
     >
       <Icon name={name} size={size} color={theme.colors.foreground} />

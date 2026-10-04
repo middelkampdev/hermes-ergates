@@ -10,13 +10,10 @@
 import { Pressable, StyleSheet } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { AVATAR } from '@/theme/tokens'
+import { RULE, SIZE, SPACE } from '@/theme/tokens'
 
 import { Avatar } from './Avatar'
 import { RowContent } from './RowContent'
-
-/** Design floor for the row; never allowed below the shared min hit area. */
-const ROW_MIN_HEIGHT = 52
 
 export interface RowProps {
   name: string
@@ -46,7 +43,8 @@ export function Row({ name, avatarColor, avatarImageUri, role, time, preview, un
       style={({ pressed }) => [
         styles.row,
         {
-          minHeight: Math.max(theme.hit, ROW_MIN_HEIGHT),
+          // Never below the shared min hit area.
+          minHeight: Math.max(RULE.touch, SIZE.large),
           paddingHorizontal: gutter,
           backgroundColor: pressed ? theme.colors.muted : 'transparent'
         }
@@ -54,7 +52,7 @@ export function Row({ name, avatarColor, avatarImageUri, role, time, preview, un
     >
       <RowContent
         name={name}
-        avatar={<Avatar name={name} color={avatarColor} imageUri={avatarImageUri} size={AVATAR.list} />}
+        avatar={<Avatar name={name} color={avatarColor} imageUri={avatarImageUri} size={SIZE.large} />}
         role={role}
         time={time}
         preview={preview || undefined}
@@ -68,7 +66,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 8
+    gap: SPACE.medium,
+    paddingVertical: SPACE.small
   }
 })

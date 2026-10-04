@@ -10,7 +10,7 @@ import { StyleSheet, View } from 'react-native'
 
 import { APPEARANCE_LABELS, isSelectedTheme, type AppearanceMode } from '@/features/settings'
 import { useTheme } from '@/theme/provider'
-import { ICON } from '@/theme/tokens'
+import { ICON_SIZE } from '@/theme/tokens'
 
 import { Group } from './Group'
 import { Icon, type IconName } from './icons'
@@ -32,7 +32,7 @@ export interface AppearancePickerProps {
 
 export function AppearancePicker({ appearance, themeName, themes, onAppearanceChange, onThemeChange }: AppearancePickerProps) {
   const theme = useTheme()
-  const check = (on: boolean) => (on ? <Icon name="check" size={ICON.row} color={theme.colors.primary} /> : <View style={styles.noCheck} />)
+  const check = (on: boolean) => (on ? <Icon name="check" size={ICON_SIZE.medium} color={theme.colors.primary} /> : <View style={styles.noCheck} />)
 
   return (
     <>
@@ -65,5 +65,5 @@ export function AppearancePicker({ appearance, themeName, themes, onAppearanceCh
 }
 
 const styles = StyleSheet.create({
-  noCheck: { width: ICON.row }
+  noCheck: { width: ICON_SIZE.medium }
 })

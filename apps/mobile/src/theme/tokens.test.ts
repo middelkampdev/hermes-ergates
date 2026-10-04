@@ -86,7 +86,16 @@ describe('step scales', () => {
     expect(OPACITY).toEqual({ strong: 0.65, medium: 0.45, faint: 0.25 })
   })
   it('pins the named rules', () => {
-    expect(RULE).toEqual({ touch: 44, narrowScreen: 360, maxFontScale: 1.4, panelWidth: 240, textAreaMinHeight: 128 })
+    expect(RULE).toEqual({
+      touch: 44,
+      narrowScreen: 360,
+      maxFontScale: 1.4,
+      panelWidth: 240,
+      textAreaMinHeight: 128,
+      stackedTableWidth: 400,
+      labelMaxWidth: 113,
+      switchHeight: 31
+    })
   })
   it('lists each scale from small to large', () => {
     for (const scale of [SPACE, RADIUS, ICON_SIZE, SIZE]) {

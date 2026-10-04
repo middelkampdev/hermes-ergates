@@ -9,7 +9,7 @@ import { StyleSheet, Text, View } from 'react-native'
 
 import type { ChatItem } from '@/features/chat'
 import { useTheme } from '@/theme/provider'
-import { AVATAR, ICON, TYPE } from '@/theme/tokens'
+import { AVATAR, ICON_SIZE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { Avatar } from '@/ui/Avatar'
 import { Button } from '@/ui/Button'
 import { Card } from '@/ui/Card'
@@ -93,7 +93,7 @@ export function ListRowSamples() {
         <ListRow title="With subtitle" subtitle="A second line in footnote" icon="file-text" />
         <ListRow title="Opens something" icon="folder" onPress={noop} />
         <ListRow title="With switch" icon="toggle-right" right={<Toggle value={on} onValueChange={setOn} accessibilityLabel="With switch" />} />
-        <ListRow title="Checked" icon="droplet" selected right={<Icon name="check" size={ICON.row} color={theme.colors.primary} />} onPress={noop} />
+        <ListRow title="Checked" icon="droplet" selected right={<Icon name="check" size={ICON_SIZE.medium} color={theme.colors.primary} />} onPress={noop} />
         <ListRow title="Destructive" icon="trash-2" destructive onPress={noop} />
         <ListRow title="With error" subtitle="Subtitle" error="Something needs attention." icon="alert-circle" />
       </Group>
@@ -142,7 +142,7 @@ export function RowContentSample() {
     <Sample>
       <Card>
         <View style={styles.rowContent} accessible accessibilityLabel="Ada, Coder, 09:41, Unread: The build is green.">
-          <RowContent name="Ada" avatar={<Avatar name="Ada" size={AVATAR.list} />} role="Coder" time="09:41" preview="The build is green." unread />
+          <RowContent name="Ada" avatar={<Avatar name="Ada" size={SIZE.large} />} role="Coder" time="09:41" preview="The build is green." unread />
         </View>
       </Card>
     </Sample>
@@ -160,31 +160,31 @@ export function BubbleSamples() {
 
 const styles = StyleSheet.create({
   stack: {
-    gap: 24
+    gap: SPACE.huge
   },
   sample: {
-    gap: 8
+    gap: SPACE.small
   },
   inline: {
     flexDirection: 'row',
-    gap: 8
+    gap: SPACE.small
   },
   avatars: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'flex-end',
-    gap: 16
+    gap: SPACE.large
   },
   avatar: {
     alignItems: 'center',
-    gap: 4
+    gap: SPACE.extraSmall
   },
   avatarLabel: {
     ...TYPE.caption
   },
   rowContent: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 10
+    paddingHorizontal: SPACE.large,
+    paddingVertical: SPACE.small
   }
 })

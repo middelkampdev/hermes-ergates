@@ -9,11 +9,9 @@ import type { ReactNode } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { ICON, LEGACY_OPACITY, TYPE } from '@/theme/tokens'
+import { ICON_SIZE, OPACITY, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 import { Icon, type IconName } from './icons'
-
-const MIN_HEIGHT = 56
 
 export interface ListRowProps {
   title: string
@@ -38,13 +36,13 @@ export function ListRow({ title, subtitle, icon, error, onPress, right, destruct
 
   const content = (
     <View style={styles.row}>
-      {icon ? <Icon name={icon} size={ICON.row} color={titleColor} /> : null}
+      {icon ? <Icon name={icon} size={ICON_SIZE.medium} color={titleColor} /> : null}
       <View style={styles.text}>
         <Text style={[styles.title, { color: titleColor }]}>{title}</Text>
         {subtitle ? <Text style={[styles.subtitle, { color: theme.colors.mutedForeground }]}>{subtitle}</Text> : null}
         {error ? <Text style={[styles.subtitle, { color: theme.colors.destructive }]}>{error}</Text> : null}
       </View>
-      {right ?? (onPress ? <Icon name="chevron-right" size={ICON.chevron} color={theme.colors.mutedForeground} /> : null)}
+      {right ?? (onPress ? <Icon name="chevron-right" size={ICON_SIZE.small} color={theme.colors.mutedForeground} /> : null)}
     </View>
   )
 
@@ -65,7 +63,7 @@ export function ListRow({ title, subtitle, icon, error, onPress, right, destruct
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={selected === undefined && expanded === undefined ? undefined : { ...(selected !== undefined ? { selected } : {}), ...(expanded !== undefined ? { expanded } : {}) }}
-      style={({ pressed }) => ({ opacity: pressed ? LEGACY_OPACITY.pressed : 1 })}
+      style={({ pressed }) => ({ opacity: pressed ? OPACITY.strong : 1 })}
     >
       {content}
     </Pressable>
@@ -74,16 +72,16 @@ export function ListRow({ title, subtitle, icon, error, onPress, right, destruct
 
 const styles = StyleSheet.create({
   row: {
-    minHeight: MIN_HEIGHT,
+    minHeight: SIZE.extraLarge,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14
+    gap: SPACE.medium,
+    paddingHorizontal: SPACE.large,
+    paddingVertical: SPACE.medium
   },
   text: {
     flex: 1,
-    gap: 3
+    gap: SPACE.hairline
   },
   title: {
     ...TYPE.body

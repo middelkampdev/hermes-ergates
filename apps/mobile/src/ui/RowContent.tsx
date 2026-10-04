@@ -14,10 +14,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import Animated from 'react-native-reanimated'
 
 import { useTheme } from '@/theme/provider'
-import { LEGACY_RADIUS, TYPE } from '@/theme/tokens'
-
-const BADGE_MAX_WIDTH = 113
-const UNREAD_DOT_SIZE = 8
+import { RADIUS, RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 export interface RowContentProps {
   name: string
@@ -82,19 +79,19 @@ export function RowContent({ name, avatar, role, time, preview, unread, maxFontS
 }
 
 const styles = StyleSheet.create({
-  content: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  body: { flex: 1, gap: 2 },
-  line: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  content: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACE.medium },
+  body: { flex: 1, gap: SPACE.hairline },
+  line: { flexDirection: 'row', alignItems: 'center', gap: SPACE.small },
   name: { flex: 1, ...TYPE.bodyStrong },
   badge: {
     ...TYPE.caption,
-    borderRadius: LEGACY_RADIUS.badge,
-    maxWidth: BADGE_MAX_WIDTH,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    borderRadius: RADIUS.small,
+    maxWidth: RULE.labelMaxWidth,
+    paddingHorizontal: SPACE.extraSmall,
+    paddingVertical: SPACE.hairline,
     overflow: 'hidden'
   },
   time: { ...TYPE.caption },
   preview: { flex: 1, ...TYPE.callout },
-  unreadDot: { width: UNREAD_DOT_SIZE, height: UNREAD_DOT_SIZE, borderRadius: UNREAD_DOT_SIZE / 2 }
+  unreadDot: { width: SIZE.tiny, height: SIZE.tiny, borderRadius: SIZE.tiny / 2 }
 })

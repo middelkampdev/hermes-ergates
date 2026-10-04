@@ -9,9 +9,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { isRenderableHex } from '@/theme/color'
 import { useTheme } from '@/theme/provider'
-import { LEGACY_OPACITY, LEGACY_SIZE, TYPE } from '@/theme/tokens'
-
-const DISC_SIZE = 28
+import { OPACITY, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 export interface SwatchProps {
   name: string
@@ -29,7 +27,7 @@ export function Swatch({ name, value, onPress }: SwatchProps) {
       accessibilityRole="button"
       accessibilityLabel={value ? `${name}, ${value}` : name}
       accessibilityHint="Copies the token name"
-      style={({ pressed }) => [styles.row, { opacity: pressed ? LEGACY_OPACITY.pressed : 1 }]}
+      style={({ pressed }) => [styles.row, { opacity: pressed ? OPACITY.strong : 1 }]}
     >
       <View style={[styles.disc, { backgroundColor: fill, borderColor: theme.colors.border }]} />
       <View style={styles.text}>
@@ -42,22 +40,22 @@ export function Swatch({ name, value, onPress }: SwatchProps) {
 
 const styles = StyleSheet.create({
   row: {
-    minHeight: LEGACY_SIZE.row,
+    minHeight: SIZE.extraLarge,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 10
+    gap: SPACE.medium,
+    paddingHorizontal: SPACE.large,
+    paddingVertical: SPACE.small
   },
   disc: {
-    width: DISC_SIZE,
-    height: DISC_SIZE,
-    borderRadius: DISC_SIZE / 2,
+    width: SIZE.small,
+    height: SIZE.small,
+    borderRadius: SIZE.small / 2,
     borderWidth: StyleSheet.hairlineWidth
   },
   text: {
     flex: 1,
-    gap: 2
+    gap: SPACE.hairline
   },
   name: {
     ...TYPE.body
