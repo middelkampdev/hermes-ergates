@@ -25,6 +25,7 @@ import { IconButton } from '@/ui/IconButton'
 import { ListRow } from '@/ui/ListRow'
 import { Screen } from '@/ui/Screen'
 import { useBottomInset } from '@/ui/use-bottom-inset'
+import { useOnFontScaleChange } from '@/ui/use-font-scale-key'
 
 export default function AgentDetailsScreen() {
   const { profile } = useLocalSearchParams<{ profile: string }>()
@@ -55,6 +56,8 @@ function AgentDetails({ connectionId, connectionLabel, profile }: { connectionId
   const setHidden = useSetHidden(gateway, connectionId)
   const bot = home.byProfile.get(profile) ?? null
   const [menu, setMenu] = useState<{ bot: Bot; anchor: AnchorRect } | null>(null)
+  // The menu is anchored to a row of the old layout, which a text-size change replaces.
+  useOnFontScaleChange(() => setMenu(null))
   const menuAnchorRef = useRef<View>(null)
 
   const openMenu = () => {

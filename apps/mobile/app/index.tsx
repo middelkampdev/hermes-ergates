@@ -40,6 +40,7 @@ import { HomeTopBar } from '@/ui/home-list/HomeTopBar'
 import { useLayoutEditing, useShowProgress } from '@/ui/home-list/motion'
 import { Screen, usePagePadding } from '@/ui/Screen'
 import { useBottomInset } from '@/ui/use-bottom-inset'
+import { useOnFontScaleChange } from '@/ui/use-font-scale-key'
 
 export default function HomeScreen() {
   const connection = usePrimaryConnection()
@@ -85,6 +86,8 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
   const setHidden = useSetHidden(gateway, connectionId)
   const setActiveConnection = useSkinStore(s => s.setActiveConnection)
   const [menu, setMenu] = useState<{ bot: Bot; anchor: AnchorRect } | null>(null)
+  // The menu is anchored to a row of the old layout, which a text-size change replaces.
+  useOnFontScaleChange(() => setMenu(null))
   const [refreshing, setRefreshing] = useState(false)
   // Edit mode (docs/10 "Home edit mode"). Every change applies at once, so
   // leaving only clears the selection; there is nothing to cancel. The same

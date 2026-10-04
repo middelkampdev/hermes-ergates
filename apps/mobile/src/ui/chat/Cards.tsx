@@ -4,7 +4,7 @@
  * backend state (pending/answered/expired/resolved) is authoritative.
  */
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 
 import type { ChatItem } from '@/features/chat'
@@ -26,10 +26,36 @@ function letterOf(choice: string, index: number): { letter: string; label: strin
   return { letter: LETTERS[index] ?? String(index + 1), label: choice }
 }
 
-export function ClarifyCard({ item, onAnswer, onDismiss }: { item: ClarifyItem; onAnswer: (answers: Record<string, string>) => void; onDismiss: (freeText: string) => void }) {
+/** A clarify answer in progress: the picked choices per question and the typed answer. */
+export interface ClarifyDraft {
+  selected: Record<string, string[]>
+  freeText: string
+}
+
+/**
+ * Clarify answers in progress by request id. The chat owns it above its
+ * content's remount on a text-size change (`use-font-scale-key.ts`), so a
+ * card that remounts picks its answer up again.
+ */
+export type ClarifyDrafts = Map<string, ClarifyDraft>
+
+export function ClarifyCard({
+  item,
+  drafts,
+  onAnswer,
+  onDismiss
+}: {
+  item: ClarifyItem
+  drafts: ClarifyDrafts
+  onAnswer: (answers: Record<string, string>) => void
+  onDismiss: (freeText: string) => void
+}) {
   const theme = useTheme()
-  const [selected, setSelected] = useState<Record<string, string[]>>({})
-  const [freeText, setFreeText] = useState('')
+  const [selected, setSelected] = useState<Record<string, string[]>>(() => drafts.get(item.requestId)?.selected ?? {})
+  const [freeText, setFreeText] = useState(() => drafts.get(item.requestId)?.freeText ?? '')
+  useEffect(() => {
+    drafts.set(item.requestId, { selected, freeText })
+  }, [drafts, item.requestId, selected, freeText])
   const pending = item.state === 'pending'
   const stateLabel = item.state === 'answered' ? 'Answered' : item.state === 'expired' ? 'Expired' : item.state === 'dismissed' ? 'Dismissed' : null
 

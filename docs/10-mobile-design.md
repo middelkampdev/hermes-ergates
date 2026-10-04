@@ -261,7 +261,7 @@ Development builds have Settings › Developer tools › Design system. It shows
 | Approval expired | Card says Expired; action buttons disabled; retry starts a fresh request |
 | Agent provisioning interrupted | “Setup incomplete”; resume only after checking existing profile/receipt |
 | Empty search | One explanatory line and a clear dismiss path |
-| Large text | Wrap settings and message text; hide optional role badge before compressing names. A text-size change while the app is open re-lays out the open page at once (its content remounts; scroll position and focus reset) |
+| Large text | Wrap settings and message text; hide optional role badge before compressing names. A text-size change while the app is open re-lays out every page at once: page content remounts, so scroll position, focus, open menus and expanded rows reset, while typed drafts and clarify answers stay |
 | Reduced motion | Static working indicator; native transitions reduced; no perpetual decorative animation |
 
 ## 6. Visual acceptance

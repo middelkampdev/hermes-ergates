@@ -14,7 +14,7 @@ import { AVATAR, ICON, LEADING, RADIUS, SIZE, TYPE } from '@/theme/tokens'
 import { Avatar } from '@/ui/Avatar'
 import { BotMessageBubble } from '@/ui/chat/BotMessageBubble'
 import { AssistantBubble, StreamingBubble, UserBubble } from '@/ui/chat/Bubble'
-import { ApprovalCard, ClarifyCard } from '@/ui/chat/Cards'
+import { ApprovalCard, ClarifyCard, type ClarifyDrafts } from '@/ui/chat/Cards'
 import { Composer } from '@/ui/chat/Composer'
 import { ExchangeRow } from '@/ui/chat/ExchangeRow'
 import { NoticeRow } from '@/ui/chat/NoticeRow'
@@ -24,7 +24,7 @@ import { CommentaryRow, ConnectionLine, DateSeparator, EventRow, ToolRow, Workin
 import { Icon } from '@/ui/icons'
 import { IconButton } from '@/ui/IconButton'
 import { useBottomInset } from '@/ui/use-bottom-inset'
-import { useFontScaleKey } from '@/ui/use-font-scale-key'
+import { useFontScaleKey, useOnFontScaleChange } from '@/ui/use-font-scale-key'
 
 export default function ChatScreen() {
   const { profile, devSend, devFocus, devInject } = useLocalSearchParams<{ profile: string; devSend?: string; devFocus?: string; devInject?: string }>()
@@ -60,6 +60,9 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
   const [interim, setInterim] = useState('')
   const [showDisclosure, setShowDisclosure] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
+  // The content remounts at the newest line on a text-size change, where the jump button has nothing to do.
+  useOnFontScaleChange(() => setAtBottom(true))
+  const [clarifyDrafts] = useState<ClarifyDrafts>(() => new Map())
   const listRef = useRef<FlatList<Line>>(null)
 
   useEffect(() => {
@@ -278,6 +281,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
               return (
                 <ClarifyCard
                   item={item}
+                  drafts={clarifyDrafts}
                   onAnswer={answers => runWithAlert('Could not send your answer', () => session.answerClarify(item.requestId, answers))}
                   onDismiss={text => runWithAlert('Could not send your answer', () => session.dismissClarify(item.requestId, text))}
                 />
@@ -292,7 +296,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
           return null
       }
     },
-    [profile, connectionId, router, session, runWithAlert, openActivity, theme.colors.mutedForeground]
+    [profile, connectionId, router, session, runWithAlert, openActivity, clarifyDrafts, theme.colors.mutedForeground]
   )
 
   return (
