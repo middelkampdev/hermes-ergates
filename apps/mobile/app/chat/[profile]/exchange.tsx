@@ -5,17 +5,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { exchangeTranscript, peerKey, useChatSession, useExchangeAcknowledgement, type TranscriptEntry } from '@/features/chat'
 import { useTheme } from '@/theme/provider'
-import { AVATAR, LEADING, LEGACY_RADIUS, TYPE } from '@/theme/tokens'
+import { LEADING, RADIUS, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { Avatar } from '@/ui/Avatar'
 import { Button } from '@/ui/Button'
 import { PeerAvatar } from '@/ui/chat/PeerAvatar'
 import { DateSeparator } from '@/ui/chat/Rows'
 import { IconButton } from '@/ui/IconButton'
 import { MarkdownText } from '@/ui/MarkdownText'
+import { usePagePadding } from '@/ui/Screen'
 import { useFontScaleKey } from '@/ui/use-font-scale-key'
 import { useBottomInset } from '@/ui/use-bottom-inset'
 
-const AVATAR_SIZE = AVATAR.chat
+const AVATAR_SIZE = SIZE.small
 
 /**
  * The read-only record of the messages this bot exchanged with one peer
@@ -38,7 +39,8 @@ function ExchangeTranscript({ peer, anchorRowId, anchorToolCallId }: { peer: str
   const fontScaleKey = useFontScaleKey()
   // The transcript list scrolls to the bottom edge of the phone; its content
   // carries the inset instead of the screen reserving a strip for it.
-  const listBottomInset = useBottomInset(20)
+  const listBottomInset = useBottomInset(SPACE.extraLarge)
+  const gutter = usePagePadding()
   const { connectionId, profile, bot, name, avatarUri, timeline, transcript } = useChatSession()
 
   const anchor = useMemo(() => {
@@ -83,7 +85,7 @@ function ExchangeTranscript({ peer, anchorRowId, anchorToolCallId }: { peer: str
           </Text>
           <View style={[styles.row, self ? styles.rowSelf : null]}>
             {self ? null : avatar}
-            <View style={[styles.bubble, { backgroundColor: self ? theme.colors.userBubble : theme.colors.muted, borderRadius: theme.radius.bubble }]}>
+            <View style={[styles.bubble, { backgroundColor: self ? theme.colors.userBubble : theme.colors.muted, borderRadius: RADIUS.extraLarge }]}>
               <View style={styles.markdown}>
                 <MarkdownText>{entry.text}</MarkdownText>
               </View>
@@ -94,7 +96,7 @@ function ExchangeTranscript({ peer, anchorRowId, anchorToolCallId }: { peer: str
         </View>
       )
     },
-    [name, bot?.color, avatarUri, connectionId, theme.colors.mutedForeground, theme.colors.userBubble, theme.colors.muted, theme.radius.bubble]
+    [name, bot?.color, avatarUri, connectionId, theme.colors.mutedForeground, theme.colors.userBubble, theme.colors.muted]
   )
 
   // One line at a time: a failed page says so, a complete window says so, and
@@ -115,7 +117,7 @@ function ExchangeTranscript({ peer, anchorRowId, anchorToolCallId }: { peer: str
 
   return (
     <View key={fontScaleKey} style={[styles.screen, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
-      <View style={[styles.header, { paddingHorizontal: theme.pagePadding, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+      <View style={[styles.header, { paddingHorizontal: gutter, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
         <IconButton name="chevron-left" accessibilityLabel="Back" onPress={() => router.back()} />
         <View style={styles.titleBlock}>
           <Text style={[styles.title, { color: theme.colors.foreground }]} numberOfLines={1}>
@@ -134,7 +136,7 @@ function ExchangeTranscript({ peer, anchorRowId, anchorToolCallId }: { peer: str
         keyExtractor={entry => entry.key}
         renderItem={renderEntry}
         ListHeaderComponent={header}
-        contentContainerStyle={{ paddingHorizontal: theme.pagePadding, paddingTop: 20, paddingBottom: listBottomInset }}
+        contentContainerStyle={{ paddingHorizontal: gutter, paddingTop: SPACE.extraLarge, paddingBottom: listBottomInset }}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
       />
     </View>
@@ -143,23 +145,24 @@ function ExchangeTranscript({ peer, anchorRowId, anchorToolCallId }: { peer: str
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth },
-  titleBlock: { flex: 1, gap: 2 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: SPACE.small, minHeight: SIZE.large, paddingBottom: SPACE.small, borderBottomWidth: StyleSheet.hairlineWidth },
+  titleBlock: { flex: 1, gap: SPACE.hairline },
   title: { ...TYPE.bodyStrong },
   subtitle: { ...TYPE.footnote },
-  pill: { borderRadius: LEGACY_RADIUS.small, paddingVertical: 4, paddingHorizontal: 10 },
+  pill: { borderRadius: RADIUS.medium, paddingVertical: SPACE.extraSmall, paddingHorizontal: SPACE.small },
   pillText: { ...TYPE.footnote },
-  listHeader: { paddingBottom: 12, gap: 8 },
-  wrap: { maxWidth: '88%', marginVertical: 4 },
+  listHeader: { paddingBottom: SPACE.medium, gap: SPACE.small },
+  wrap: { maxWidth: '88%', marginVertical: SPACE.extraSmall },
   wrapPeer: { alignSelf: 'flex-start' },
   wrapSelf: { alignSelf: 'flex-end' },
-  author: { ...TYPE.footnote, marginBottom: 4 },
-  authorPeer: { marginLeft: AVATAR_SIZE + 8 },
-  authorSelf: { marginRight: AVATAR_SIZE + 8, textAlign: 'right' },
-  row: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  author: { ...TYPE.footnote, marginBottom: SPACE.extraSmall },
+  authorPeer: { marginLeft: AVATAR_SIZE + SPACE.small },
+  authorSelf: { marginRight: AVATAR_SIZE + SPACE.small, textAlign: 'right' },
+  row: { flexDirection: 'row', alignItems: 'flex-end', gap: SPACE.small },
   rowSelf: { justifyContent: 'flex-end' },
-  bubble: { paddingVertical: 12, paddingHorizontal: 16, flexShrink: 1 },
-  markdown: { marginBottom: -10 },
-  state: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: 4 },
+  bubble: { paddingVertical: SPACE.medium, paddingHorizontal: SPACE.large, flexShrink: 1 },
+  // Cancels the last paragraph's bottom margin (MarkdownText's SPACE.small).
+  markdown: { marginBottom: -SPACE.small },
+  state: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: SPACE.extraSmall },
   stateCenter: { textAlign: 'center' }
 })

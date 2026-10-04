@@ -10,7 +10,7 @@ import { userMessage } from '@/gateway/errors'
 import { lightTap } from '@/lib/haptics'
 import { useDeviceStore, draftKey } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
-import { AVATAR, ICON, LEADING, LEGACY_RADIUS, LEGACY_SIZE, TYPE } from '@/theme/tokens'
+import { ICON_SIZE, LEADING, RADIUS, RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { Avatar } from '@/ui/Avatar'
 import { BotMessageBubble } from '@/ui/chat/BotMessageBubble'
 import { AssistantBubble, StreamingBubble, UserBubble } from '@/ui/chat/Bubble'
@@ -23,6 +23,7 @@ import { PeerAvatar } from '@/ui/chat/PeerAvatar'
 import { CommentaryRow, ConnectionLine, DateSeparator, EventRow, ToolRow, WorkingLine } from '@/ui/chat/Rows'
 import { Icon } from '@/ui/icons'
 import { IconButton } from '@/ui/IconButton'
+import { usePagePadding } from '@/ui/Screen'
 import { useBottomInset } from '@/ui/use-bottom-inset'
 import { useFontScaleKey, useOnFontScaleChange } from '@/ui/use-font-scale-key'
 
@@ -47,6 +48,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
   // to the physical bottom of the screen, so counting the inset again would
   // leave a gap above the keyboard).
   const composerBottomInset = useBottomInset()
+  const gutter = usePagePadding()
   // The layout owns the session: the chat, Activity and the transcript all read this one.
   const { connectionId, profile, port: gateway, bot, name, avatarUri, session, timeline } = useChatSession()
 
@@ -240,7 +242,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
         case 'state':
           return <Text style={[styles.state, { color: theme.colors.mutedForeground }]}>{line.text}</Text>
         case 'bot_message':
-          return <BotMessageBubble name={line.peer.display.name} text={line.item.text} label={line.label} avatar={<PeerAvatar peer={line.peer} size={AVATAR.chat} connectionId={connectionId} />} />
+          return <BotMessageBubble name={line.peer.display.name} text={line.item.text} label={line.label} avatar={<PeerAvatar peer={line.peer} size={SIZE.small} connectionId={connectionId} />} />
         case 'exchange':
           return (
             <ExchangeRow
@@ -248,7 +250,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
               label={line.label}
               openable={line.openable}
               marked={line.marked}
-              avatar={<PeerAvatar peer={line.exchange.peer} size={AVATAR.inline} connectionId={connectionId} />}
+              avatar={<PeerAvatar peer={line.exchange.peer} size={SIZE.extraSmall} connectionId={connectionId} />}
               onPress={() =>
                 router.push({
                   pathname: '/chat/[profile]/exchange',
@@ -301,11 +303,11 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
 
   return (
     <View key={fontScaleKey} style={[styles.screen, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
-      <View style={[styles.header, { paddingHorizontal: theme.pagePadding, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+      <View style={[styles.header, { paddingHorizontal: gutter, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
         {/* A chat opened from a push notification has nothing beneath it: Back goes Home. */}
         <IconButton name="chevron-left" accessibilityLabel="Back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
         <Pressable onPress={() => router.push({ pathname: '/agent/[profile]', params: { profile } })} accessibilityRole="button" accessibilityLabel={`${name}, details`} style={[styles.identity, { borderColor: theme.colors.border, backgroundColor: theme.colors.popover }]}>
-          <Avatar name={name} color={bot?.color} imageUri={avatarUri} size={AVATAR.chatHeader} />
+          <Avatar name={name} color={bot?.color} imageUri={avatarUri} size={SIZE.small} />
           <Text style={[styles.name, { color: theme.colors.foreground }]} numberOfLines={1}>
             {name}
           </Text>
@@ -350,7 +352,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
               </View>
             ) : null
           }
-          contentContainerStyle={[styles.list, { paddingHorizontal: theme.pagePadding }]}
+          contentContainerStyle={[styles.list, { paddingHorizontal: gutter }]}
           onScroll={e => setAtBottom(e.nativeEvent.contentOffset.y < 40)}
           scrollEventThrottle={100}
           keyboardDismissMode="interactive"
@@ -361,10 +363,10 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
         />
         {!atBottom ? (
           <Pressable onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })} accessibilityRole="button" accessibilityLabel="Jump to latest" style={[styles.jump, { backgroundColor: theme.colors.popover, borderColor: theme.colors.border }]}>
-            <Icon name="arrow-down" size={ICON.small} color={theme.colors.foreground} />
+            <Icon name="arrow-down" size={ICON_SIZE.small} color={theme.colors.foreground} />
           </Pressable>
         ) : null}
-        <View style={[styles.composer, { paddingHorizontal: theme.pagePadding, paddingBottom: Math.max(composerBottomInset, 8) }]}>
+        <View style={[styles.composer, { paddingHorizontal: gutter, paddingBottom: Math.max(composerBottomInset, SPACE.small) }]}>
           <Composer
             name={name}
             value={draft}
@@ -391,22 +393,19 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
   )
 }
 
-// Kept from before the radius roles: the identity pill is rounder than any role.
-const IDENTITY_RADIUS = 25
-
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   flex: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth },
-  identity: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: IDENTITY_RADIUS, paddingVertical: 6, paddingLeft: 6, paddingRight: 12, minHeight: LEGACY_SIZE.hit, maxWidth: '70%' },
+  header: { flexDirection: 'row', alignItems: 'center', gap: SPACE.small, minHeight: SIZE.large, paddingBottom: SPACE.small, borderBottomWidth: StyleSheet.hairlineWidth },
+  identity: { flexDirection: 'row', alignItems: 'center', gap: SPACE.small, borderWidth: 1, borderRadius: RADIUS.full, paddingVertical: SPACE.extraSmall, paddingLeft: SPACE.extraSmall, paddingRight: SPACE.medium, minHeight: RULE.touch, maxWidth: '70%' },
   name: { ...TYPE.bodyStrong, flexShrink: 1 },
   spacer: { flex: 1 },
-  list: { paddingVertical: 20 },
-  center: { padding: 20 },
+  list: { paddingVertical: SPACE.extraLarge },
+  center: { padding: SPACE.extraLarge },
   error: { ...TYPE.callout, lineHeight: LEADING.callout, textAlign: 'center' },
-  errorLine: { marginHorizontal: 20, marginTop: 6, padding: 10, borderRadius: LEGACY_RADIUS.small },
+  errorLine: { marginHorizontal: SPACE.extraLarge, marginTop: SPACE.extraSmall, padding: SPACE.small, borderRadius: RADIUS.medium },
   errorText: { ...TYPE.footnote, lineHeight: LEADING.footnote },
-  state: { ...TYPE.footnote, lineHeight: LEADING.footnote, textAlign: 'center', marginVertical: 8 },
-  jump: { position: 'absolute', right: 20, bottom: 96, width: LEGACY_SIZE.hit, height: LEGACY_SIZE.hit, borderRadius: LEGACY_SIZE.hit / 2, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  composer: { paddingTop: 4 }
+  state: { ...TYPE.footnote, lineHeight: LEADING.footnote, textAlign: 'center', marginVertical: SPACE.small },
+  jump: { position: 'absolute', right: SPACE.extraLarge, bottom: RULE.floatingBottom, width: RULE.touch, height: RULE.touch, borderRadius: RULE.touch / 2, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  composer: { paddingTop: SPACE.extraSmall }
 })

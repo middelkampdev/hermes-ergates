@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 import type { ChatItem } from '@/features/chat'
 import { formatClock } from '@/lib/time'
 import { useTheme } from '@/theme/provider'
-import { LEADING, TYPE } from '@/theme/tokens'
+import { LEADING, RADIUS, SPACE, TYPE } from '@/theme/tokens'
 import { MarkdownText } from '@/ui/MarkdownText'
 
 type UserItem = Extract<ChatItem, { kind: 'user' }>
@@ -14,7 +14,7 @@ export function AssistantBubble({ item, streaming }: { item: AssistantItem; stre
   const theme = useTheme()
   return (
     <View style={styles.leftWrap} accessibilityLabel={`Assistant: ${item.text}`}>
-      <View style={[styles.bubble, { backgroundColor: theme.colors.muted, borderRadius: theme.radius.bubble }]}>
+      <View style={[styles.bubble, { backgroundColor: theme.colors.muted, borderRadius: RADIUS.extraLarge }]}>
         {/* Cancels the last paragraph's bottom margin so a one-line reply is 24 + 2 x 12 tall, like a user bubble. */}
         <View style={styles.markdown}>
           <MarkdownText>{item.text}</MarkdownText>
@@ -30,7 +30,7 @@ export function StreamingBubble({ text }: { text: string }) {
   const theme = useTheme()
   return (
     <View style={styles.leftWrap}>
-      <View style={[styles.bubble, { backgroundColor: theme.colors.muted, borderRadius: theme.radius.bubble }]}>
+      <View style={[styles.bubble, { backgroundColor: theme.colors.muted, borderRadius: RADIUS.extraLarge }]}>
         <Text style={[styles.body, { color: theme.colors.foreground }]}>
           {/* Models often open with blank lines; Markdown drops them in the final bubble, so the live one must too. */}
           {text.replace(/^\s+/, '')}
@@ -59,7 +59,7 @@ export function UserBubble({ item, onRetry, showTime }: { item: UserItem; onRetr
   const retryable = (delivery === 'unconfirmed' || delivery === 'failed') && item.localId && onRetry
   return (
     <View style={styles.rightWrap} accessibilityLabel={`You: ${item.text}`}>
-      <View style={[styles.bubble, { backgroundColor: theme.colors.userBubble, borderRadius: theme.radius.bubble }]}>
+      <View style={[styles.bubble, { backgroundColor: theme.colors.userBubble, borderRadius: RADIUS.extraLarge }]}>
         <Text style={[styles.body, { color: theme.colors.foreground }]}>{item.text}</Text>
       </View>
       {note ? (
@@ -74,11 +74,11 @@ export function UserBubble({ item, onRetry, showTime }: { item: UserItem; onRetr
 }
 
 const styles = StyleSheet.create({
-  leftWrap: { alignItems: 'flex-start', maxWidth: '88%', alignSelf: 'flex-start', marginVertical: 4 },
-  rightWrap: { alignItems: 'flex-end', maxWidth: '88%', alignSelf: 'flex-end', marginVertical: 4 },
-  bubble: { paddingVertical: 12, paddingHorizontal: 16 },
-  markdown: { marginBottom: -10 },
+  leftWrap: { alignItems: 'flex-start', maxWidth: '88%', alignSelf: 'flex-start', marginVertical: SPACE.extraSmall },
+  rightWrap: { alignItems: 'flex-end', maxWidth: '88%', alignSelf: 'flex-end', marginVertical: SPACE.extraSmall },
+  bubble: { paddingVertical: SPACE.medium, paddingHorizontal: SPACE.large },
+  markdown: { marginBottom: -SPACE.small },
   body: { ...TYPE.body, lineHeight: LEADING.body },
   cursor: { ...TYPE.body, lineHeight: LEADING.body },
-  meta: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: 4, marginHorizontal: 8 }
+  meta: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: SPACE.extraSmall, marginHorizontal: SPACE.small }
 })

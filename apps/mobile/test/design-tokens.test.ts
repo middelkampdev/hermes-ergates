@@ -18,8 +18,10 @@
  *
  * BASELINE lists the files that still hold values the `step` rule rejects. It
  * only shrinks: a file leaves it when it is clean, and a test fails until it
- * does. GEOMETRY lists the files whose remaining values are drag, motion or
- * platform geometry rather than design values, each with its reason.
+ * does. GEOMETRY lists the files that keep drag, motion or platform geometry
+ * in named UPPER_CASE constants, each with its reason. Only those constants
+ * pass there: an inline literal in a GEOMETRY file is still reported, so a new
+ * design value cannot hide behind the file's entry.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
@@ -32,35 +34,18 @@ const FOLDERS = ['app', 'src/ui']
 const NUMERIC_KEYS = new Set(['fontSize', 'lineHeight', 'letterSpacing', 'borderRadius', 'opacity'])
 const SPACING_KEY = /^(padding|margin)(Top|Bottom|Left|Right|Horizontal|Vertical|Start|End)?$|^(gap|rowGap|columnGap)$/
 const SIZE_KEYS = new Set(['width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight', 'top', 'right', 'bottom', 'left'])
-const STEP_CONSTANT = /SIZE|RADIUS|WIDTH|HEIGHT|PADDING|GAP|INSET|SPACING|MARGIN|OPACITY|LEADING|LINE_HEIGHT|WEIGHT|FONT/
+const STEP_CONSTANT = /SIZE|RADIUS|WIDTH|HEIGHT|PADDING|GAP|INSET|SPACING|MARGIN|OPACITY|LEADING|LINE_HEIGHT|WEIGHT|FONT|TOUCH/
+/** A module-level constant's name, the only kind of finding a GEOMETRY entry exempts. */
+const CONSTANT_NAME = /^[A-Z][A-Z0-9_]*$/
 const HEX = /^#[0-9a-f]{3,8}$/i
 const RGB = /^rgba?\(/i
 
-const BASELINE: ReadonlySet<string> = new Set<string>([
-  'app/chat/[profile]/activity.tsx',
-  'app/chat/[profile]/exchange.tsx',
-  'app/chat/[profile]/index.tsx',
-  'app/index.tsx',
-  'src/ui/chat/BotMessageBubble.tsx',
-  'src/ui/chat/Bubble.tsx',
-  'src/ui/chat/Cards.tsx',
-  'src/ui/chat/Composer.tsx',
-  'src/ui/chat/ExchangeRow.tsx',
-  'src/ui/chat/NoticeRow.tsx',
-  'src/ui/chat/ProposalCard.tsx',
-  'src/ui/chat/Rows.tsx',
-  'src/ui/home-list/EditBar.tsx',
-  'src/ui/home-list/HomeRow.tsx',
-  'src/ui/home-list/HomeSectionHeader.tsx',
-  'src/ui/home-list/HomeTopBar.tsx',
-  'src/ui/home-list/PinnedArea.tsx',
-  'src/ui/home-list/SectionGhostRow.tsx',
-  'src/ui/home-list/SelectionCircle.tsx'
-])
+const BASELINE: ReadonlySet<string> = new Set<string>([])
 
-/** A file goes here only when every value the `step` rule flags in it is drag, motion or platform geometry; the reason says which. */
+/** A file goes here only when it keeps drag, motion or platform geometry in named constants; the reason says which. */
 const GEOMETRY: ReadonlyMap<string, string> = new Map<string, string>([
-  ['src/ui/SwitchRow.tsx', 'the height of the native iOS switch frame, which sits beside its translateY offset']
+  ['src/ui/SwitchRow.tsx', 'the height of the native iOS switch frame, which sits beside its translateY offset'],
+  ['src/ui/home-list/PinnedArea.tsx', 'PIN_WIDTH, the pin cell width that pinCells, swipe to select and the drag between pins and rows measure with']
 ])
 
 /** `token`: a type, radius, opacity or color value. `step`: a spacing, size, size prop or size constant. */
@@ -84,6 +69,7 @@ const styles = StyleSheet.create({
 const SEND_SIZE = 38
 const MENU_RADIUS = 16
 const HOVER_OPACITY = 0.35
+const MOVE_TOUCH = 44
 export const Inline = () => (
   <View style={{ backgroundColor: '#fff', color: 'rgba(0,0,0,0.25)' }}>
     <Icon size={22} />
@@ -96,6 +82,8 @@ const GOOD = `
 const MAX = 1
 const CIRCLE_COLUMN = SPACE.huge
 const DURATION = 220
+const CHIP_HIT_SLOP = 6
+const MOVE_TOUCH = RULE.touch
 const styles = StyleSheet.create({
   title: { ...TYPE.body },
   card: { borderRadius: RADIUS.large, borderWidth: StyleSheet.hairlineWidth },
@@ -127,6 +115,17 @@ export const Inline = ({ size, gutter, pressed, progress }) => (
     <Text>{'#hashtag'}</Text>
   </View>
 )
+`
+
+/** A file with drag geometry: its named constants may stay, its inline literals may not. */
+const GEOMETRY_SOURCE = `
+const PIN_WIDTH = 96
+const PIN_GAP = SPACE.huge
+const styles = StyleSheet.create({
+  pin: { gap: 8, width: PIN_WIDTH },
+  dot: { top: 2, width: SIZE.tiny }
+})
+export const Pin = () => <Grip size={19} />
 `
 
 function propertyName(name: ts.PropertyName): string | undefined {
@@ -253,6 +252,11 @@ function scanApp(): Map<string, Finding[]> {
   return result
 }
 
+/** The `step` findings a file must fix: all of them, or in a GEOMETRY file all but its named constants. */
+function stepFindings(found: Finding[], geometry: boolean): Finding[] {
+  return found.filter(({ rule, key }) => rule === 'step' && !(geometry && CONSTANT_NAME.test(key)))
+}
+
 const offender = (file: string, { line, key, text }: Finding): string => `${file}:${line} ${key} ${text}`
 
 describe('design tokens', () => {
@@ -278,13 +282,14 @@ describe('design tokens', () => {
       'SEND_SIZE',
       'MENU_RADIUS',
       'HOVER_OPACITY',
+      'MOVE_TOUCH',
       'backgroundColor',
       'color',
       'size',
       'size',
       'size'
     ])
-    expect(found).toHaveLength(24)
+    expect(found).toHaveLength(25)
     expect(found.filter(({ rule }) => rule === 'step').map(({ text }) => text)).toEqual([
       '6',
       '40',
@@ -296,6 +301,7 @@ describe('design tokens', () => {
       '38',
       '16',
       '0.35',
+      '44',
       '22',
       '60',
       '30'
@@ -304,6 +310,13 @@ describe('design tokens', () => {
 
   it('lets tokens and computed values through', () => {
     expect(findRawStyleValues(GOOD, 'good.tsx')).toEqual([])
+  })
+
+  it('in a geometry file lets only the named constants through', () => {
+    const found = findRawStyleValues(GEOMETRY_SOURCE, 'geometry.tsx')
+    const listed = (geometry: boolean) => stepFindings(found, geometry).map(({ key, text }) => `${key} ${text}`)
+    expect(listed(false)).toEqual(['PIN_WIDTH 96', 'gap 8', 'top 2', 'size 19'])
+    expect(listed(true)).toEqual(['gap 8', 'top 2', 'size 19'])
   })
 
   it(
@@ -321,8 +334,8 @@ describe('design tokens', () => {
     'app and shared UI use the spacing and size steps',
     () => {
       const offenders = [...scanApp()]
-        .filter(([file]) => !BASELINE.has(file) && !GEOMETRY.has(file))
-        .flatMap(([file, found]) => found.filter(({ rule }) => rule === 'step').map(finding => offender(file, finding)))
+        .filter(([file]) => !BASELINE.has(file))
+        .flatMap(([file, found]) => stepFindings(found, GEOMETRY.has(file)).map(finding => offender(file, finding)))
       expect(
         offenders,
         `use a step from src/theme/tokens.ts, or a named rule for a length that is neither a step nor geometry:\n${offenders.join('\n')}`
@@ -345,8 +358,8 @@ describe('design tokens', () => {
     'the geometry list only holds files that still have such a value, each with a reason',
     () => {
       const scan = scanApp()
-      const stale = [...GEOMETRY.keys()].filter(file => !(scan.get(file) ?? []).some(({ rule }) => rule === 'step'))
-      expect(stale, `remove from GEOMETRY, these files are clean:\n${stale.join('\n')}`).toEqual([])
+      const stale = [...GEOMETRY.keys()].filter(file => !(scan.get(file) ?? []).some(({ rule, key }) => rule === 'step' && CONSTANT_NAME.test(key)))
+      expect(stale, `remove from GEOMETRY, these files keep no geometry constant:\n${stale.join('\n')}`).toEqual([])
       const noReason = [...GEOMETRY].filter(([, reason]) => reason.trim() === '' || reason.includes('\n')).map(([file]) => file)
       expect(noReason, `give each file one line saying which drag, motion or platform value it holds:\n${noReason.join('\n')}`).toEqual([])
       const both = [...GEOMETRY.keys()].filter(file => BASELINE.has(file))

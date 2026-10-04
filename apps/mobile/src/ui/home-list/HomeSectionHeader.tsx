@@ -20,11 +20,10 @@ import Sortable from 'react-native-sortables'
 
 import { EDIT_ITEM_HEIGHT, EDIT_SECTION_ACTION, type MoveAction, type SectionDragEvent } from '@/features/agents'
 import { useTheme } from '@/theme/provider'
-import { TYPE } from '@/theme/tokens'
+import { ICON_SIZE, RULE, SPACE, TYPE } from '@/theme/tokens'
 
 import { Icon } from '../icons'
 import { Grip } from './Grip'
-import { MAX_FONT_SCALE } from './HomeRow'
 import { HANDLE_WIDTH, handleOffset } from './row-offsets'
 
 export interface HomeSectionHeaderProps {
@@ -62,10 +61,10 @@ export function HomeSectionHeader({ name, expanded, editing, layoutEditing, prog
         hitSlop={editing ? undefined : { right: gutter }}
         style={[styles.name, { paddingLeft: gutter }]}
       >
-        <Text numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE} style={[styles.text, { color: theme.colors.mutedForeground }]}>
+        <Text numberOfLines={1} maxFontSizeMultiplier={RULE.maxFontScale} style={[styles.text, { color: theme.colors.mutedForeground }]}>
           {name}
         </Text>
-        <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={16} color={theme.colors.mutedForeground} />
+        <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={ICON_SIZE.small} color={theme.colors.mutedForeground} />
       </Pressable>
       {/* A plain (not animated) width: it only ever takes one of two values, switched once per toggle by `layoutEditing`, never per frame. */}
       <View pointerEvents={editing ? 'auto' : 'none'} style={[styles.trailing, { width: gutter + (layoutEditing ? HANDLE_WIDTH : 0) }]}>
@@ -88,7 +87,7 @@ export function HomeSectionHeader({ name, expanded, editing, layoutEditing, prog
 
 const styles = StyleSheet.create({
   header: { height: EDIT_ITEM_HEIGHT.section, flexDirection: 'row', alignItems: 'center' },
-  name: { flex: 1, alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: 4 },
+  name: { flex: 1, alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: SPACE.extraSmall },
   text: { ...TYPE.footnote },
   trailing: { alignSelf: 'stretch', overflow: 'hidden', alignItems: 'flex-end' },
   fill: { flex: 1 },

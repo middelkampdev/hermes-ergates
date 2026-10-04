@@ -15,17 +15,14 @@ import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import type { EditBarLabels } from '@/features/agents'
 import { useTheme } from '@/theme/provider'
-import { LEGACY_OPACITY, TYPE, type MobileTheme } from '@/theme/tokens'
+import { OPACITY, RULE, SPACE, TYPE } from '@/theme/tokens'
 
 import { useBottomInset } from '../use-bottom-inset'
-import { MAX_FONT_SCALE } from './HomeRow'
 import { useShowProgress } from './motion'
 
-const BAR_PADDING_TOP = 4
-
 /** The bar's fixed height, its own bottom-safe-area padding included. */
-export function editBarHeight(theme: MobileTheme, bottomInset: number): number {
-  return StyleSheet.hairlineWidth + BAR_PADDING_TOP + theme.hit + bottomInset
+export function editBarHeight(bottomInset: number): number {
+  return StyleSheet.hairlineWidth + SPACE.extraSmall + RULE.touch + bottomInset
 }
 
 export interface EditBarProps {
@@ -43,7 +40,7 @@ export function EditBar({ labels, shown, onMove, onPin, onHide, onRead }: EditBa
   // A fixed bottom bar: it draws its background to the screen edge and pads
   // its own content by the inset, so the buttons sit above the home indicator.
   const bottomInset = useBottomInset()
-  const height = editBarHeight(theme, bottomInset)
+  const height = editBarHeight(bottomInset)
   const progress = useShowProgress(shown)
   const slide = useAnimatedStyle(() => ({ transform: [{ translateY: (1 - progress.get()) * height }] }))
 
@@ -74,9 +71,9 @@ export function EditBar({ labels, shown, onMove, onPin, onHide, onRead }: EditBa
           onPress={action.onPress}
           accessibilityRole="button"
           accessibilityLabel={action.label}
-          style={({ pressed }) => [styles.action, { minHeight: theme.hit, opacity: pressed ? LEGACY_OPACITY.pressed : 1 }]}
+          style={({ pressed }) => [styles.action, { minHeight: RULE.touch, opacity: pressed ? OPACITY.strong : 1 }]}
         >
-          <Text numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE} style={[styles.label, { color: theme.colors.primary }]}>
+          <Text numberOfLines={1} maxFontSizeMultiplier={RULE.maxFontScale} style={[styles.label, { color: theme.colors.primary }]}>
             {action.label}
           </Text>
         </Pressable>
@@ -86,7 +83,7 @@ export function EditBar({ labels, shown, onMove, onPin, onHide, onRead }: EditBa
 }
 
 const styles = StyleSheet.create({
-  frame: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, paddingTop: BAR_PADDING_TOP },
+  frame: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, paddingTop: SPACE.extraSmall },
   action: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   label: { ...TYPE.calloutStrong }
 })

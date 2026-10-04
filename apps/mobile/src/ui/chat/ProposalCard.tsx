@@ -13,11 +13,8 @@ import { useProposal } from '@/features/chat'
 import { userMessage } from '@/gateway/errors'
 import type { AgentProposal } from '@/gateway/types'
 import { useTheme } from '@/theme/provider'
-import { LEADING, TYPE } from '@/theme/tokens'
+import { LEADING, RADIUS, SPACE, TYPE } from '@/theme/tokens'
 import { Button, type ButtonVariant } from '@/ui/Button'
-
-/** The proposal body leads one point tighter than the callout leading. */
-const BODY_LINE_HEIGHT = 21
 
 const LABELS: Record<ProposalAction, string> = {
   accept: 'Accept',
@@ -66,7 +63,7 @@ export function ProposalCard({ proposal, onOpenChat }: { proposal: AgentProposal
 
   const statusColor = view.status === 'failed' || view.status === 'closed' ? theme.colors.destructive : theme.colors.mutedForeground
   return (
-    <View style={[styles.card, { backgroundColor: theme.colors.muted, borderRadius: theme.radius.bubble }]} accessibilityLabel={`Proposed agent ${agent.title}`}>
+    <View style={[styles.card, { backgroundColor: theme.colors.muted, borderRadius: RADIUS.extraLarge }]} accessibilityLabel={`Proposed agent ${agent.title}`}>
       <Text style={[styles.kicker, { color: theme.colors.mutedForeground }]}>New agent proposed</Text>
       <Text style={[styles.title, { color: theme.colors.foreground }]}>
         {agent.title} · {agent.role}
@@ -93,10 +90,10 @@ export function ProposalCard({ proposal, onOpenChat }: { proposal: AgentProposal
 }
 
 const styles = StyleSheet.create({
-  card: { paddingVertical: 12, paddingHorizontal: 16, marginVertical: 6, gap: 6, alignSelf: 'stretch' },
+  card: { paddingVertical: SPACE.medium, paddingHorizontal: SPACE.large, marginVertical: SPACE.extraSmall, gap: SPACE.extraSmall, alignSelf: 'stretch' },
   kicker: { ...TYPE.footnote },
   title: { ...TYPE.bodyStrong, lineHeight: LEADING.body },
-  body: { ...TYPE.callout, lineHeight: BODY_LINE_HEIGHT },
+  body: { ...TYPE.callout, lineHeight: LEADING.callout },
   meta: { ...TYPE.footnote, lineHeight: LEADING.footnote },
-  actions: { gap: 8, marginTop: 6 }
+  actions: { gap: SPACE.small, marginTop: SPACE.extraSmall }
 })

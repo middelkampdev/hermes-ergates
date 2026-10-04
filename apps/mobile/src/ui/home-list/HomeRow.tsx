@@ -19,7 +19,7 @@
  * over from the body for swipe to select (gated by `pointerEvents`, not by
  * rebuilding the gesture: see `swipeGesture` below). The row has a fixed
  * height (the section drag and swipe to select measure with it), so its
- * text grows with the system text size only up to 1.4 times, in both modes.
+ * text grows with the system text size only up to `RULE.maxFontScale`, in both modes.
  *
  * The row's background is its own bottom layer, not its root's color: while
  * the lifted row is over the pinned avatars (`hovering`, from
@@ -36,7 +36,7 @@ import Sortable from 'react-native-sortables'
 import { EDIT_ITEM_HEIGHT, editRowLabel, useAvatar, type Bot, type MoveAction } from '@/features/agents'
 import { formatRowTime } from '@/lib/time'
 import { useTheme } from '@/theme/provider'
-import { AVATAR } from '@/theme/tokens'
+import { RULE, SIZE } from '@/theme/tokens'
 
 import type { AnchorRect } from '../ActionMenu'
 import { Avatar } from '../Avatar'
@@ -45,8 +45,6 @@ import { Grip } from './Grip'
 import { CIRCLE_COLUMN, HANDLE_WIDTH, handleOffset, rowOffsets } from './row-offsets'
 import { SelectionCircle } from './SelectionCircle'
 import type { SwipeSelect } from './use-swipe-select'
-
-export const MAX_FONT_SCALE = 1.4
 
 export interface HomeRowProps {
   bot: Bot
@@ -115,12 +113,12 @@ export function HomeRow(props: HomeRowProps) {
         <Animated.View style={[styles.bodyContent, { paddingLeft: gutter }, body]}>
           <RowContent
             name={bot.name}
-            avatar={<Avatar name={bot.name} color={bot.color} imageUri={avatar.data ?? null} size={AVATAR.list} />}
+            avatar={<Avatar name={bot.name} color={bot.color} imageUri={avatar.data ?? null} size={SIZE.large} />}
             role={bot.role}
             time={time}
             preview={preview}
             unread={unread}
-            maxFontScale={MAX_FONT_SCALE}
+            maxFontScale={RULE.maxFontScale}
             // Its own extra slide keeps the time, and the unread dot, from ever sitting under the incoming ≡ (row-offsets.ts).
             trailingStyle={timeDot}
           />

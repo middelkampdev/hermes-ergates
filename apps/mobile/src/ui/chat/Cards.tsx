@@ -10,7 +10,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import type { ChatItem } from '@/features/chat'
 import type { ApprovalChoice } from '@/gateway/types'
 import { useTheme } from '@/theme/provider'
-import { LEADING, LEGACY_RADIUS, TYPE } from '@/theme/tokens'
+import { LEADING, RADIUS, RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 
 type ClarifyItem = Extract<ChatItem, { kind: 'clarify' }>
@@ -80,7 +80,7 @@ export function ClarifyCard({
   const canSubmit = pending && item.questions.every(q => (selected[q.qid] ?? []).length > 0)
 
   return (
-    <View style={[styles.card, { backgroundColor: theme.colors.muted, borderRadius: theme.radius.bubble }]} accessibilityLabel="Question from the assistant">
+    <View style={[styles.card, { backgroundColor: theme.colors.muted, borderRadius: RADIUS.extraLarge }]} accessibilityLabel="Question from the assistant">
       {item.questions.map(q => (
         <View key={q.qid} style={styles.question}>
           <Text style={[styles.title, { color: theme.colors.foreground }]}>{q.question}</Text>
@@ -137,7 +137,7 @@ export function ApprovalCard({ item, onChoose }: { item: ApprovalItem; onChoose:
   const pending = item.state === 'pending'
   const choices = (item.payload.choices?.length ? item.payload.choices : (['once', 'session', 'always', 'deny'] as ApprovalChoice[])).filter((c): c is ApprovalChoice => c in CHOICE_LABEL)
   return (
-    <View style={[styles.card, { backgroundColor: theme.colors.muted, borderRadius: theme.radius.bubble }]} accessibilityLabel="Approval request">
+    <View style={[styles.card, { backgroundColor: theme.colors.muted, borderRadius: RADIUS.extraLarge }]} accessibilityLabel="Approval request">
       <Text style={[styles.title, { color: theme.colors.foreground }]}>{item.payload.description || 'The assistant asks permission to run a command.'}</Text>
       {item.payload.command ? (
         <Text style={[styles.command, { color: theme.colors.foreground, backgroundColor: theme.colors.background }]} numberOfLines={6}>
@@ -157,20 +157,15 @@ export function ApprovalCard({ item, onChoose }: { item: ApprovalItem; onChoose:
   )
 }
 
-/** The command block's own monospace size, leading and corner. */
-const COMMAND_FONT_SIZE = 14
-const COMMAND_LINE_HEIGHT = 20
-const COMMAND_RADIUS = 10
-
 const styles = StyleSheet.create({
-  card: { paddingVertical: 12, paddingHorizontal: 16, marginVertical: 6, gap: 8, alignSelf: 'stretch' },
-  question: { gap: 8 },
+  card: { paddingVertical: SPACE.medium, paddingHorizontal: SPACE.large, marginVertical: SPACE.extraSmall, gap: SPACE.small, alignSelf: 'stretch' },
+  question: { gap: SPACE.small },
   title: { ...TYPE.bodyStrong, lineHeight: LEADING.body },
   hint: { ...TYPE.footnote, lineHeight: LEADING.footnote },
-  option: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48, paddingHorizontal: 12, borderRadius: LEGACY_RADIUS.chip, borderWidth: 1 },
-  letter: { ...TYPE.calloutStrong, width: 18 },
+  option: { flexDirection: 'row', alignItems: 'center', gap: SPACE.small, minHeight: SIZE.large, paddingHorizontal: SPACE.medium, borderRadius: RADIUS.medium, borderWidth: 1 },
+  letter: { ...TYPE.calloutStrong, width: SIZE.extraSmall },
   optionText: { ...TYPE.body, flex: 1 },
-  input: { minHeight: 44, borderRadius: LEGACY_RADIUS.chip, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, ...TYPE.body },
-  actions: { gap: 8, marginTop: 4 },
-  command: { fontFamily: 'Menlo', fontSize: COMMAND_FONT_SIZE, lineHeight: COMMAND_LINE_HEIGHT, padding: 10, borderRadius: COMMAND_RADIUS }
+  input: { minHeight: RULE.touch, borderRadius: RADIUS.medium, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: SPACE.medium, ...TYPE.body },
+  actions: { gap: SPACE.small, marginTop: SPACE.extraSmall },
+  command: { ...TYPE.footnote, fontFamily: 'Menlo', lineHeight: LEADING.footnote, padding: SPACE.small, borderRadius: RADIUS.small }
 })

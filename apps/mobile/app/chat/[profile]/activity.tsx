@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { useChatSession, type ActivityEntry } from '@/features/chat'
 import { useTheme } from '@/theme/provider'
-import { LEADING, TYPE } from '@/theme/tokens'
+import { ICON_SIZE, LEADING, RADIUS, RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { Card } from '@/ui/Card'
 import { Icon } from '@/ui/icons'
 import { Sheet } from '@/ui/Sheet'
@@ -81,13 +81,13 @@ function ReasoningRow({ entry }: { entry: ActivityEntry }) {
       accessibilityRole="button"
       accessibilityState={{ expanded: !collapsed }}
       accessibilityLabel={entry.title}
-      style={[styles.entryRow, { minHeight: theme.hit }]}
+      style={[styles.entryRow, { minHeight: RULE.touch }]}
     >
       <View style={styles.reasoningHead}>
         <Text numberOfLines={1} style={[styles.title, styles.reasoningSummary, { color: theme.colors.foreground }]}>
           {firstLine}
         </Text>
-        <Icon name={collapsed ? 'chevron-down' : 'chevron-up'} size={16} color={theme.colors.mutedForeground} />
+        <Icon name={collapsed ? 'chevron-down' : 'chevron-up'} size={ICON_SIZE.small} color={theme.colors.mutedForeground} />
       </View>
       {collapsed ? null : <Text style={[styles.detail, { color: theme.colors.mutedForeground }]}>{entry.detail}</Text>}
     </Pressable>
@@ -110,23 +110,17 @@ function DetailRow({ entry, code }: { entry: ActivityEntry; code?: boolean }) {
   )
 }
 
-// Values kept from before the type roles: no role has a 20 pt line height, a 14 pt code size and leading, or a 10 pt radius.
-const TITLE_LEADING = 20
-const CODE_SIZE = 14
-const CODE_LEADING = 20
-const CODE_RADIUS = 10
-
 const styles = StyleSheet.create({
-  row: { paddingVertical: 12, paddingHorizontal: 16, gap: 2, minHeight: 52 },
-  entryRow: { paddingVertical: 12, paddingHorizontal: 16, gap: 4, minHeight: 52 },
+  row: { paddingVertical: SPACE.medium, paddingHorizontal: SPACE.large, gap: SPACE.hairline, minHeight: SIZE.large },
+  entryRow: { paddingVertical: SPACE.medium, paddingHorizontal: SPACE.large, gap: SPACE.extraSmall, minHeight: SIZE.large },
   label: { ...TYPE.footnote },
   value: { ...TYPE.body },
-  group: { marginTop: 16, gap: 6 },
-  groupTitle: { ...TYPE.footnote, marginLeft: 16 },
-  title: { ...TYPE.callout, lineHeight: TITLE_LEADING },
-  reasoningHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  group: { marginTop: SPACE.large, gap: SPACE.extraSmall },
+  groupTitle: { ...TYPE.footnote, marginLeft: SPACE.large },
+  title: { ...TYPE.callout, lineHeight: LEADING.footnote },
+  reasoningHead: { flexDirection: 'row', alignItems: 'center', gap: SPACE.small },
   reasoningSummary: { flexGrow: 1, flexShrink: 1, flexBasis: 'auto' },
   detail: { ...TYPE.footnote, lineHeight: LEADING.footnote },
-  code: { fontFamily: 'Menlo', fontSize: CODE_SIZE, lineHeight: CODE_LEADING, padding: 10, borderRadius: CODE_RADIUS },
-  hint: { ...TYPE.callout, lineHeight: LEADING.callout, marginTop: 16 }
+  code: { ...TYPE.footnote, fontFamily: 'Menlo', lineHeight: LEADING.footnote, padding: SPACE.small, borderRadius: RADIUS.small },
+  hint: { ...TYPE.callout, lineHeight: LEADING.callout, marginTop: SPACE.large }
 })

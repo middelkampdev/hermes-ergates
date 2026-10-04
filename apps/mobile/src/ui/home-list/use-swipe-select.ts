@@ -357,9 +357,9 @@ export function usePinSwipeSelect(
           // area's own coordinates (what `pinCells` computes); `badgeOffset`
           // is the badge's fixed top left inside that cell; `event.x`/`.y`
           // are measured from the badge's own top left. A touch near the
-          // badge's center (event.x ≈ event.y ≈ BADGE_SIZE / 2, 16 pt) lands
-          // at roughly cell.x + 18.3 and cell.y + 12.3 (BADGE_OFFSET in
-          // PinnedArea.tsx is {x: 2.3, y: -3.7} there) — inside the cell's
+          // badge's center (event.x ≈ event.y ≈ BADGE_SIZE / 2, 14 pt) lands
+          // at roughly cell.x + 16.9 and cell.y + 12.9 (BADGE_OFFSET in
+          // PinnedArea.tsx is {x: 2.9, y: -1.1} there) — inside the cell's
           // own [0, PIN_WIDTH) × [0, PIN_CELL_HEIGHT), so `pinAt` below finds
           // this same pin.
           track(cell.x + badgeOffset.x + event.x, cell.y + badgeOffset.y + event.y)

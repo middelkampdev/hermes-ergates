@@ -95,7 +95,9 @@ describe('step scales', () => {
       panelWidth: 240,
       textAreaMinHeight: 128,
       stackedTableWidth: 400,
-      labelMaxWidth: 113
+      labelMaxWidth: 113,
+      fileNameMaxWidth: 200,
+      floatingBottom: 96
     })
   })
   it('lists each scale from small to large', () => {

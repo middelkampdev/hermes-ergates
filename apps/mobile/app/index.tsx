@@ -31,7 +31,7 @@ import { lightTap } from '@/lib/haptics'
 import { useDeviceStore } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
 import { useSkinStore } from '@/theme/skin-store'
-import { LEADING, TYPE } from '@/theme/tokens'
+import { LEADING, SPACE, TYPE } from '@/theme/tokens'
 import type { AnchorRect } from '@/ui/ActionMenu'
 import { BotActions } from '@/ui/BotActions'
 import { EditBar, editBarHeight } from '@/ui/home-list/EditBar'
@@ -50,14 +50,12 @@ export default function HomeScreen() {
   return <Home connectionId={connection.id} connectionLabel={connection.label} />
 }
 
-const LIST_BOTTOM_PADDING = 40
-
 function Home({ connectionId, connectionLabel }: { connectionId: string; connectionLabel: string }) {
   const theme = useTheme()
   const router = useRouter()
   // The roster list scrolls to the bottom edge of the phone; its content
   // carries the inset instead of Screen reserving a strip for it.
-  const listBottomInset = useBottomInset(LIST_BOTTOM_PADDING)
+  const listBottomInset = useBottomInset(SPACE.giant)
   // The bottom bar is a fixed overlay, not part of the flex layout, so while
   // it is up the list reserves its height (the bar's own inset included) on
   // top of the list's usual end margin, so the last row can scroll clear of it.
@@ -276,8 +274,8 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
           toggleCollapsed(connectionId, sectionId)
         }}
         onEditSection={editSection}
-        bottomPadding={editing && selection.size > 0 ? editBarHeight(theme, barBottomInset) + LIST_BOTTOM_PADDING : listBottomInset}
-        bottomCover={editing && selection.size > 0 ? editBarHeight(theme, barBottomInset) : 0}
+        bottomPadding={editing && selection.size > 0 ? editBarHeight(barBottomInset) + SPACE.giant : listBottomInset}
+        bottomCover={editing && selection.size > 0 ? editBarHeight(barBottomInset) : 0}
         header={
           home.error ? (
             <Text style={[styles.line, { color: theme.colors.destructive, paddingHorizontal: gutter }]} accessibilityRole="alert">
@@ -304,5 +302,5 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
 }
 
 const styles = StyleSheet.create({
-  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: 24, textAlign: 'center' }
+  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: SPACE.huge, textAlign: 'center' }
 })

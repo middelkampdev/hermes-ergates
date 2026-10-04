@@ -12,7 +12,7 @@ import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reani
 
 import { selectionTitle } from '@/features/agents'
 import { useTheme } from '@/theme/provider'
-import { TYPE } from '@/theme/tokens'
+import { SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 import { Button } from '../Button'
 import { IconButton } from '../IconButton'
@@ -71,8 +71,8 @@ export function HomeTopBar({ editing, progress, selectedCount, onSettings, onEdi
 }
 
 const styles = StyleSheet.create({
-  bar: { minHeight: 48, marginBottom: 12, justifyContent: 'center' },
-  layer: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48 },
+  bar: { minHeight: SIZE.large, marginBottom: SPACE.medium, justifyContent: 'center' },
+  layer: { flexDirection: 'row', alignItems: 'center', gap: SPACE.small, minHeight: SIZE.large },
   spacer: { flex: 1 },
   centered: { alignItems: 'center', justifyContent: 'center' },
   title: { ...TYPE.headline }

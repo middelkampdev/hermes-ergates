@@ -2,7 +2,7 @@ import React, { type ReactNode } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { LEADING, TYPE } from '@/theme/tokens'
+import { LEADING, RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 export interface ExchangeRowProps {
   text: string
@@ -10,13 +10,12 @@ export interface ExchangeRowProps {
   openable: boolean
   marked: boolean
   onPress?: () => void
-  /** Rendered avatar, e.g. `<PeerAvatar peer={...} size={18} connectionId={...} />`. */
+  /** Rendered avatar, e.g. `<PeerAvatar peer={...} size={SIZE.extraSmall} connectionId={...} />`. */
   avatar: ReactNode
 }
 
-/** The row is 32 pt tall like `EventRow`; slop lifts the tap target to the 44 pt contract (docs/10 section 4). */
-const HIT_SLOP = 8
-const DOT_SIZE = 6
+/** The row is `SIZE.small` tall like `EventRow`; slop lifts the tap target to `RULE.touch` (docs/10 section 4). */
+const HIT_SLOP = (RULE.touch - SIZE.small) / 2
 
 /**
  * One-line summary of a bot-to-bot exchange in the timeline (docs 5.4), in the reference's
@@ -53,7 +52,7 @@ export function ExchangeRow({ text, label, openable, marked, onPress, avatar }: 
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', maxWidth: '92%', minHeight: 32, paddingVertical: 6, gap: 6 },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', maxWidth: '92%', minHeight: SIZE.small, paddingVertical: SPACE.extraSmall, gap: SPACE.extraSmall },
   text: { ...TYPE.footnote, lineHeight: LEADING.footnote, flexShrink: 1, textAlign: 'center' },
-  dot: { width: DOT_SIZE, height: DOT_SIZE, borderRadius: DOT_SIZE / 2 }
+  dot: { width: SIZE.tiny, height: SIZE.tiny, borderRadius: SIZE.tiny / 2 }
 })

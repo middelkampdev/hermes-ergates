@@ -10,19 +10,18 @@
 import { StyleSheet, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
+import { OPACITY } from '@/theme/tokens'
 
 import { Icon } from '../icons'
 import { CIRCLE_SIZE } from './row-offsets'
 
 const CIRCLE_RING = 1.5
-/** The unselected ring on a row is `mutedForeground` at this strength. */
-const CIRCLE_RING_OPACITY = 0.55
 
 export function SelectionCircle({ selected, size = CIRCLE_SIZE, onAvatar = false }: { selected: boolean; size?: number; onAvatar?: boolean }) {
   const theme = useTheme()
   const ring = onAvatar
     ? { borderWidth: CIRCLE_RING, borderColor: theme.colors.mutedForeground, backgroundColor: theme.colors.background }
-    : { borderWidth: CIRCLE_RING, borderColor: theme.colors.mutedForeground, opacity: CIRCLE_RING_OPACITY }
+    : { borderWidth: CIRCLE_RING, borderColor: theme.colors.mutedForeground, opacity: OPACITY.medium }
   return (
     <View
       accessibilityElementsHidden

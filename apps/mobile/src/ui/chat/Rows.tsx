@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import type { ChatItem } from '@/features/chat'
 import { useTheme } from '@/theme/provider'
-import { LEADING, LEGACY_RADIUS, TYPE } from '@/theme/tokens'
+import { ICON_SIZE, LEADING, RADIUS, RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { Icon, type IconName } from '@/ui/icons'
 
 /** Compact centered event row (routine created, renamed, messaged X). */
@@ -11,7 +11,7 @@ export function EventRow({ text, icon = 'zap' }: { text: string; icon?: IconName
   const theme = useTheme()
   return (
     <View style={styles.event} accessibilityLabel={text}>
-      <Icon name={icon} size={14} color={theme.colors.mutedForeground} />
+      <Icon name={icon} size={ICON_SIZE.small} color={theme.colors.mutedForeground} />
       <Text style={[styles.eventText, { color: theme.colors.mutedForeground }]} numberOfLines={2}>
         {text}
       </Text>
@@ -59,7 +59,7 @@ export function ToolRow({ item, onPress, label, text }: { item: ToolItem; onPres
       accessibilityLabel={label ?? text ?? `${computedLabel}${detail ? `, ${detail}` : ''}`}
       style={styles.event}
     >
-      <Icon name={item.error ? 'alert-circle' : item.done ? 'check' : 'loader'} size={14} color={item.error ? theme.colors.destructive : theme.colors.mutedForeground} />
+      <Icon name={item.error ? 'alert-circle' : item.done ? 'check' : 'loader'} size={ICON_SIZE.small} color={item.error ? theme.colors.destructive : theme.colors.mutedForeground} />
       <Text style={[styles.eventText, { color: theme.colors.mutedForeground }]} numberOfLines={1}>
         {visible}
       </Text>
@@ -96,21 +96,17 @@ export function ConnectionLine({ state }: { state: 'idle' | 'connecting' | 'open
   )
 }
 
-const DOT_SIZE = 8
-/** The italic commentary leads one point tighter than the callout leading. */
-const COMMENTARY_LINE_HEIGHT = 21
-
 const styles = StyleSheet.create({
-  event: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 6, minHeight: 32, alignSelf: 'center', maxWidth: '92%' },
+  event: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.extraSmall, paddingVertical: SPACE.extraSmall, minHeight: SIZE.small, alignSelf: 'center', maxWidth: '92%' },
   eventText: { ...TYPE.footnote, lineHeight: LEADING.footnote, flexShrink: 1, textAlign: 'center' },
-  commentary: { alignSelf: 'flex-start', maxWidth: '88%', paddingVertical: 4, paddingHorizontal: 4 },
-  commentaryText: { ...TYPE.callout, lineHeight: COMMENTARY_LINE_HEIGHT, fontStyle: 'italic' },
-  date: { ...TYPE.footnote, textAlign: 'center', marginVertical: 12 },
-  working: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, minHeight: 44 },
-  dot: { width: DOT_SIZE, height: DOT_SIZE, borderRadius: DOT_SIZE / 2 },
+  commentary: { alignSelf: 'flex-start', maxWidth: '88%', paddingVertical: SPACE.extraSmall, paddingHorizontal: SPACE.extraSmall },
+  commentaryText: { ...TYPE.callout, lineHeight: LEADING.callout, fontStyle: 'italic' },
+  date: { ...TYPE.footnote, textAlign: 'center', marginVertical: SPACE.medium },
+  working: { flexDirection: 'row', alignItems: 'center', gap: SPACE.small, paddingVertical: SPACE.small, minHeight: SIZE.medium },
+  dot: { width: SIZE.tiny, height: SIZE.tiny, borderRadius: SIZE.tiny / 2 },
   workingText: { ...TYPE.callout, flex: 1 },
-  stop: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
+  stop: { minHeight: RULE.touch, justifyContent: 'center', paddingHorizontal: SPACE.small },
   stopText: { ...TYPE.calloutStrong },
-  connection: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: LEGACY_RADIUS.small, alignSelf: 'center', marginVertical: 6 },
+  connection: { paddingVertical: SPACE.extraSmall, paddingHorizontal: SPACE.medium, borderRadius: RADIUS.medium, alignSelf: 'center', marginVertical: SPACE.extraSmall },
   connectionText: { ...TYPE.footnote }
 })

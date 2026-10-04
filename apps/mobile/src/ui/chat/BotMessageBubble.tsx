@@ -2,12 +2,12 @@ import React, { type ReactNode } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { AVATAR, TYPE } from '@/theme/tokens'
+import { RADIUS, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { MarkdownText } from '@/ui/MarkdownText'
 
 /** Avatar footprint (docs/10 section 4) plus the row's gap, so the author label lines up with the bubble, not the avatar. */
-const AVATAR_SIZE = AVATAR.chat
-const AVATAR_GAP = 8
+const AVATAR_SIZE = SIZE.small
+const AVATAR_GAP = SPACE.small
 
 export interface BotMessageBubbleProps {
   /** Peer display name shown above the bubble. */
@@ -15,7 +15,7 @@ export interface BotMessageBubbleProps {
   text: string
   /** Accessibility label for the whole row. */
   label: string
-  /** Rendered avatar, e.g. `<PeerAvatar peer={...} size={28} connectionId={...} />`. */
+  /** Rendered avatar, e.g. `<PeerAvatar peer={...} size={SIZE.small} connectionId={...} />`. */
   avatar: ReactNode
 }
 
@@ -29,7 +29,7 @@ export function BotMessageBubble({ name, text, label, avatar }: BotMessageBubble
       </Text>
       <View style={styles.row}>
         {avatar}
-        <View style={[styles.bubble, { backgroundColor: theme.colors.muted, borderRadius: theme.radius.bubble }]}>
+        <View style={[styles.bubble, { backgroundColor: theme.colors.muted, borderRadius: RADIUS.extraLarge }]}>
           <View style={styles.markdown}>
             <MarkdownText>{text}</MarkdownText>
           </View>
@@ -40,9 +40,10 @@ export function BotMessageBubble({ name, text, label, avatar }: BotMessageBubble
 }
 
 const styles = StyleSheet.create({
-  wrap: { alignSelf: 'flex-start', maxWidth: '88%', marginVertical: 4 },
-  name: { ...TYPE.footnote, marginBottom: 4, marginLeft: AVATAR_SIZE + AVATAR_GAP },
+  wrap: { alignSelf: 'flex-start', maxWidth: '88%', marginVertical: SPACE.extraSmall },
+  name: { ...TYPE.footnote, marginBottom: SPACE.extraSmall, marginLeft: AVATAR_SIZE + AVATAR_GAP },
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: AVATAR_GAP },
-  bubble: { paddingVertical: 12, paddingHorizontal: 16, flexShrink: 1 },
-  markdown: { marginBottom: -10 }
+  bubble: { paddingVertical: SPACE.medium, paddingHorizontal: SPACE.large, flexShrink: 1 },
+  // Cancels the last paragraph's bottom margin (MarkdownText's SPACE.small).
+  markdown: { marginBottom: -SPACE.small }
 })

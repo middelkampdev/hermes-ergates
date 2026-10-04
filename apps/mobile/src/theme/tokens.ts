@@ -101,6 +101,10 @@ export const RULE = {
   stackedTableWidth: 400,
   /** The widest a short label, such as a role beside a name, grows before it truncates. */
   labelMaxWidth: 113,
+  /** The widest a file name, such as an attachment waiting to be sent, grows before it truncates. */
+  fileNameMaxWidth: 200,
+  /** How high a floating control sits above the bottom of the screen, clear of a one-line input bar and the home indicator. */
+  floatingBottom: 96,
 } as const
 
 export const SPACING = [4, 8, 12, 16, 24, 32] as const

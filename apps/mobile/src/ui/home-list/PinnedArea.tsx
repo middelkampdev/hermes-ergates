@@ -66,35 +66,34 @@ import {
 import { lightTap } from '@/lib/haptics'
 import type { OrderMove } from '@/state/organization'
 import { useTheme } from '@/theme/provider'
-import { AVATAR, TYPE } from '@/theme/tokens'
+import { OPACITY, RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 import type { AnchorRect } from '../ActionMenu'
 import { Avatar } from '../Avatar'
 import { PinsMarker } from './CrossMarkers'
 import { Grip } from './Grip'
-import { MAX_FONT_SCALE } from './HomeRow'
-import { SKELETON_RING_OPACITY } from './SectionGhostRow'
 import { SelectionCircle } from './SelectionCircle'
 import type { CrossDrag } from './use-cross-drag'
 import { usePinSwipeSelect, type PinSwipeSelect } from './use-swipe-select'
 
-const AVATAR_SIZE = AVATAR.pinned
+const AVATAR_SIZE = SIZE.giant
+/** A pin's own column width; `pinCells`, swipe to select and the drag between the pins and the rows list measure with it. */
 const PIN_WIDTH = 96
-const PIN_GAP = 24
+const PIN_GAP = SPACE.huge
 /** The `Sortable.Flex`'s own `paddingVertical`, above the first line of pins. */
-const PIN_PADDING_TOP = 20
+const PIN_PADDING_TOP = SPACE.extraLarge
 /**
  * A pin's own column height: the avatar (`AVATAR_SIZE`), the gap under it
- * (`styles.pin`'s `gap`, 8), and one line of its name at the default text
- * size (18) — 110 pt, a real pin's measured height. `pinCells` uses this
- * fixed height rather than measuring each pin, so it goes stale if the
- * label ever grows past one line at a larger accessibility text size;
+ * (`styles.pin`'s `gap`, `SPACE.small`), and one line of its name at the
+ * default text size (18 pt, measured) — 114 pt. `pinCells` uses this fixed
+ * height rather than measuring each pin, so it goes stale if the label ever
+ * grows past one line at a larger accessibility text size;
  * `styles.label`'s `numberOfLines={1}` keeps it to one line regardless.
  */
-const PIN_CELL_HEIGHT = AVATAR_SIZE + 8 + 18
+const PIN_CELL_HEIGHT = AVATAR_SIZE + SPACE.small + 18
 /**
  * The empty pinned area's drop skeleton in Edit mode is exactly one line of
- * pins high (150 pt), so the list below does not move when the last pin
+ * pins high (154 pt), so the list below does not move when the last pin
  * leaves or the first one arrives. `HomeList` slides the rows by it while
  * Edit mode starts and ends.
  */
@@ -104,14 +103,15 @@ const SKELETON_PINS = [0, 1, 2]
 const SKELETON_PIN_GAP = PIN_WIDTH + PIN_GAP - AVATAR_SIZE
 /** The ghost avatar that turns `primary` while a dragged row is over the skeleton: the one a first pin lands on, in the middle. */
 const SKELETON_MIDDLE = 1
-const BADGE_SIZE = 32
-/** The move handle's touch area around its badge (44 pt, the minimum touch target). */
-const MOVE_TOUCH = 44
+const BADGE_SIZE = SIZE.small
 /** The ≡ glyph inside the move badge: 7/12 of the badge, so it keeps the same proportion inside its circle. */
 const MOVE_GRIP_SIZE = Math.round((BADGE_SIZE * 7) / 12)
-const DOT_SIZE = 12
-/** How far the unread dot moves down, from its normal-mode spot near the top to clear of the selection badge and the move handle. */
-const DOT_DROP = AVATAR_SIZE - DOT_SIZE - 4
+/**
+ * How far the unread dot moves down, from its normal-mode spot near the top
+ * to clear of the selection badge and the move handle: it ends as far above
+ * the avatar's bottom as it starts below its top.
+ */
+const DOT_DROP = AVATAR_SIZE - SIZE.tiny - 2 * SPACE.hairline
 
 /**
  * Badges at the avatar's square corners would crowd the next pin's badge,
@@ -315,7 +315,7 @@ function PinnedSkeleton({ progress, areaRef, slot }: PinnedSkeletonProps) {
           </View>
         ))}
       </View>
-      <Text numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE} style={[styles.label, { color: theme.colors.mutedForeground }]}>
+      <Text numberOfLines={1} maxFontSizeMultiplier={RULE.maxFontScale} style={[styles.label, { color: theme.colors.mutedForeground }]}>
         Drag an agent here to pin it
       </Text>
     </Animated.View>
@@ -389,19 +389,20 @@ function PinnedAvatar({ item, editing, progress, selected, unread, actions, onAc
 }
 
 const styles = StyleSheet.create({
-  pin: { alignItems: 'center', gap: 8, width: PIN_WIDTH },
+  pin: { alignItems: 'center', gap: SPACE.small, width: PIN_WIDTH },
   label: { ...TYPE.callout },
-  dot: { position: 'absolute', top: 2, right: 10, width: DOT_SIZE, height: DOT_SIZE, borderRadius: DOT_SIZE / 2 },
+  dot: { position: 'absolute', top: SPACE.hairline, right: SPACE.small, width: SIZE.tiny, height: SIZE.tiny, borderRadius: SIZE.tiny / 2 },
   // The badge and the move handle center on the avatar's round edge at 45°, top left and top right (see the arithmetic above).
   badge: { position: 'absolute', top: BADGE_OFFSET.y, left: BADGE_OFFSET.x },
-  move: { position: 'absolute', top: BADGE_CENTER_Y - MOVE_TOUCH / 2, left: MOVE_CENTER_X - MOVE_TOUCH / 2 },
-  moveTouch: { width: MOVE_TOUCH, height: MOVE_TOUCH, alignItems: 'center', justifyContent: 'center' },
+  // The move handle's touch area is the minimum touch target around its badge.
+  move: { position: 'absolute', top: BADGE_CENTER_Y - RULE.touch / 2, left: MOVE_CENTER_X - RULE.touch / 2 },
+  moveTouch: { width: RULE.touch, height: RULE.touch, alignItems: 'center', justifyContent: 'center' },
   moveBadge: { width: BADGE_SIZE, height: BADGE_SIZE, borderRadius: BADGE_SIZE / 2, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  // The caption sits where a pin's name would, 8 pt under the ghost avatars (`styles.pin`'s gap). At the
-  // largest text size its one line (15 pt × MAX_FONT_SCALE) still fits the 38 pt under them; the box clips anything past its height.
-  skeleton: { height: PINNED_SKELETON_HEIGHT, paddingTop: PIN_PADDING_TOP, alignItems: 'center', gap: 8, overflow: 'hidden' },
+  // The caption sits where a pin's name would, `SPACE.small` under the ghost avatars (`styles.pin`'s gap). At the
+  // largest text size its one line (15 pt × RULE.maxFontScale) still fits the 38 pt under them; the box clips anything past its height.
+  skeleton: { height: PINNED_SKELETON_HEIGHT, paddingTop: PIN_PADDING_TOP, alignItems: 'center', gap: SPACE.small, overflow: 'hidden' },
   skeletonPins: { flexDirection: 'row', gap: SKELETON_PIN_GAP },
   ghostSlot: { width: AVATAR_SIZE, height: AVATAR_SIZE },
-  ghostPin: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: AVATAR_SIZE / 2, borderWidth: 1.5, borderStyle: 'dashed', opacity: SKELETON_RING_OPACITY },
+  ghostPin: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: AVATAR_SIZE / 2, borderWidth: 1.5, borderStyle: 'dashed', opacity: OPACITY.medium },
   ghostMarker: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: AVATAR_SIZE / 2, borderWidth: 2 }
 })
