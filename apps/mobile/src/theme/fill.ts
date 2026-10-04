@@ -9,19 +9,7 @@
  * every theme, light or dark.
  */
 
-type Rgb = [number, number, number]
-
-/** Accepts `#rgb`, `#rrggbb` and `#rrggbbaa` (with or without the `#`); the alpha byte, if any, is dropped. */
-function parseRgb(hex: string): Rgb | null {
-  const clean = hex.trim().replace(/^#/, '')
-  const full = clean.length === 3 || clean.length === 4 ? clean.replace(/./g, c => c + c) : clean
-
-  if (!/^[0-9a-f]{6}([0-9a-f]{2})?$/i.test(full)) {
-    return null
-  }
-
-  return [0, 2, 4].map(i => parseInt(full.slice(i, i + 2), 16)) as Rgb
-}
+import { parseRgb, type Rgb } from './color'
 
 function distance(a: Rgb, b: Rgb): number {
   return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
