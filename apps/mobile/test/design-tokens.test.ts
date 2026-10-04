@@ -16,13 +16,11 @@
  *
  * Both branches of a conditional are checked. Computed values and `0` pass.
  *
- * BASELINE lists the files that still hold values the `step` rule rejects. It
- * only shrinks: a file leaves it when it is clean, and a test fails until it
- * does. GEOMETRY lists the files that keep drag, motion or platform geometry
- * in named UPPER_CASE constants: each entry names those constants and gives
- * its reason. Only the named constants pass there: an inline literal or
- * another constant in a GEOMETRY file is still reported, so a new design
- * value cannot hide behind the file's entry.
+ * GEOMETRY lists the files that keep drag, motion or platform geometry in
+ * named UPPER_CASE constants: each entry names those constants and gives its
+ * reason. Only the named constants pass there: an inline literal or another
+ * constant in a GEOMETRY file is still reported, so a new design value cannot
+ * hide behind the file's entry.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
@@ -40,8 +38,6 @@ const STEP_CONSTANT = /SIZE|RADIUS|WIDTH|HEIGHT|PADDING|GAP|INSET|SPACING|MARGIN
 const CONSTANT_NAME = /^[A-Z][A-Z0-9_]*$/
 const HEX = /^#[0-9a-f]{3,8}$/i
 const RGB = /^rgba?\(/i
-
-const BASELINE: ReadonlySet<string> = new Set<string>([])
 
 /** Named constants of one file that hold drag, motion or platform geometry, and why. */
 type Geometry = { constants: readonly string[]; reason: string }
@@ -341,23 +337,11 @@ describe('design tokens', () => {
   it(
     'app and shared UI use the spacing and size steps',
     () => {
-      const offenders = [...scanApp()]
-        .filter(([file]) => !BASELINE.has(file))
-        .flatMap(([file, found]) => stepFindings(found, GEOMETRY.get(file)?.constants).map(finding => offender(file, finding)))
+      const offenders = [...scanApp()].flatMap(([file, found]) => stepFindings(found, GEOMETRY.get(file)?.constants).map(finding => offender(file, finding)))
       expect(
         offenders,
         `use a step from src/theme/tokens.ts, or a named rule for a length that is neither a step nor geometry:\n${offenders.join('\n')}`
       ).toEqual([])
-    },
-    30000
-  )
-
-  it(
-    'the baseline only lists files that still need work',
-    () => {
-      const scan = scanApp()
-      const stale = [...BASELINE].filter(file => !(scan.get(file) ?? []).some(({ rule }) => rule === 'step'))
-      expect(stale, `remove from BASELINE, these files are clean:\n${stale.join('\n')}`).toEqual([])
     },
     30000
   )
@@ -373,14 +357,11 @@ describe('design tokens', () => {
       expect(stale, `remove from GEOMETRY, these are not flagged geometry constants:\n${stale.join('\n')}`).toEqual([])
       const noReason = [...GEOMETRY].filter(([, { reason }]) => reason.trim() === '' || reason.includes('\n')).map(([file]) => file)
       expect(noReason, `give each file one line saying which drag, motion or platform value it holds:\n${noReason.join('\n')}`).toEqual([])
-      const both = [...GEOMETRY.keys()].filter(file => BASELINE.has(file))
-      expect(both, `a file is in BASELINE or GEOMETRY, not both:\n${both.join('\n')}`).toEqual([])
     },
     30000
   )
 
-  it('keeps the baseline sorted', () => {
-    expect([...BASELINE]).toEqual([...BASELINE].sort())
+  it('keeps the geometry list sorted', () => {
     expect([...GEOMETRY.keys()]).toEqual([...GEOMETRY.keys()].sort())
   })
 })

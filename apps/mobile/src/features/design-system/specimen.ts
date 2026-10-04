@@ -1,5 +1,5 @@
 import { CONTRAST_PAIRS, contrastRatio, rate, type ContrastRating } from '@/theme/contrast'
-import { AVATAR, ICON, LEGACY_RADIUS, LEGACY_SIZE, SPACING, TYPE, TYPE_ROLES, type MobileTheme, type TypeRole } from '@/theme/tokens'
+import { ICON_SIZE, OPACITY, RADIUS, RULE, SIZE, SPACE, TYPE, TYPE_ROLES, type MobileTheme, type TypeRole } from '@/theme/tokens'
 
 type Colors = MobileTheme['colors']
 
@@ -37,19 +37,21 @@ export function typeRows(): { role: TypeRole; fontSize: number; fontWeight: stri
   })
 }
 
-/** Spacing steps and the named shape tokens, in declaration order. */
+/** Each step scale and the named rules, every step as its name and value, in declaration order. */
 export function shapeRows(): {
-  spacing: number[]
+  space: [string, number][]
   radius: [string, number][]
   size: [string, number][]
-  icon: [string, number][]
-  avatar: [string, number][]
+  iconSize: [string, number][]
+  opacity: [string, number][]
+  rules: [string, number][]
 } {
   return {
-    spacing: [...SPACING],
-    radius: Object.entries(LEGACY_RADIUS),
-    size: Object.entries(LEGACY_SIZE),
-    icon: Object.entries(ICON),
-    avatar: Object.entries(AVATAR)
+    space: Object.entries(SPACE),
+    radius: Object.entries(RADIUS),
+    size: Object.entries(SIZE),
+    iconSize: Object.entries(ICON_SIZE),
+    opacity: Object.entries(OPACITY),
+    rules: Object.entries(RULE)
   }
 }

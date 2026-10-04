@@ -25,12 +25,9 @@ describe('resolvePalette', () => {
     const dark = resolvePalette({ themeName: 'midnight', appearance: 'dark', systemDark: true })
     expect(light.colors.background).toBe(dark.colors.background)
   })
-  it('carries the geometry contract', () => {
+  it('carries the name, the appearance and the colors, and no geometry', () => {
     const t = resolvePalette({ themeName: 'nous', appearance: 'light', systemDark: false })
-    expect(t.radius).toMatchObject({ bubble: 22, composer: 24, group: 20, sheet: 28 })
-    expect(t.spacing).toEqual([4, 8, 12, 16, 24, 32])
-    expect(t.pagePadding).toBe(20)
-    expect(t.hit).toBe(44)
+    expect(Object.keys(t).sort()).toEqual(['colors', 'dark', 'name'])
   })
 })
 

@@ -1,6 +1,6 @@
 # 10 - Mobile Design
 
-Version: 0.4. Date: 2026-10-04. Direction: requested by Jop. Implementation status: implemented in `apps/mobile`; this document is its design contract.
+Version: 0.5. Date: 2026-10-05. Direction: requested by Jop. Implementation status: implemented in `apps/mobile`; this document is its design contract.
 
 ## 1. Design direction
 
@@ -54,25 +54,25 @@ All dimensions below are logical points/dp, not screenshot pixels. Reference scr
 
 | Element | Initial design value | Behavior |
 |---|---|---|
-| Page padding | 20; 16 on narrow devices | Respect safe areas; never overlap content with the status bar. The Home list runs edge to edge instead: the list spans the screen width and each row and section header pads its own content by the page padding, so a row's tap highlight, a lifted row and the scroll bar reach the screen edges while the content stays in line with the rest of the page |
+| Page padding | `SPACE.extraLarge` 20; `SPACE.large` 16 below `RULE.narrowScreen` (360) | Respect safe areas; never overlap content with the status bar. The Home list runs edge to edge instead: the list spans the screen width and each row and section header pads its own content by the page padding, so a row's tap highlight, a lifted row and the scroll bar reach the screen edges while the content stays in line with the rest of the page |
 | Bottom safe area | Content padding, not a reserved inset | Scrolling content runs to the bottom edge of the phone: its own scroll view is never inset there, and its content container adds the device's bottom inset (the home indicator on iOS, the edge-to-edge navigation bar on Android) on top of whatever bottom padding the screen already wanted, so the last row can still scroll clear of it. A fixed bottom bar (Home Edit mode's bar, the chat composer, any fixed bottom button area) draws its own background to the screen edge and pads its content by the inset instead, so its buttons sit above it. Where a device reports no bottom inset, nothing changes. While the keyboard is open, a keyboard-avoiding view or (on a `Page`) the scroll view's keyboard inset already moves the content up by the full keyboard height measured to the physical bottom of the screen, covering the inset; padding is not added twice on top of it. |
-| Spacing scale | 4, 8, 12, 16, 24, 32 | Use whitespace to group content |
-| Body and composer | 17 / 24 line height | Native system font, scalable with device text size |
-| Row name | 17, medium | One line normally; permit wrapping with larger text |
-| Metadata | 13–15 | Legible contrast; accessible full value for truncation |
-| Controls | At least 44 × 44 hit area | Simple outline icons; screen-reader labels |
-| Icon button | 44 × 44 hit area; no border and no outline circle | Icon in `foreground`; dims while pressed or disabled |
-| Field | Label above, 13, `mutedForeground`; input on `muted`, no border, radius 14, padding 14 × 13, minimum 50 high (128 when multiline), 17 text | `primary` selection color; an error shows as red text below, the input keeps its color |
-| Button | Minimum 50 high; radius 16; 600-weight label | Primary on `primary`; secondary on `muted` with `foreground` text |
-| List avatar | 48 | Circular image or initials fallback |
-| Pinned avatar | 80–88 | Up to two prominent shortcuts; empty section hidden |
-| Chat avatar | 28–32 | Part of the agent details button |
-| Bubble | Radius 22; padding 12 × 16; max width 88% | Natural content width; assistant left, user right |
-| Composer | Minimum 48 high; radius 24 | Grows up to five lines, then scrolls within the input |
-| Settings group | `muted` card, radius 20, optional small caption above; row minimum 56 with a leading line icon, title, optional subtitle and a chevron when the row opens something | Hairline dividers inset past the icon to the text; labels wrap at large text sizes |
-| Sheet | Radius 28 at top | Close button, native dismissal and Android back support |
+| Spacing | The `SPACE` steps: `hairline` 2, `extraSmall` 4, `small` 8, `medium` 12, `large` 16, `extraLarge` 20, `huge` 24, `giant` 32 | Use whitespace to group content |
+| Body and composer | `TYPE.body` 17 / `LEADING.body` 24 | Native system font, scalable with device text size |
+| Row name | `TYPE.bodyStrong` 17, medium | One line normally; permit wrapping with larger text |
+| Metadata | `TYPE.footnote` 13 to `TYPE.callout` 15 | Legible contrast; accessible full value for truncation |
+| Controls | At least `RULE.touch` 44 × 44 hit area | Simple outline icons; screen-reader labels |
+| Icon button | `RULE.touch` 44 × 44 hit area; no border and no outline circle | Icon in `foreground`; dims while pressed or disabled |
+| Field | Label above, `TYPE.footnote` 13, `mutedForeground`; input on `muted`, no border, `RADIUS.medium` 12, padding `SPACE.medium` 12, minimum `SIZE.large` 48 high (`RULE.textAreaMinHeight` 128 when multiline), `TYPE.body` 17 text | `primary` selection color; an error shows as red text below, the input keeps its color |
+| Button | Minimum `SIZE.large` 48 high; `RADIUS.large` 16; 600-weight label | Primary on `primary`; secondary on `muted` with `foreground` text |
+| List avatar | `SIZE.large` 48 | Circular image or initials fallback |
+| Pinned avatar | `SIZE.giant` 88 | Up to two prominent shortcuts; empty section hidden |
+| Chat avatar | `SIZE.small` 28 | Part of the agent details button |
+| Bubble | `RADIUS.extraLarge` 20; padding `SPACE.medium` 12 × `SPACE.large` 16; max width 88% | Natural content width; assistant left, user right |
+| Composer | Minimum `SIZE.large` 48 high; `RADIUS.huge` 24 | Grows up to five lines, then scrolls within the input |
+| Settings group | `muted` card, `RADIUS.extraLarge` 20, optional small caption above; row minimum `SIZE.extraLarge` 56 with a leading line icon, title, optional subtitle and a chevron when the row opens something | Hairline dividers inset past the icon to the text; labels wrap at large text sizes |
+| Sheet | `RADIUS.giant` 28 at top | Close button, native dismissal and Android back support |
 
-Every size, radius, type and opacity value in this table is a named role in section 4a, `apps/mobile/src/theme/tokens.ts`.
+Every spacing, size, radius, icon size, type and opacity value in this table is a step or a named rule of section 4a, in `apps/mobile/src/theme/tokens.ts`.
 
 Field, Card/Group and the secondary Button fill with whichever of `muted` or `background` reads more clearly against the surface they sit on — the page normally, a Sheet's `popover` inside one — so the fill stays visible in every theme's dark mode instead of nearly matching a sheet's own color.
 
@@ -110,7 +110,7 @@ Edit mode lets the owner act on several agents at once and put rows in their own
 - **Rows:** a selection circle slides in from the left while the row content moves right, iOS Mail style: an empty thin ring (`mutedForeground`, softened) when not selected, a filled `primary` circle with a `primaryForeground` check when selected, the same in light and dark themes. Its touch area is the whole height of the row and wider than 44 pt. A ≡ handle fades in on the right; the time and unread dot stay visible, left of it. A tap toggles the selection; it does not open the chat. A screen reader announces "selected" or "not selected", and each row and section header offers **Move up** and **Move down** inside its own group.
 - **Pinned avatars:** a small selection badge scales in at the top left of each avatar, and a small move handle at the top right, the same for every avatar, the concierge included; an unread dot moves down to the bottom right, clear of both. A tap toggles the selection. The move handle drags the avatar left and right inside the pinned area, across wrapped lines, and the pin order stays on this phone; dragged down and dropped over the rows list, the avatar is unpinned there (see **Dragging**). Screen readers get **Move left** and **Move right** with the same rules, and hear "selected" or "not selected".
 - **Dragging:** only a handle starts a drag, and it starts at once, like the iOS reorder control, so a tap on a row still toggles it and a swipe on a row (or a very fast flick from a handle) scrolls the list. Drop a row inside its group to reorder it, or in another group to move it there: a section, No section (anywhere above the first section header), right under an empty section's header, or right under a collapsed section's header, where it joins that section at its top. Touching a section header's handle shows only the section headers, with the touched one still under the finger; after the drop the sections take their new order and the list comes back. The list scrolls by itself when a dragged item nears its top or bottom edge. A light tap marks the pick-up and the drop when Haptics is on. A drop that changes nothing writes nothing; an agent that disappears while it is dragged is not moved, and the list redraws without it. A row can also leave the list: dropped over the pinned area it is pinned at the spot under the finger, and a pin dropped over the rows list is unpinned and placed at that spot, joining the section the spot is in (right under a collapsed header: that section, at its top). For a pin, everything below the top of the rows list counts: dropped under the last row it lands at the end of the list, and with every agent pinned the empty list still takes it. Only the part of the list on screen counts: a release over the top bar or the Edit bar is no drop. While the finger is over the other area a small `primary` marker shows the spot: a thin vertical bar between two avatars, a thin horizontal line between two rows, or, on the empty pinned skeleton, its middle ghost avatar; it only moves and fades, and it hides as soon as the finger leaves that area and on the drop. While a row is over the pinned area the rows keep the gap where it came from, and the lifted row fades to about a third, its background clear and its shadow gone, so the avatars and the marker show through it; it comes back when the finger leaves the pins. At the drop the dragged item cross-fades into the new avatar or row at the drop spot. A row dragged up in a long, scrolled list scrolls it up to the very top, the pinned area included; a pin dragged down scrolls to the end of the list. Pin and Unpin go to Hermes; the section goes only when it changed. Rows and section headers have a fixed height in and out of Edit mode, so their text grows with the system text size only up to 1.4 times; the bottom bar's labels carry the same cap.
-- **Drop skeletons:** in Edit mode, where an agent can be dropped but nothing is yet, a quiet dashed skeleton shows the spot. With nothing pinned, the pinned area shows three ghost avatars (84 pt, a dashed `mutedForeground` ring at low strength, no fill), centered like real pins, with "Drag an agent here to pin it" under them in `mutedForeground`, exactly one line of pins high; screen readers hear "Pinned agents, empty. Drag an agent here, or select one and choose Pin." An expanded section without agents shows one ghost row under its header: a row-high dashed rounded outline inside the page padding, with "Drag agents here" in the middle; a row dropped right above or below it joins that section, and swipe to select skips it like a header. A collapsed empty section shows none (a row dropped right under its header still joins it). The skeletons fade in and out with Edit mode's progress; the rows below the pinned skeleton slide by its height as it comes and goes. Outside Edit mode neither shows.
+- **Drop skeletons:** in Edit mode, where an agent can be dropped but nothing is yet, a quiet dashed skeleton shows the spot. With nothing pinned, the pinned area shows three ghost avatars (`SIZE.giant`, 88 pt, a dashed `mutedForeground` ring at low strength, no fill), centered like real pins, with "Drag an agent here to pin it" under them in `mutedForeground`, exactly one line of pins high; screen readers hear "Pinned agents, empty. Drag an agent here, or select one and choose Pin." An expanded section without agents shows one ghost row under its header: a row-high dashed rounded outline inside the page padding, with "Drag agents here" in the middle; a row dropped right above or below it joins that section, and swipe to select skips it like a header. A collapsed empty section shows none (a row dropped right under its header still joins it). The skeletons fade in and out with Edit mode's progress; the rows below the pinned skeleton slide by its height as it comes and goes. Outside Edit mode neither shows.
 - **Full-bleed rows:** the list runs edge to edge, with the page padding inside each row and section header: a lifted row is not clipped at the sides, the scroll bar sits at the screen edge, and a row's tap highlight spans the whole width, the ≡ column too. A tap on the ≡ column never toggles the row; it only drags.
 - **Swipe to select** (the iOS Mail convention): a touch that starts on a row's selection circle belongs to selection, not to scrolling. Moving up or down from there selects one contiguous range, from the start row to the row under the finger; when the start row was already selected, the swipe deselects the range instead. A row the finger leaves again (moving back) returns to how it was before the swipe. Section headers are skipped. The pinned avatars above the rows list get the same swipe: a touch that starts on a pin's selection badge and moves selects or deselects a range in pin order, across wrapped lines; a swipe that starts on a pin stays within the pins, and a plain tap on the badge still toggles just that one. While the finger is within about 60 pt of the list's top or bottom edge, the list scrolls by itself, faster closer to the edge, and the range keeps growing with the rows that come under the finger; it stops at the list's ends. A swipe on a row's body still scrolls the list, and the ≡ handles still drag.
 - **Bottom bar** slides up when at least one agent is selected and down when none is: **Move to…** opens the Move to Section page for all selected agents; **Pin** / **Unpin** says "Unpin" when every selected agent is pinned, and Pin appends the others to the pins in list order; **Hide** hides each agent with its own gateway call, and when some calls fail one alert names the agents that were not hidden; **Mark read** / **Mark unread** says "Mark read" when at least one selected agent is unread. After an action the selection clears and Edit mode stays open.
@@ -187,13 +187,39 @@ Refresh Home, search, pinned labels, chat identity and details after confirmed s
 
 ## 4a. Design system
 
-The app's look is three tiers. Screens use the roles, never raw values.
+The app's look is three tiers. A screen points to a step or a named rule, never to a raw value.
 
 | Tier | What it holds | Where it lives |
 |---|---|---|
-| Tokens | Colors (the vendored Hermes semantic palette, section 3) and the geometry roles below | `src/theme/` (`tokens.ts`, `color.ts`, `contrast.ts`) |
+| Tokens | Colors (the vendored Hermes semantic palette, section 3), the step scales (`SPACE`, `RADIUS`, `ICON_SIZE`, `SIZE`, `OPACITY`), the named rules (`RULE`) and the type scale | `src/theme/` (`tokens.ts`, `color.ts`, `contrast.ts`) |
 | Components | `Page`, `Screen`, `Sheet`, `Group`, `ListRow`, `Field`, `Button`, `IconButton`, `Avatar`, `RowContent` and the other shared pieces, built only from tokens | `src/ui/` (chat pieces such as `Bubble` in `src/ui/chat/`) |
 | Screens | Routes that compose components | `app/` |
+
+### Steps, not component sizes
+
+1. Never name a token after a component. A component points to a step; the step does not know who uses it.
+2. A value between two steps takes the nearest step. A value exactly halfway goes down, so nothing grows. A value below the smallest step takes the smallest step.
+3. `0` is always allowed. Computed values (`size / 2`, `Math.round(size * 0.68)`, `progress.get()`) are allowed.
+4. Drag and motion geometry (row offsets, item heights used by drag math, animation progress) is not a design value. It stays as named constants in its own module (`src/ui/home-list/`, `src/features/agents`).
+5. A value that is neither a step nor geometry is a named rule in `RULE`, named by what it means, not by who uses it.
+
+Colors keep their Hermes names (`background`, `primary`, `muted`, `userBubble` and the rest). They are roles that come from Hermes Desktop, so the app does not rename them.
+
+### Scales
+
+Each scale lists its steps from small to large, in points. A step name is a whole word, never a component.
+
+| Scale | Steps |
+|---|---|
+| Space (`SPACE`): padding, margin and gap | `hairline` 2, `extraSmall` 4, `small` 8, `medium` 12, `large` 16, `extraLarge` 20, `huge` 24, `giant` 32 |
+| Radius (`RADIUS`): corner radius | `small` 8, `medium` 12, `large` 16, `extraLarge` 20, `huge` 24, `giant` 28, `full` 9999 (a pill or a circle) |
+| Icon size (`ICON_SIZE`): icon glyphs | `small` 16, `medium` 20, `large` 24 |
+| Size (`SIZE`): width and height of avatars, controls and rows | `tiny` 8, `extraSmall` 20, `small` 28, `medium` 40, `large` 48, `extraLarge` 56, `huge` 64, `giant` 88 |
+| Opacity (`OPACITY`), from the most to the least visible | `strong` 0.65, `medium` 0.45, `faint` 0.25 |
+
+A pressed control uses `OPACITY.strong` and a disabled one `OPACITY.medium`. `SCRIM` (`rgba(0,0,0,0.25)`) stays: the backdrop behind the action menu, the one fixed color, the same on every theme.
+
+An avatar takes a `SIZE` step from `extraSmall` up. The page padding is `SPACE.extraLarge`, and `SPACE.large` on a narrow screen.
 
 ### Type
 
@@ -215,41 +241,41 @@ Size and weight only. There is no line height in a role, because Home rows have 
 
 Line heights for wrapping text (`LEADING`): `body` 24, `callout` 22, `footnote` 18.
 
-### Shape, space and size
+### Named rules
 
-| Group | Roles (points) |
-|---|---|
-| Radius (`RADIUS`) | `bubble` 22, `composer` 24, `group` 20, `sheet` 28, `button` 16, `field` 14, `chip` 14, `small` 12, `badge` 6 |
-| Spacing (`SPACING`) | 4, 8, 12, 16, 24, 32 |
-| Page padding (`PAGE_PADDING`) | 20 |
-| Size (`SIZE`) | `hit` 44, `row` 56, `button` 50, `field` 50, `fieldMultiline` 128 |
-| Icon (`ICON`) | `row` 22, `chevron` 17, `small` 18 |
-| Avatar (`AVATAR`) | `inline` 18, `chat` 28, `chatHeader` 30, `list` 48, `identity` 60, `editor` 80, `pinned` 84, `profile` 88 |
+`RULE` holds the values that are neither a step nor drag geometry. Each is named by what it means.
 
-### Opacity and scrim
-
-| Role | Value | Use |
+| Rule | Value | Meaning |
 |---|---|---|
-| `OPACITY.pressed` | 0.65 | A pressed control |
-| `OPACITY.disabled` | 0.45 | A disabled control |
-| `SCRIM` | `rgba(0,0,0,0.25)` | Backdrop behind the action menu; the one fixed color, the same on every theme |
+| `touch` | 44 | The smallest hit area of a control. It is never snapped to a step: a control smaller than this lifts its hit area to it with hit slop |
+| `narrowScreen` | 360 | Window width below which the page padding drops to `SPACE.large` |
+| `maxFontScale` | 1.4 | How far text in a fixed-height row grows with the system text size (a multiplier, not points) |
+| `panelWidth` | 240 | Width of a floating panel, such as the action menu |
+| `textAreaMinHeight` | 128 | Minimum height of a multiline field |
+| `stackedTableWidth` | 400 | Window width below which a Markdown table is drawn as stacked lines instead of columns |
+| `labelMaxWidth` | 113 | The widest a short label, such as a role beside a name, grows before it truncates |
+| `fileNameMaxWidth` | 200 | The widest a file name, such as an attachment waiting to be sent, grows before it truncates |
+| `floatingBottom` | 96 | How high a floating control sits above the bottom of the screen, clear of a one-line input bar and the home indicator |
 
 ### Contrast
 
 `contrastRatio` and `rate` (WCAG 2.x: AAA from 7, AA from 4.5, AA large from 3, otherwise Fail) measure the pairs the app paints, listed in `CONTRAST_PAIRS`: `foreground` on `background`, `muted`, `userBubble` and `popover`; `mutedForeground` on `background` and `muted`; `primaryForeground` on `primary`; `destructiveForeground` on `destructive`. A palette that fails a pair is reported on the design system page, not rejected.
 
-### The rule
+### The guard
 
 - Colors come only from `theme.colors`. No vendored palette value changes, and there is no mobile color fallback.
-- Under `app/` and `src/ui/`, no numeric literal for `fontSize`, `fontWeight`, `lineHeight`, `letterSpacing`, `borderRadius` or `opacity` (except `0` and `1`), and no hex, `rgb(` or `rgba(` string.
 - A type role never carries a line height.
-- Chat, bubbles, the composer, `MarkdownText`, the Home list and its edit motion, and the action menu keep their own look. Their off-scale values stay as named constants in the component instead of moving onto the scale.
+- Under `app/` and `src/ui/`, the guard rejects a numeric literal for `fontSize`, `fontWeight`, `lineHeight`, `letterSpacing`, `borderRadius` or `opacity` (except `0` and `1`), and any hex, `rgb(` or `rgba(` string.
+- It also rejects a numeric literal other than `0` for a spacing key (`padding*`, `margin*`, `gap`, `rowGap`, `columnGap`) or a size key (`width`, `height`, the min and max forms, `top`, `right`, `bottom`, `left`), a numeric literal for the `size` prop of an element, and a module-level `const` with a numeric initializer other than `0` and `1` whose name says it is a size, radius, width, height, padding, gap, inset, spacing, margin, opacity, leading, line height, weight, font or touch value.
+- Both branches of a conditional are checked. Computed values and `0` pass.
+- `GEOMETRY` lists the few files that keep drag, motion or platform geometry in named UPPER_CASE constants: the native iOS switch frame in `SwitchRow` and the pin cell width in the Home list's pinned area. Each entry names its constants and gives its reason. Only those constants pass: an inline number or another constant in the same file is still reported, so a new design value cannot hide behind the entry.
+- `borderWidth` and durations are not checked, because there is no stroke or duration scale yet.
 
-`apps/mobile/test/design-tokens.test.ts` enforces this by parsing every `.tsx` file under `app/` and `src/ui/`, including values in conditional branches. Its message lists each offender as the file, the line, the key and the text, and says to use a role from `src/theme/tokens.ts`.
+`apps/mobile/test/design-tokens.test.ts` enforces this by parsing every `.tsx` file under `app/` and `src/ui/`. Its message lists each offender as the file, the line, the key and the text, and says to use a step from `src/theme/tokens.ts`, or a named rule for a length that is neither a step nor geometry. `src/theme/tokens.test.ts` pins every step and rule and fails when a key is named after a component.
 
 ### Design system page
 
-Development builds have Settings › Developer tools › Design system. It opens on an index: a Preview group (Appearance, which opens the same System/Light/Dark and theme picker as Settings › Appearance, and Reset; the preview applies to every design-system page and does not change the owner's Appearance setting), then Foundations (Colors, Contrast, Type, Space and shape) and Components (Button, Icon button, Field, List row, Group, Avatar, Row body, Bubble). Each row shows a one-line summary, such as the number of contrast pairs below AA, and opens the section on its own page: the colors of the active theme (tap a row to copy the token name), the contrast pairs with their ratios and ratings, the type roles, space and shape, or live samples of one shared component. The section list lives in `src/features/design-system/sections.ts`. The row and the routes exist only when `__DEV__` is true; in a release build the route redirects to Settings and the row is absent.
+Development builds have Settings › Developer tools › Design system. It opens on an index: a Preview group (Appearance, which opens the same System/Light/Dark and theme picker as Settings › Appearance, and Reset; the preview applies to every design-system page and does not change the owner's Appearance setting), then Foundations (Colors, Contrast, Type, Space and shape) and Components (Button, Icon button, Field, List row, Group, Avatar, Row body, Bubble). Each row shows a one-line summary, such as the number of contrast pairs below AA, and opens the section on its own page: the colors of the active theme (tap a row to copy the token name), the contrast pairs with their ratios and ratings, the type roles, every step scale with the named rules (space as bars, radius and size as squares, icon size as an icon at each step, opacity as a swatch at each level), or live samples of one shared component. The Avatar page shows an avatar at each size step from `extraSmall` up. The section list lives in `src/features/design-system/sections.ts`. The row and the routes exist only when `__DEV__` is true; in a release build the route redirects to Settings and the row is absent.
 
 ## 5. Essential states
 

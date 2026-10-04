@@ -1,11 +1,7 @@
+import * as tokens from './tokens'
 import {
-  AVATAR,
-  ICON,
   ICON_SIZE,
   LEADING,
-  LEGACY_OPACITY,
-  LEGACY_RADIUS,
-  LEGACY_SIZE,
   OPACITY,
   RADIUS,
   RULE,
@@ -121,11 +117,9 @@ describe('step scales', () => {
 })
 
 describe('legacy tokens', () => {
-  it('keeps the component-named values until each component points to a step', () => {
-    expect(LEGACY_RADIUS).toEqual({ bubble: 22, composer: 24, group: 20, sheet: 28, button: 16, field: 14, chip: 14, small: 12, badge: 6 })
-    expect(LEGACY_SIZE).toEqual({ hit: 44, row: 56, button: 50, field: 50, fieldMultiline: 128 })
-    expect(LEGACY_OPACITY).toEqual({ pressed: 0.65, disabled: 0.45 })
-    expect(ICON).toEqual({ row: 22, chevron: 17, small: 18 })
-    expect(AVATAR.list).toBe(48)
+  it('no longer exports a component-named token', () => {
+    for (const name of ['LEGACY_RADIUS', 'LEGACY_SIZE', 'LEGACY_OPACITY', 'ICON', 'AVATAR', 'SPACING', 'PAGE_PADDING', 'HIT']) {
+      expect(name in tokens, name).toBe(false)
+    }
   })
 })

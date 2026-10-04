@@ -33,7 +33,7 @@ For a gateway on the Tailscale VPS (password mode) enter its URL; the app reads 
 | `npm test` | Vitest in Node: reducer, outbox, organization, theme, adapters, and the session controller driven by the fake gateway |
 | `npm run test:coverage` | The same tests with the coverage gate (thresholds in `vitest.config.mts`) |
 | `npm run typecheck` | `tsc --noEmit` (TypeScript 6 strict) |
-| `test/design-tokens.test.ts` | Part of `npm test`: fails on a raw type, radius or opacity number or a color string under `app/` and `src/ui/` (docs/10 section 4a). Development builds also have Settings › Developer tools › Design system |
+| `test/design-tokens.test.ts` | Part of `npm test`: fails on a raw type, radius, opacity, spacing or size number (including a `size` prop and a size constant) or a color string under `app/` and `src/ui/` (docs/10 section 4a). Development builds also have Settings › Developer tools › Design system |
 | `npm run depcruise` | The ADR-029 dependency rules in `.dependency-cruiser.cjs` |
 | `npm run lint` | ESLint with `eslint-config-expo` (hooks rules included); fails on any warning |
 | `../../scripts/ci-local.sh mobile` | The CI `mobile` job: typecheck, lint, coverage gate, dependency rules |

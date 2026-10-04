@@ -48,7 +48,7 @@ describe('design system sections', () => {
   })
 
   it('describes the shape tokens', () => {
-    expect(sectionSummary('shape', nousLight)).toBe('6 spacing · 9 radius · 5 size')
+    expect(sectionSummary('shape', nousLight)).toBe('8 space · 7 radius · 8 size')
   })
 
   it('gives every component a short description', () => {

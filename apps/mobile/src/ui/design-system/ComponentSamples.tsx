@@ -9,7 +9,7 @@ import { StyleSheet, Text, View } from 'react-native'
 
 import type { ChatItem } from '@/features/chat'
 import { useTheme } from '@/theme/provider'
-import { AVATAR, ICON_SIZE, SIZE, SPACE, TYPE } from '@/theme/tokens'
+import { ICON_SIZE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 import { Avatar } from '@/ui/Avatar'
 import { Button } from '@/ui/Button'
 import { Card } from '@/ui/Card'
@@ -118,13 +118,16 @@ export function GroupSamples() {
   )
 }
 
+/** The size steps an avatar can take: from `SIZE.extraSmall` up, because the smallest step is too small for initials. */
+const AVATAR_SIZES = Object.entries(SIZE).filter(([, size]) => size >= SIZE.extraSmall)
+
 export function AvatarSamples() {
   const theme = useTheme()
 
   return (
     <Sample>
       <View style={styles.avatars}>
-        {Object.entries(AVATAR).map(([name, size]) => (
+        {AVATAR_SIZES.map(([name, size]) => (
           <View key={name} style={styles.avatar}>
             <Avatar name="Ada Lovelace" size={size} />
             <Text style={[styles.avatarLabel, { color: theme.colors.mutedForeground }]}>

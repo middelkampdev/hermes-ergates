@@ -68,7 +68,7 @@ export function sectionSummary(id: SectionId, colors: MobileTheme['colors']): st
       return `${typeRows().length} styles`
     case 'shape': {
       const shapes = shapeRows()
-      return `${shapes.spacing.length} spacing · ${shapes.radius.length} radius · ${shapes.size.length} size`
+      return `${shapes.space.length} space · ${shapes.radius.length} radius · ${shapes.size.length} size`
     }
     default:
       return COMPONENT_DESCRIPTIONS[id] ?? ''

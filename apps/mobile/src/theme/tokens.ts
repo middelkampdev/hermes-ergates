@@ -1,6 +1,7 @@
 /**
  * Mobile theme object consumed by components (docs/10 sections 2–4).
- * Colors are the vendored Hermes semantic tokens; geometry is the 10 section 4 contract.
+ * Colors are the vendored Hermes semantic tokens; geometry is the constants of
+ * this file: the step scales, the named rules and the type scale.
  */
 
 import type { DesktopThemeColors } from '@vendor/hermes/themes/types'
@@ -11,33 +12,7 @@ export interface MobileTheme {
   name: string
   dark: boolean
   colors: DesktopThemeColors & { midground: string; userBubble: string }
-  radius: typeof LEGACY_RADIUS
-  spacing: readonly [4, 8, 12, 16, 24, 32]
-  /**
-   * Horizontal page gutter. Applied by `Screen` and `Sheet` only — rows,
-   * section headings and the chat list sit inside an already-padded page and
-   * must not add it again.
-   */
-  pagePadding: 20
-  /** Minimum hit area for controls, in points. */
-  hit: 44
 }
-
-/**
- * Corner radii of today's components, kept until each one points to a step of
- * `RADIUS`. Not a scale: every key is a component name.
- */
-export const LEGACY_RADIUS = {
-  bubble: 22,
-  composer: 24,
-  group: 20,
-  sheet: 28,
-  button: 16,
-  field: 14,
-  chip: 14,
-  small: 12,
-  badge: 6,
-} as const
 
 /**
  * Spacing steps in points, for padding, margin and gap. A component points to
@@ -107,13 +82,6 @@ export const RULE = {
   floatingBottom: 96,
 } as const
 
-export const SPACING = [4, 8, 12, 16, 24, 32] as const
-export const PAGE_PADDING = 20
-
-/** Control and row sizes of today's components, in points, kept until each one points to a step of `SIZE`; `hit` is the minimum touch target. */
-export const LEGACY_SIZE = { hit: 44, row: 56, button: 50, field: 50, fieldMultiline: 128 } as const
-export const HIT = LEGACY_SIZE.hit
-
 export type TypeRole =
   | 'largeTitle'
   | 'title'
@@ -159,24 +127,6 @@ export const TYPE_ROLES: readonly TypeRole[] = [
 
 /** Line heights for the text that wraps over several lines (message body, callouts, footnotes). */
 export const LEADING = { body: 24, callout: 22, footnote: 18 } as const
-
-/** Icon glyph sizes in points. */
-export const ICON = { row: 22, chevron: 17, small: 18 } as const
-
-/** Avatar diameters in points, by where the avatar appears. */
-export const AVATAR = {
-  inline: 18,
-  chat: 28,
-  chatHeader: 30,
-  list: 48,
-  identity: 60,
-  editor: 80,
-  profile: 88,
-  pinned: 84,
-} as const
-
-/** Opacity of a pressed and of a disabled control, kept until each control points to a step of `OPACITY`. */
-export const LEGACY_OPACITY = { pressed: 0.65, disabled: 0.45 } as const
 
 /** Backdrop behind the action menu; the one fixed color, identical on every theme. */
 export const SCRIM = 'rgba(0,0,0,0.25)'
