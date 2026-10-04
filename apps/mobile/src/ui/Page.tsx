@@ -8,8 +8,8 @@
  * chevron, matching the other sheets' close control.
  */
 
-import type { ReactNode } from 'react'
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import type { ReactElement, ReactNode } from 'react'
+import { KeyboardAvoidingView, Platform, ScrollView, type RefreshControlProps, StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
 import { TYPE } from '@/theme/tokens'
@@ -23,14 +23,22 @@ export interface PageProps {
   onBack: () => void
   variant?: 'push' | 'modal'
   right?: ReactNode
+  /** Pull-to-refresh for the scrolling body. */
+  refreshControl?: ReactElement<RefreshControlProps>
+  /** A fixed area below the body (a primary action); it pads itself by the bottom inset. */
+  footer?: ReactNode
   children: ReactNode
 }
 
 const BODY_BOTTOM_PADDING = 24
+const FOOTER_BOTTOM_PADDING = 16
 
-export function Page({ title, onBack, variant = 'push', right, children }: PageProps) {
+export function Page({ title, onBack, variant = 'push', right, refreshControl, footer, children }: PageProps) {
   const theme = useTheme()
-  const bottomInset = useBottomInset(BODY_BOTTOM_PADDING)
+  const bodyInset = useBottomInset(BODY_BOTTOM_PADDING)
+  const footerInset = useBottomInset(FOOTER_BOTTOM_PADDING)
+  // A footer carries the inset itself, so the body must not add it again.
+  const bottomInset = footer ? BODY_BOTTOM_PADDING : bodyInset
   return (
     <Screen edges={['top']}>
       <View style={styles.header}>
@@ -43,9 +51,10 @@ export function Page({ title, onBack, variant = 'push', right, children }: PageP
         <View style={[styles.side, styles.right]}>{right ?? null}</View>
       </View>
       <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView style={styles.fill} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.body, { paddingBottom: bottomInset }]}>
+        <ScrollView style={styles.fill} keyboardShouldPersistTaps="handled" refreshControl={refreshControl} contentContainerStyle={[styles.body, { paddingBottom: bottomInset }]}>
           {children}
         </ScrollView>
+        {footer ? <View style={[styles.footer, { backgroundColor: theme.colors.background, paddingBottom: footerInset }]}>{footer}</View> : null}
       </KeyboardAvoidingView>
     </Screen>
   )
@@ -71,6 +80,9 @@ const styles = StyleSheet.create({
   },
   fill: {
     flex: 1
+  },
+  footer: {
+    paddingTop: 8
   },
   body: {
     paddingTop: 12,

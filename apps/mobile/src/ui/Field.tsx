@@ -17,7 +17,7 @@ const MIN_HEIGHT = SIZE.field
 const MULTILINE_MIN_HEIGHT = SIZE.fieldMultiline
 
 export interface FieldProps {
-  label: string
+  label?: string
   value: string
   onChangeText: (text: string) => void
   placeholder?: string

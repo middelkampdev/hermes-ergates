@@ -6,7 +6,7 @@
 
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useMemo, useState } from 'react'
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { RefreshControl, StyleSheet, Text, View } from 'react-native'
 
 import { displayName, isActive, isFinishedOneShot, nextRunLabel, useRoutines } from '@/features/routines'
 import { usePrimaryConnection } from '@/features/settings'
@@ -19,11 +19,9 @@ import { ICON, LEADING, RADIUS, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Group } from '@/ui/Group'
 import { Icon } from '@/ui/icons'
-import { IconButton } from '@/ui/IconButton'
 import { ListRow } from '@/ui/ListRow'
-import { Screen } from '@/ui/Screen'
+import { Page } from '@/ui/Page'
 import { useSurface } from '@/ui/surface-context'
-import { useBottomInset } from '@/ui/use-bottom-inset'
 
 export default function RoutinesScreen() {
   const { profile } = useLocalSearchParams<{ profile: string }>()
@@ -58,11 +56,6 @@ function Routines({
   const routines = useRoutines(gateway, connection.id, profile)
   const [refreshing, setRefreshing] = useState(false)
   const tz = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
-  // The list ends at the fixed footer below it, so it needs no safe-area inset.
-  const listBottomPadding = 24
-  // A fixed bottom bar: it pads its own content by the inset instead of
-  // relying on Screen to reserve a strip for it.
-  const footerBottomInset = useBottomInset(16)
 
   const jobs = (routines.data ?? []).filter(job => !isFinishedOneShot(job))
 
@@ -73,37 +66,28 @@ function Routines({
   }
 
   return (
-    <Screen>
-      <View style={styles.header}>
-        <IconButton name="chevron-left" accessibilityLabel="Back" onPress={onBack} />
-        <Text style={[styles.headerTitle, { color: theme.colors.foreground }]} numberOfLines={1}>
-          Routines
+    <Page
+      title="Routines"
+      onBack={onBack}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
+      footer={<Button label="New routine" accessibilityLabel="New routine" onPress={() => onOpen('new')} />}
+    >
+      {routines.isError ? (
+        <Text style={[styles.line, { color: theme.colors.destructive }]} accessibilityRole="alert">
+          {userMessage(routines.error)}
         </Text>
-      </View>
-      <ScrollView
-        contentContainerStyle={[styles.list, { paddingBottom: listBottomPadding }]}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
-      >
-        {routines.isError ? (
-          <Text style={[styles.line, { color: theme.colors.destructive }]} accessibilityRole="alert">
-            {userMessage(routines.error)}
-          </Text>
-        ) : null}
-        {jobs.length > 0 ? (
-          <Group caption="Routines">
-            {jobs.map(job => (
-              <RoutineRow key={job.id} job={job} profile={profile} tz={tz} onPress={() => onOpen(job.id)} />
-            ))}
-          </Group>
-        ) : null}
-        {routines.isSuccess && jobs.length === 0 ? (
-          <Text style={[styles.line, { color: theme.colors.mutedForeground }]}>No routines yet. Add one to have this assistant check in on a schedule.</Text>
-        ) : null}
-      </ScrollView>
-      <View style={[styles.footer, { paddingBottom: footerBottomInset }]}>
-        <Button label="New routine" accessibilityLabel="New routine" onPress={() => onOpen('new')} />
-      </View>
-    </Screen>
+      ) : null}
+      {jobs.length > 0 ? (
+        <Group caption="Routines" iconless>
+          {jobs.map(job => (
+            <RoutineRow key={job.id} job={job} profile={profile} tz={tz} onPress={() => onOpen(job.id)} />
+          ))}
+        </Group>
+      ) : null}
+      {routines.isSuccess && jobs.length === 0 ? (
+        <Text style={[styles.line, { color: theme.colors.mutedForeground }]}>No routines yet. Add one to have this assistant check in on a schedule.</Text>
+      ) : null}
+    </Page>
   )
 }
 
@@ -137,10 +121,6 @@ function RoutineRow({ job, profile, tz, onPress }: { job: CronJob; profile: stri
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, marginBottom: 8 },
-  headerTitle: { flex: 1, ...TYPE.title3 },
-  list: { gap: 4 },
-  footer: { paddingTop: 8 },
   rowRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   pausedBadge: { borderRadius: RADIUS.badge, paddingHorizontal: 6, paddingVertical: 2 },
   pausedText: { ...TYPE.caption },

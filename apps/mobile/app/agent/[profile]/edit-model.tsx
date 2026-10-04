@@ -61,7 +61,7 @@ function EditModel({ connection, profile }: { connection: NonNullable<ReturnType
       {options.isLoading ? <ActivityIndicator style={styles.loading} color={theme.colors.foreground} /> : null}
       {options.isError ? <Text style={[styles.note, { color: theme.colors.destructive }]}>Could not load providers. Tap Refresh to try again.</Text> : null}
 
-      <Group>
+      <Group iconless>
         <PickRow
           label="Inherit from server default"
           selected={!draft.provider && !draft.model}
@@ -74,7 +74,7 @@ function EditModel({ connection, profile }: { connection: NonNullable<ReturnType
 
       {authenticated.map(p => (
         <View key={p.slug} style={styles.provider}>
-          <Group>
+          <Group iconless>
             <ExpandRow label={p.name} expanded={expandedSlug === p.slug} onPress={() => setExpandedSlug(s => (s === p.slug ? null : p.slug))} />
             {expandedSlug === p.slug
               ? [
@@ -119,7 +119,7 @@ function ExpandRow({ label, expanded, onPress }: { label: string; expanded: bool
   return (
     <ListRow
       title={label}
-      accessibilityLabel={`${label}, ${expanded ? 'expanded' : 'collapsed'}`}
+      expanded={expanded}
       right={<Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={ICON.chevron} color={theme.colors.mutedForeground} />}
       onPress={onPress}
     />

@@ -102,14 +102,14 @@ function Tools({
         </Text>
       ) : null}
 
-      <Group caption="Toolsets">
+      <Group caption="Toolsets" iconless>
         {(describe.data?.toolsets ?? []).map(ts => (
           <ToolsetRow key={ts.name} toolset={ts} tools={toolNamesFor(ts.name)} />
         ))}
         {describe.isSuccess && (describe.data?.toolsets.length ?? 0) === 0 ? <EmptyRow text="No toolsets configured." /> : null}
       </Group>
 
-      <Group caption="Connectors">
+      <Group caption="Connectors" iconless>
         {(mcpQuery.data ?? []).map(server => (
           <ConnectorRow key={server.name} server={server} state={testState[server.name]} onTest={() => void onTest(server.name)} />
         ))}
@@ -117,7 +117,7 @@ function Tools({
         {mcpQuery.isSuccess && (mcpQuery.data?.length ?? 0) === 0 ? <EmptyRow text="No connectors configured." /> : null}
       </Group>
 
-      <Group caption="Skills">
+      <Group caption="Skills" iconless>
         {(describe.data?.skills ?? []).map(skill => (
           <SkillRow key={skill.name} skill={skill} />
         ))}

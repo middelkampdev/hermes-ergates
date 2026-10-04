@@ -49,12 +49,12 @@ function Memory({ connection, profile, onBack }: { connection: NonNullable<Retur
       ) : null}
       {query.data?.available ? (
         <>
-          <Group caption="MEMORY.md">
+          <Group caption="MEMORY.md" iconless>
             <View style={styles.doc}>
               <MarkdownText>{query.data.memory.trim() ? query.data.memory : '_Empty._'}</MarkdownText>
             </View>
           </Group>
-          <Group caption="USER.md">
+          <Group caption="USER.md" iconless>
             <View style={styles.doc}>
               <MarkdownText>{query.data.user.trim() ? query.data.user : '_Empty._'}</MarkdownText>
             </View>

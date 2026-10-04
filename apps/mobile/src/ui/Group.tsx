@@ -14,18 +14,22 @@ import { Card } from './Card'
 
 /** Row padding 16 + icon 22 + gap 12, plus 2: the divider starts under the row text. */
 const DIVIDER_INSET = 52
+/** Rows without an icon start their text at the row padding. */
+const ICONLESS_DIVIDER_INSET = 16
 
 export interface GroupProps {
   caption?: string
+  /** True when the rows have no leading icon: dividers start at the row padding. */
+  iconless?: boolean
   children: ReactNode
 }
 
-export function Group({ caption, children }: GroupProps) {
+export function Group({ caption, iconless, children }: GroupProps) {
   const theme = useTheme()
   return (
     <View style={styles.group}>
       {caption ? <Text style={[styles.caption, { color: theme.colors.mutedForeground }]}>{caption}</Text> : null}
-      <Card dividerInset={DIVIDER_INSET}>{children}</Card>
+      <Card dividerInset={iconless ? ICONLESS_DIVIDER_INSET : DIVIDER_INSET}>{children}</Card>
     </View>
   )
 }

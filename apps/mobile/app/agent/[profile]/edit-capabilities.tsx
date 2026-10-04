@@ -74,15 +74,17 @@ export default function EditCapabilitiesScreen() {
 
   return (
     <Page title="Capabilities" onBack={() => router.back()}>
-      <Field
-        label=""
-        value={query}
-        onChangeText={setQuery}
-        placeholder="Search skills, toolsets and connectors"
-        accessibilityLabel="Search capabilities"
-      />
+      {/* Field's own bottom margin would stack on the page gap. */}
+      <View style={styles.search}>
+        <Field
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search skills, toolsets and connectors"
+          accessibilityLabel="Search capabilities"
+        />
+      </View>
 
-      <Group caption="Skills">
+      <Group caption="Skills" iconless>
         {skills.length > 0 ? (
           skills.map(s => (
             <ListRow
@@ -96,7 +98,7 @@ export default function EditCapabilitiesScreen() {
         )}
       </Group>
 
-      <Group caption="Toolsets">
+      <Group caption="Toolsets" iconless>
         {toolsets.length > 0 ? (
           toolsets.map(t => (
             <ListRow
@@ -112,7 +114,7 @@ export default function EditCapabilitiesScreen() {
       </Group>
       {errors.toolsets ? <Text style={[styles.error, { color: theme.colors.destructive }]}>{errors.toolsets}</Text> : null}
 
-      <Group caption="Connectors">
+      <Group caption="Connectors" iconless>
         {mcpServers.length > 0 ? (
           mcpServers.map(m => (
             <ListRow
@@ -142,6 +144,7 @@ function EmptyRow({ text }: { text: string }) {
 
 const styles = StyleSheet.create({
   loading: { marginTop: 40 },
+  search: { marginBottom: -12 },
   emptyRow: { paddingVertical: 12, paddingHorizontal: 16 },
   empty: { ...TYPE.callout, lineHeight: LEADING.callout },
   error: { ...TYPE.footnote },

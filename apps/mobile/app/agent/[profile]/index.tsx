@@ -130,7 +130,7 @@ function AgentDetails({ connectionId, connectionLabel, profile }: { connectionId
           <ListRow title="Notifications" icon="bell" onPress={() => router.push({ pathname: '/notifications', params: { profile } })} />
         </Group>
 
-        <Group caption="Details">
+        <Group caption="Details" iconless>
           <InfoRow label="Profile id" value={profile} theme={theme} />
           <InfoRow label="Model" value={bot.model || '—'} theme={theme} />
           <InfoRow label="Provider" value={bot.provider || '—'} theme={theme} />

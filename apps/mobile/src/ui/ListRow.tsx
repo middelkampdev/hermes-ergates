@@ -26,10 +26,12 @@ export interface ListRowProps {
   destructive?: boolean
   /** Announced as selected by the screen reader (a check-marked choice). */
   selected?: boolean
+  /** Announced as expanded or collapsed by the screen reader (a disclosure row). */
+  expanded?: boolean
   accessibilityLabel?: string
 }
 
-export function ListRow({ title, subtitle, icon, error, onPress, right, destructive, selected, accessibilityLabel }: ListRowProps) {
+export function ListRow({ title, subtitle, icon, error, onPress, right, destructive, selected, expanded, accessibilityLabel }: ListRowProps) {
   const theme = useTheme()
   const titleColor = destructive ? theme.colors.destructive : theme.colors.foreground
   const label = accessibilityLabel ?? [title, subtitle, error].filter(Boolean).join(', ')
@@ -62,7 +64,7 @@ export function ListRow({ title, subtitle, icon, error, onPress, right, destruct
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={selected === undefined ? undefined : { selected }}
+      accessibilityState={selected === undefined && expanded === undefined ? undefined : { ...(selected !== undefined ? { selected } : {}), ...(expanded !== undefined ? { expanded } : {}) }}
       style={({ pressed }) => ({ opacity: pressed ? OPACITY.pressed : 1 })}
     >
       {content}
