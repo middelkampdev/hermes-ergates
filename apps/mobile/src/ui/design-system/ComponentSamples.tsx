@@ -1,7 +1,7 @@
 /**
- * The Components part of the Design system page: live samples of every
- * shared component in its states, with fixed sample text. Buttons do
- * nothing; switches and fields keep their own local state.
+ * The Components pages of the Design system: live samples of each shared
+ * component in its states, with fixed sample text, one export per page.
+ * Buttons do nothing; switches and fields keep their own local state.
  */
 
 import { useState, type ReactNode } from 'react'
@@ -37,20 +37,13 @@ const ASSISTANT_SAMPLE: Extract<ChatItem, { kind: 'assistant' }> = {
   text: 'Sure. The release adds **three** fixes and one new setting.'
 }
 
-function Sample({ caption, children }: { caption: string; children: ReactNode }) {
-  const theme = useTheme()
-
-  return (
-    <View style={styles.sample}>
-      <Text style={[styles.caption, { color: theme.colors.mutedForeground }]}>{caption}</Text>
-      {children}
-    </View>
-  )
+function Sample({ children }: { children: ReactNode }) {
+  return <View style={styles.sample}>{children}</View>
 }
 
-function ButtonSamples() {
+export function ButtonSamples() {
   return (
-    <Sample caption="Button">
+    <Sample>
       <Button label="Primary" onPress={noop} />
       <Button label="Secondary" variant="secondary" onPress={noop} />
       <Button label="Destructive" variant="destructive" onPress={noop} />
@@ -61,9 +54,9 @@ function ButtonSamples() {
   )
 }
 
-function IconButtonSamples() {
+export function IconButtonSamples() {
   return (
-    <Sample caption="Icon button">
+    <Sample>
       <View style={styles.inline}>
         <IconButton name="plus" accessibilityLabel="Icon button" onPress={noop} />
         <IconButton name="search" filled accessibilityLabel="Filled icon button" onPress={noop} />
@@ -73,14 +66,14 @@ function IconButtonSamples() {
   )
 }
 
-function FieldSamples() {
+export function FieldSamples() {
   const [empty, setEmpty] = useState('')
   const [filled, setFilled] = useState('Ada Lovelace')
   const [invalid, setInvalid] = useState('not a url')
   const [notes, setNotes] = useState('A multiline field grows to its minimum height and wraps long text onto the next lines.')
 
   return (
-    <Sample caption="Field">
+    <Sample>
       <Field label="Empty" value={empty} onChangeText={setEmpty} placeholder="Placeholder" />
       <Field label="Filled" value={filled} onChangeText={setFilled} />
       <Field label="Error" value={invalid} onChangeText={setInvalid} error="Enter a full address, such as https://example.com." />
@@ -89,12 +82,12 @@ function FieldSamples() {
   )
 }
 
-function ListRowSamples() {
+export function ListRowSamples() {
   const theme = useTheme()
   const [on, setOn] = useState(true)
 
   return (
-    <Sample caption="List row">
+    <Sample>
       <Group>
         <ListRow title="With icon" icon="star" />
         <ListRow title="With subtitle" subtitle="A second line in footnote" icon="file-text" />
@@ -108,9 +101,9 @@ function ListRowSamples() {
   )
 }
 
-function GroupSamples() {
+export function GroupSamples() {
   return (
-    <Sample caption="Group">
+    <Sample>
       <View style={styles.stack}>
         <Group caption="Caption" iconless>
           <ListRow title="Group with caption" />
@@ -125,11 +118,11 @@ function GroupSamples() {
   )
 }
 
-function AvatarSamples() {
+export function AvatarSamples() {
   const theme = useTheme()
 
   return (
-    <Sample caption="Avatar">
+    <Sample>
       <View style={styles.avatars}>
         {Object.entries(AVATAR).map(([name, size]) => (
           <View key={name} style={styles.avatar}>
@@ -144,9 +137,9 @@ function AvatarSamples() {
   )
 }
 
-function RowContentSample() {
+export function RowContentSample() {
   return (
-    <Sample caption="Row body">
+    <Sample>
       <Card>
         <View style={styles.rowContent} accessible accessibilityLabel="Ada, Coder, 09:41, Unread: The build is green.">
           <RowContent name="Ada" avatar={<Avatar name="Ada" size={AVATAR.list} />} role="Coder" time="09:41" preview="The build is green." unread />
@@ -156,32 +149,12 @@ function RowContentSample() {
   )
 }
 
-function BubbleSamples() {
+export function BubbleSamples() {
   return (
-    <Sample caption="Bubble">
+    <Sample>
       <UserBubble item={USER_SAMPLE} />
       <AssistantBubble item={ASSISTANT_SAMPLE} />
     </Sample>
-  )
-}
-
-export function ComponentSamples() {
-  const theme = useTheme()
-
-  return (
-    <View style={styles.stack}>
-      <Text accessibilityRole="header" style={[styles.heading, { color: theme.colors.foreground }]}>
-        Components
-      </Text>
-      <ButtonSamples />
-      <IconButtonSamples />
-      <FieldSamples />
-      <ListRowSamples />
-      <GroupSamples />
-      <AvatarSamples />
-      <RowContentSample />
-      <BubbleSamples />
-    </View>
   )
 }
 
@@ -189,16 +162,8 @@ const styles = StyleSheet.create({
   stack: {
     gap: 24
   },
-  heading: {
-    ...TYPE.headline,
-    paddingHorizontal: 4
-  },
   sample: {
     gap: 8
-  },
-  caption: {
-    ...TYPE.footnote,
-    paddingHorizontal: 4
   },
   inline: {
     flexDirection: 'row',

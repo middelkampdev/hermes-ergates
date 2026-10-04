@@ -1,4 +1,7 @@
 export * from './ComponentSamples'
 export * from './ContrastSample'
+export * from './FoundationSamples'
+export * from './preview-context'
+export * from './SectionContent'
 export * from './Swatch'
 export * from './TypeSample'
