@@ -32,7 +32,9 @@ export function Toggle({ value, onValueChange, disabled, accessibilityLabel }: T
       disabled={disabled}
       accessibilityLabel={accessibilityLabel}
       trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
-      thumbColor={theme.colors.background}
+      // iOS keeps its own white thumb: it ignores a thumb color set at mount and
+      // applies only a later change, so a themed thumb changed with a theme switch.
+      thumbColor={Platform.OS === 'ios' ? undefined : theme.colors.background}
     />
   )
 }

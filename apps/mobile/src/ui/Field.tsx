@@ -73,7 +73,9 @@ const styles = StyleSheet.create({
     marginBottom: SPACE.medium
   },
   label: {
-    ...TYPE.footnote
+    ...TYPE.footnote,
+    // The same inset as a Group caption, so a form's labels and captions line up.
+    paddingHorizontal: SPACE.extraSmall
   },
   input: {
     minHeight: SIZE.large,

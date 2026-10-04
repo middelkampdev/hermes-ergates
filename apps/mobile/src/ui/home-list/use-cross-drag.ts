@@ -63,7 +63,7 @@ export interface CrossDrag {
   hovering: SharedValue<string | null>
   /** The rows list's `activeItemOpacity`: 1, or `HOVER_OPACITY` while the lifted row is over the pinned area. */
   rowOpacity: SharedValue<number>
-  /** The rows list's `activeItemShadowOpacity`: the library's default, or none while the lifted row is over the pinned area. */
+  /** The rows list's `activeItemShadowOpacity`: `LIFTED_SHADOW_OPACITY`, or none while the lifted row is over the pinned area. */
   rowShadow: SharedValue<number>
   /** Both drag lists' `onDragStart`: the drag to follow from now on; a state left by a drag that never ended is dropped. */
   begin(key: string): void
