@@ -27,7 +27,7 @@ describe('resolvePalette', () => {
   })
   it('carries the geometry contract', () => {
     const t = resolvePalette({ themeName: 'nous', appearance: 'light', systemDark: false })
-    expect(t.radius).toEqual({ bubble: 22, composer: 24, group: 20, sheet: 28 })
+    expect(t.radius).toMatchObject({ bubble: 22, composer: 24, group: 20, sheet: 28 })
     expect(t.spacing).toEqual([4, 8, 12, 16, 24, 32])
     expect(t.pagePadding).toBe(20)
     expect(t.hit).toBe(44)
