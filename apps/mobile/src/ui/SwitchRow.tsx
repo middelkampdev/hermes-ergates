@@ -10,6 +10,9 @@ import { Platform, StyleSheet, Switch, Text, View } from 'react-native'
 import { useTheme } from '@/theme/provider'
 import { RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
+/** The frame iOS gives its native switch; platform geometry, not a design value. */
+const NATIVE_SWITCH_HEIGHT = 31
+
 export interface ToggleProps {
   value: boolean
   onValueChange: (value: boolean) => void
@@ -78,7 +81,7 @@ const styles = StyleSheet.create({
     ...TYPE.footnote
   },
   switch: {
-    height: RULE.switchHeight,
+    height: NATIVE_SWITCH_HEIGHT,
     ...Platform.select({ ios: { transform: [{ translateY: 12 }] }, default: {} })
   }
 })

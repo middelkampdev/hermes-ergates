@@ -10,6 +10,7 @@ import { StyleSheet, Text, View } from 'react-native'
 
 import { contrastRatio } from '@vendor/hermes/themes/color'
 import { useTheme } from '@/theme/provider'
+import { TYPE } from '@/theme/tokens'
 
 export interface AvatarProps {
   name: string
@@ -62,8 +63,8 @@ export function Avatar({ name, color, imageUri, size }: AvatarProps) {
   )
 }
 
-/** Initials are bold on every avatar size, so the weight stays out of the type scale. */
-const INITIALS_WEIGHT = '600'
+/** Initials are bold on every avatar size, whatever the size of the type around it. */
+const INITIALS_WEIGHT = TYPE.headline.fontWeight
 
 const styles = StyleSheet.create({
   container: {

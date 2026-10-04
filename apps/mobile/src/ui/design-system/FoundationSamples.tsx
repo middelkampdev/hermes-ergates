@@ -10,7 +10,7 @@ import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native'
 import { colorSwatches, contrastRows, shapeRows, typeRows } from '@/features/design-system'
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
+import { SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 import { Group } from '../Group'
 import { ListRow } from '../ListRow'
@@ -121,15 +121,15 @@ const styles = StyleSheet.create({
   },
   // Bars and squares share one left column, so every label starts at the same edge.
   slot: {
-    width: RULE.touch
+    width: SIZE.medium
   },
   bar: {
     height: SIZE.tiny
   },
   // The hairline keeps the shape visible where the fill is close to the card's (light themes).
   square: {
-    width: RULE.touch,
-    height: RULE.touch,
+    width: SIZE.medium,
+    height: SIZE.medium,
     borderWidth: StyleSheet.hairlineWidth
   }
 })

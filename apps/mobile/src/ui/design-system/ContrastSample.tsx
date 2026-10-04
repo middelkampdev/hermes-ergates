@@ -10,7 +10,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import { isRenderableHex } from '@/theme/color'
 import type { ContrastRating } from '@/theme/contrast'
 import { useTheme } from '@/theme/provider'
-import { RADIUS, RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
+import { RADIUS, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 export interface ContrastSampleProps {
   fg: string
@@ -58,8 +58,8 @@ const styles = StyleSheet.create({
     paddingVertical: SPACE.small
   },
   chip: {
-    width: RULE.touch,
-    height: RULE.touch,
+    width: SIZE.medium,
+    height: SIZE.medium,
     borderRadius: RADIUS.medium,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',

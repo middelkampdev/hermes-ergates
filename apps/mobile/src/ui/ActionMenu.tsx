@@ -16,7 +16,7 @@ import { Keyboard, Modal, Platform, Pressable, StyleSheet, Text, View, useWindow
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useTheme } from '@/theme/provider'
-import { ICON_SIZE, RADIUS, RULE, SCRIM, SIZE, SPACE, TYPE } from '@/theme/tokens'
+import { ICON_SIZE, LEADING, RADIUS, RULE, SCRIM, SIZE, SPACE, TYPE } from '@/theme/tokens'
 
 import { Button } from './Button'
 import { Field } from './Field'
@@ -93,11 +93,13 @@ function useKeyboardHeight(active: boolean): number {
 
 export function ActionMenu({ visible, anchor, items, createSection, onClose }: ActionMenuProps) {
   const theme = useTheme()
-  const { width, height } = useWindowDimensions()
+  const { width, height, fontScale } = useWindowDimensions()
   const keyboardHeight = useKeyboardHeight(Boolean(createSection))
 
   const rowsHeight = items.reduce((total, row) => total + (row.kind === 'separator' ? SEPARATOR_HEIGHT : RULE.touch), 0)
-  const menuHeight = rowsHeight + (createSection ? CREATE_FORM_HEIGHT : 0) + SPACE.small * 2
+  // The input's line grows with the text size; the rest of the form is fixed.
+  const createFormHeight = CREATE_FORM_HEIGHT + LEADING.body * Math.max(fontScale - 1, 0)
+  const menuHeight = rowsHeight + (createSection ? createFormHeight : 0) + SPACE.small * 2
   const insets = useSafeAreaInsets()
   const position = anchor
     ? menuPosition({ anchor, screen: { width, height }, insets, keyboardHeight, menu: { width: RULE.panelWidth, height: menuHeight }, margin: SPACE.small })

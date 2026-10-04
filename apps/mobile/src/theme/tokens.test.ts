@@ -36,7 +36,9 @@ const COMPONENT_WORDS = new Set([
   'avatar',
   'list',
   'menu',
-  'chevron'
+  'chevron',
+  'switch',
+  'toggle'
 ])
 
 function componentWords(key: string): string[] {
@@ -93,8 +95,7 @@ describe('step scales', () => {
       panelWidth: 240,
       textAreaMinHeight: 128,
       stackedTableWidth: 400,
-      labelMaxWidth: 113,
-      switchHeight: 31
+      labelMaxWidth: 113
     })
   })
   it('lists each scale from small to large', () => {

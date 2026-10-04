@@ -18,8 +18,8 @@
  *
  * BASELINE lists the files that still hold values the `step` rule rejects. It
  * only shrinks: a file leaves it when it is clean, and a test fails until it
- * does. GEOMETRY lists the files whose remaining values are drag or motion
- * geometry rather than design values, each with its reason.
+ * does. GEOMETRY lists the files whose remaining values are drag, motion or
+ * platform geometry rather than design values, each with its reason.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
@@ -74,8 +74,10 @@ const BASELINE: ReadonlySet<string> = new Set<string>([
   'src/ui/home-list/SelectionCircle.tsx'
 ])
 
-/** A file goes here only when every value the `step` rule flags in it is drag or motion geometry; the reason says which. */
-const GEOMETRY: ReadonlyMap<string, string> = new Map<string, string>([])
+/** A file goes here only when every value the `step` rule flags in it is drag, motion or platform geometry; the reason says which. */
+const GEOMETRY: ReadonlyMap<string, string> = new Map<string, string>([
+  ['src/ui/SwitchRow.tsx', 'the height of the native iOS switch frame, which sits beside its translateY offset']
+])
 
 /** `token`: a type, radius, opacity or color value. `step`: a spacing, size, size prop or size constant. */
 type Rule = 'token' | 'step'
@@ -362,7 +364,7 @@ describe('design tokens', () => {
       const stale = [...GEOMETRY.keys()].filter(file => !(scan.get(file) ?? []).some(({ rule }) => rule === 'step'))
       expect(stale, `remove from GEOMETRY, these files are clean:\n${stale.join('\n')}`).toEqual([])
       const noReason = [...GEOMETRY].filter(([, reason]) => reason.trim() === '' || reason.includes('\n')).map(([file]) => file)
-      expect(noReason, `give each file one line saying which drag or motion value it holds:\n${noReason.join('\n')}`).toEqual([])
+      expect(noReason, `give each file one line saying which drag, motion or platform value it holds:\n${noReason.join('\n')}`).toEqual([])
       const both = [...GEOMETRY.keys()].filter(file => BASELINE.has(file))
       expect(both, `a file is in BASELINE or GEOMETRY, not both:\n${both.join('\n')}`).toEqual([])
     },

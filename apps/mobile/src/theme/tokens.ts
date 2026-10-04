@@ -101,8 +101,6 @@ export const RULE = {
   stackedTableWidth: 400,
   /** The widest a short label, such as a role beside a name, grows before it truncates. */
   labelMaxWidth: 113,
-  /** The height iOS gives a switch. */
-  switchHeight: 31,
 } as const
 
 export const SPACING = [4, 8, 12, 16, 24, 32] as const
