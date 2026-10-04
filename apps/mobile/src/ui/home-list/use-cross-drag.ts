@@ -34,6 +34,7 @@ import type { DragMoveParams } from 'react-native-sortables'
 
 import { crossDrop, crossSlot, pageRect, pinCells, sameSlot, visibleArea, type CrossSlot, type DragItem, type PinAreaLayout, type PinnedItem, type Point, type SwipeLine } from '@/features/agents'
 import type { OrderMove } from '@/state/organization'
+import { OPACITY } from '@/theme/tokens'
 
 /**
  * When a drop over the other area is applied. False: at the release, while
@@ -46,10 +47,10 @@ import type { OrderMove } from '@/state/organization'
 const APPLY_AFTER_DROP_ANIMATION = false
 
 /** How strong a lifted row stays while it is over the pinned area: the avatars and the marker show through it. */
-const HOVER_OPACITY = 0.35
+const HOVER_OPACITY: number = OPACITY.faint
 const HOVER_FADE_MS = 120
-/** The library's own shadow strength under a lifted item (its `activeItemShadowOpacity` default). */
-const LIFTED_SHADOW_OPACITY = 0.2
+/** The shadow strength under a lifted item: the library's `activeItemShadowOpacity`, which its default sets to 0.2, snapped to the nearest opacity step. */
+const LIFTED_SHADOW_OPACITY: number = OPACITY.faint
 
 export interface CrossDrag {
   /** On the pinned area's outer view, pins or skeleton. */

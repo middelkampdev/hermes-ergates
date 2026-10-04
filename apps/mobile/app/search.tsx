@@ -75,6 +75,6 @@ const styles = StyleSheet.create({
   // header), so the field does not sit flush against the top safe-area inset.
   bar: { flexDirection: 'row', alignItems: 'center', gap: SPACE.small, paddingTop: SPACE.small, marginBottom: SPACE.medium },
   field: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACE.small, minHeight: SIZE.large, borderRadius: RADIUS.medium, paddingHorizontal: SPACE.large },
-  input: { flex: 1, ...TYPE.body, paddingVertical: SPACE.small },
+  input: { flex: 1, alignSelf: 'stretch', ...TYPE.body, paddingVertical: SPACE.small },
   empty: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: SPACE.huge, textAlign: 'center' }
 })
