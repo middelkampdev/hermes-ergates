@@ -1,7 +1,11 @@
 /**
  * A pushed page (docs/10 section 4): a back chevron on the left, the title
- * centered, an optional action on the right, and a scrolling body that moves
- * clear of the keyboard. Settings' sub-pages and Move to Section use it.
+ * centered, an optional action on the right, and a scrolling body. The body
+ * is inset by the keyboard (`automaticallyAdjustKeyboardInsets`, iOS) rather
+ * than shrunk by a keyboard-avoiding view: a tall text field then scrolls
+ * into view and the caret stays above the keyboard. A `footer` stays where
+ * it is, so no page with a footer holds a text field. Android resizes the
+ * window for the keyboard itself.
  *
  * `variant: 'modal'` is for a page that is the root of a modal sheet
  * (Settings): the same header and body, but a close ✕ instead of the back
@@ -9,7 +13,7 @@
  */
 
 import type { ReactElement, ReactNode } from 'react'
-import { KeyboardAvoidingView, Platform, ScrollView, type RefreshControlProps, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, type RefreshControlProps, StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
 import { TYPE } from '@/theme/tokens'
@@ -42,7 +46,7 @@ export function Page({ title, onBack, variant = 'push', right, refreshControl, f
   return (
     <Screen edges={['top']}>
       <View style={styles.header}>
-        <View style={styles.side}>
+        <View style={[styles.side, styles.left]}>
           <IconButton name={variant === 'modal' ? 'x' : 'chevron-left'} accessibilityLabel={variant === 'modal' ? 'Close' : 'Back'} onPress={onBack} />
         </View>
         <Text numberOfLines={1} accessibilityRole="header" style={[styles.title, { color: theme.colors.foreground }]}>
@@ -50,12 +54,18 @@ export function Page({ title, onBack, variant = 'push', right, refreshControl, f
         </Text>
         <View style={[styles.side, styles.right]}>{right ?? null}</View>
       </View>
-      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView style={styles.fill} keyboardShouldPersistTaps="handled" refreshControl={refreshControl} contentContainerStyle={[styles.body, { paddingBottom: bottomInset }]}>
+      <View style={styles.fill}>
+        <ScrollView
+          style={styles.fill}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
+          refreshControl={refreshControl}
+          contentContainerStyle={[styles.body, { paddingBottom: bottomInset }]}
+        >
           {children}
         </ScrollView>
         {footer ? <View style={[styles.footer, { backgroundColor: theme.colors.background, paddingBottom: footerInset }]}>{footer}</View> : null}
-      </KeyboardAvoidingView>
+      </View>
     </Screen>
   )
 }
@@ -66,15 +76,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center'
   },
+  // Both sides share the width the title leaves, so the title stays centered
+  // even when the right action is wider than the back button.
   side: {
-    minWidth: 44,
+    flex: 1,
+    flexBasis: 0,
+    minWidth: 44
+  },
+  left: {
     alignItems: 'flex-start'
   },
   right: {
     alignItems: 'flex-end'
   },
   title: {
-    flex: 1,
+    flexShrink: 1,
     textAlign: 'center',
     ...TYPE.headline
   },

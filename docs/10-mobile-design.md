@@ -1,6 +1,6 @@
 # 10 - Mobile Design
 
-Version: 0.4. Date: 2026-10-04. Direction: requested by Jop. Implementation status: specification; no mobile app exists yet.
+Version: 0.4. Date: 2026-10-04. Direction: requested by Jop. Implementation status: implemented in `apps/mobile`; this document is its design contract.
 
 ## 1. Design direction
 
@@ -192,7 +192,7 @@ The app's look is three tiers. Screens use the roles, never raw values.
 | Tier | What it holds | Where it lives |
 |---|---|---|
 | Tokens | Colors (the vendored Hermes semantic palette, section 3) and the geometry roles below | `src/theme/` (`tokens.ts`, `color.ts`, `contrast.ts`) |
-| Components | `Page`, `Screen`, `Sheet`, `Group`, `ListRow`, `Field`, `Button`, `IconButton`, `Avatar`, `Bubble`, `RowContent` and the other shared pieces, built only from tokens | `src/ui/` |
+| Components | `Page`, `Screen`, `Sheet`, `Group`, `ListRow`, `Field`, `Button`, `IconButton`, `Avatar`, `RowContent` and the other shared pieces, built only from tokens | `src/ui/` (chat pieces such as `Bubble` in `src/ui/chat/`) |
 | Screens | Routes that compose components | `app/` |
 
 ### Type

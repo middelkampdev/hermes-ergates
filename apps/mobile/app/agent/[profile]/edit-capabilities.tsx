@@ -104,7 +104,7 @@ export default function EditCapabilitiesScreen() {
             <ListRow
               key={t.name}
               title={t.label}
-              subtitle={`${t.description} (${t.tool_count} tools)`}
+              subtitle={`${t.description} (${t.tool_count} ${t.tool_count === 1 ? 'tool' : 'tools'})`}
               right={<Toggle value={enabledToolsets.includes(t.name)} onValueChange={on => toggleToolset(t.name, on)} accessibilityLabel={`${t.label} toolset`} />}
             />
           ))
