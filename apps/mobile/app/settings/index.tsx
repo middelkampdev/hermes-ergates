@@ -1,8 +1,9 @@
 /**
  * Settings (docs/10 "Settings and agent details"): a modal sheet with the
- * connection's header, Gateway, "Make it yours", About and Sign out. Every
- * row has a line icon; Gateway and Appearance open their own sub-pages,
- * pushed inside the same modal (`app/settings/_layout.tsx`), so this root
+ * connection's header, Gateway, "Make it yours", About, Developer tools
+ * (development builds only) and Sign out. Every row has a line icon;
+ * Gateway, Appearance and Design system open their own sub-pages, pushed
+ * inside the same modal (`app/settings/_layout.tsx`), so this root
  * page gets a close ✕ instead of a back chevron (`Page`'s `variant="modal"`).
  */
 
@@ -100,6 +101,12 @@ function SettingsBody({ connection, onBack }: { connection: NonNullable<ReturnTy
         <ListRow title="Hermes pin" subtitle={HERMES_PIN} icon="git-commit" />
         <ListRow title="Privacy" subtitle="Chats live on your gateway. This phone keeps drafts and preferences only." icon="lock" />
       </Group>
+
+      {__DEV__ ? (
+        <Group caption="Developer tools">
+          <ListRow title="Design system" icon="layers" onPress={() => router.push('/settings/design-system')} />
+        </Group>
+      ) : null}
 
       <Button label="Sign out" variant="destructive" onPress={confirmSignOut} />
     </Page>

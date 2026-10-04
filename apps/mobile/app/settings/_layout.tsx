@@ -14,6 +14,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="gateway" />
       <Stack.Screen name="appearance" />
+      <Stack.Screen name="design-system" />
     </Stack>
   )
 }
