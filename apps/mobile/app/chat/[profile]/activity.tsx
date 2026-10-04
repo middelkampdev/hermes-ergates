@@ -110,9 +110,10 @@ function DetailRow({ entry, code }: { entry: ActivityEntry; code?: boolean }) {
   )
 }
 
-// Values kept from before the type roles: no role has a 20 pt line height, a 14 pt code size or a 10 pt radius.
+// Values kept from before the type roles: no role has a 20 pt line height, a 14 pt code size and leading, or a 10 pt radius.
 const TITLE_LEADING = 20
 const CODE_SIZE = 14
+const CODE_LEADING = 20
 const CODE_RADIUS = 10
 
 const styles = StyleSheet.create({
@@ -126,6 +127,6 @@ const styles = StyleSheet.create({
   reasoningHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   reasoningSummary: { flexGrow: 1, flexShrink: 1, flexBasis: 'auto' },
   detail: { ...TYPE.footnote, lineHeight: LEADING.footnote },
-  code: { fontFamily: 'Menlo', fontSize: CODE_SIZE, lineHeight: TITLE_LEADING, padding: 10, borderRadius: CODE_RADIUS },
+  code: { fontFamily: 'Menlo', fontSize: CODE_SIZE, lineHeight: CODE_LEADING, padding: 10, borderRadius: CODE_RADIUS },
   hint: { ...TYPE.callout, lineHeight: LEADING.callout, marginTop: 16 }
 })
