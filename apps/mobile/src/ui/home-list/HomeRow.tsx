@@ -28,7 +28,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Pressable, StyleSheet, Text, View, type AccessibilityActionEvent } from 'react-native'
+import { Pressable, StyleSheet, View, type AccessibilityActionEvent } from 'react-native'
 import { GestureDetector } from 'react-native-gesture-handler'
 import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated'
 import Sortable from 'react-native-sortables'
@@ -39,14 +39,12 @@ import { useTheme } from '@/theme/provider'
 
 import type { AnchorRect } from '../ActionMenu'
 import { Avatar } from '../Avatar'
+import { ROW_AVATAR_SIZE, RowContent } from '../RowContent'
 import { Grip } from './Grip'
 import { CIRCLE_COLUMN, HANDLE_WIDTH, handleOffset, rowOffsets } from './row-offsets'
 import { SelectionCircle } from './SelectionCircle'
 import type { SwipeSelect } from './use-swipe-select'
 
-const AVATAR_SIZE = 48
-const BADGE_MAX_WIDTH = 113
-const UNREAD_DOT_SIZE = 8
 export const MAX_FONT_SCALE = 1.4
 
 export interface HomeRowProps {
@@ -114,34 +112,17 @@ export function HomeRow(props: HomeRowProps) {
         style={styles.body}
       >
         <Animated.View style={[styles.bodyContent, { paddingLeft: gutter }, body]}>
-          <Avatar name={bot.name} color={bot.color} imageUri={avatar.data ?? null} size={AVATAR_SIZE} />
-          <View style={styles.text}>
-            <View style={styles.line}>
-              <Text numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE} style={[styles.name, { color: theme.colors.foreground }]}>
-                {bot.name}
-              </Text>
-              {bot.role ? (
-                <Text numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE} style={[styles.badge, { color: theme.colors.mutedForeground, backgroundColor: theme.colors.muted }]}>
-                  {bot.role}
-                </Text>
-              ) : null}
-              {/* Its own extra slide keeps it, and the dot below, from ever sitting under the incoming ≡ (row-offsets.ts). */}
-              {time ? (
-                <Animated.View style={timeDot}>
-                  <Text numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE} style={[styles.time, { color: theme.colors.mutedForeground }]}>
-                    {time}
-                  </Text>
-                </Animated.View>
-              ) : null}
-            </View>
-            <View style={styles.line}>
-              <Text numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE} style={[styles.preview, { color: theme.colors.mutedForeground }]}>
-                {preview}
-              </Text>
-              {/* Decorative: the row's own label says "unread". */}
-              {unread ? <Animated.View accessible={false} style={[styles.unreadDot, { backgroundColor: theme.colors.primary }, timeDot]} /> : null}
-            </View>
-          </View>
+          <RowContent
+            name={bot.name}
+            avatar={<Avatar name={bot.name} color={bot.color} imageUri={avatar.data ?? null} size={ROW_AVATAR_SIZE} />}
+            role={bot.role}
+            time={time}
+            preview={preview}
+            unread={unread}
+            maxFontScale={MAX_FONT_SCALE}
+            // Its own extra slide keeps the time, and the unread dot, from ever sitting under the incoming ≡ (row-offsets.ts).
+            trailingStyle={timeDot}
+          />
         </Animated.View>
         {/* The circle sits absolutely over the leading page padding and slides in from there; a touch that starts here belongs to swipe to select. */}
         <GestureDetector gesture={swipeGesture}>
@@ -169,13 +150,6 @@ const styles = StyleSheet.create({
   body: { flex: 1, alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center' },
   bodyContent: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   circleColumn: { position: 'absolute', left: 0, top: 0, bottom: 0, justifyContent: 'center' },
-  text: { flex: 1, gap: 2, marginLeft: 12 },
-  line: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  name: { flex: 1, fontSize: 17, fontWeight: '500' },
-  badge: { fontSize: 12, borderRadius: 6, maxWidth: BADGE_MAX_WIDTH, paddingHorizontal: 6, paddingVertical: 2, overflow: 'hidden' },
-  time: { fontSize: 12 },
-  preview: { flex: 1, fontSize: 15 },
-  unreadDot: { width: UNREAD_DOT_SIZE, height: UNREAD_DOT_SIZE, borderRadius: UNREAD_DOT_SIZE / 2 },
   trailing: { alignSelf: 'stretch', overflow: 'hidden', alignItems: 'flex-end' },
   fill: { flex: 1 },
   handle: { flex: 1, alignItems: 'flex-end', justifyContent: 'center' }

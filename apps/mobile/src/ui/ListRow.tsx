@@ -9,6 +9,7 @@ import type { ReactNode } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
+import { OPACITY, TYPE } from '@/theme/tokens'
 
 import { Icon, type IconName } from './icons'
 
@@ -62,7 +63,7 @@ export function ListRow({ title, subtitle, icon, error, onPress, right, destruct
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={selected === undefined ? undefined : { selected }}
-      style={({ pressed }) => ({ opacity: pressed ? 0.65 : 1 })}
+      style={({ pressed }) => ({ opacity: pressed ? OPACITY.pressed : 1 })}
     >
       {content}
     </Pressable>
@@ -83,9 +84,9 @@ const styles = StyleSheet.create({
     gap: 3
   },
   title: {
-    fontSize: 17
+    ...TYPE.body
   },
   subtitle: {
-    fontSize: 13
+    ...TYPE.footnote
   }
 })

@@ -7,6 +7,7 @@
 import { Pressable, StyleSheet } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
+import { OPACITY } from '@/theme/tokens'
 
 import { Icon, type IconName } from './icons'
 
@@ -35,7 +36,7 @@ export function IconButton({ name, onPress, accessibilityLabel, size = ICON_SIZE
         styles.hitArea,
         { width: theme.hit, height: theme.hit },
         filled ? { backgroundColor: theme.colors.muted, borderRadius: theme.hit / 2 } : null,
-        { opacity: disabled ? 0.45 : pressed ? 0.65 : 1 }
+        { opacity: disabled ? OPACITY.disabled : pressed ? OPACITY.pressed : 1 }
       ]}
     >
       <Icon name={name} size={size} color={theme.colors.foreground} />

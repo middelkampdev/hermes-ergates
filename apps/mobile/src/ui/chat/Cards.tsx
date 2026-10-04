@@ -10,6 +10,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import type { ChatItem } from '@/features/chat'
 import type { ApprovalChoice } from '@/gateway/types'
 import { useTheme } from '@/theme/provider'
+import { LEADING, RADIUS, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 
 type ClarifyItem = Extract<ChatItem, { kind: 'clarify' }>
@@ -133,12 +134,12 @@ export function ApprovalCard({ item, onChoose }: { item: ApprovalItem; onChoose:
 const styles = StyleSheet.create({
   card: { paddingVertical: 12, paddingHorizontal: 16, marginVertical: 6, gap: 8, alignSelf: 'stretch' },
   question: { gap: 8 },
-  title: { fontSize: 17, lineHeight: 24, fontWeight: '500' },
-  hint: { fontSize: 13, lineHeight: 18 },
-  option: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48, paddingHorizontal: 12, borderRadius: 14, borderWidth: 1 },
-  letter: { fontSize: 15, fontWeight: '600', width: 18 },
-  optionText: { fontSize: 17, flex: 1 },
-  input: { minHeight: 44, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, fontSize: 17 },
+  title: { ...TYPE.bodyStrong, lineHeight: LEADING.body },
+  hint: { ...TYPE.footnote, lineHeight: LEADING.footnote },
+  option: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48, paddingHorizontal: 12, borderRadius: RADIUS.chip, borderWidth: 1 },
+  letter: { ...TYPE.calloutStrong, width: 18 },
+  optionText: { ...TYPE.body, flex: 1 },
+  input: { minHeight: 44, borderRadius: RADIUS.chip, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, ...TYPE.body },
   actions: { gap: 8, marginTop: 4 },
-  command: { fontFamily: 'Menlo', fontSize: 14, lineHeight: 20, padding: 10, borderRadius: 10 }
+  command: { fontFamily: 'Menlo', ...TYPE.footnote, lineHeight: LEADING.footnote, padding: 10, borderRadius: RADIUS.small }
 })

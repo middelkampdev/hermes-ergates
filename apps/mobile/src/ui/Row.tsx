@@ -7,17 +7,15 @@
  * reaches both edges, and it pads its own content by the page padding.
  */
 
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
 
 import { Avatar } from './Avatar'
+import { ROW_AVATAR_SIZE, RowContent } from './RowContent'
 
-const AVATAR_SIZE = 48
 /** Design floor for the row; never allowed below the shared min hit area. */
 const ROW_MIN_HEIGHT = 52
-const BADGE_MAX_WIDTH = 113
-const UNREAD_DOT_SIZE = 8
 
 export interface RowProps {
   name: string
@@ -53,47 +51,14 @@ export function Row({ name, avatarColor, avatarImageUri, role, time, preview, un
         }
       ]}
     >
-      <Avatar name={name} color={avatarColor} imageUri={avatarImageUri} size={AVATAR_SIZE} />
-      <View style={styles.body}>
-        <View style={styles.line}>
-          <Text numberOfLines={1} style={[styles.name, { color: theme.colors.foreground }]}>
-            {name}
-          </Text>
-          {role ? (
-            <Text
-              numberOfLines={1}
-              style={[
-                styles.badge,
-                { color: theme.colors.mutedForeground, backgroundColor: theme.colors.muted }
-              ]}
-            >
-              {role}
-            </Text>
-          ) : null}
-          {time ? (
-            <Text numberOfLines={1} style={[styles.time, { color: theme.colors.mutedForeground }]}>
-              {time}
-            </Text>
-          ) : null}
-        </View>
-        <View style={styles.line}>
-          {preview ? (
-            <Text numberOfLines={1} style={[styles.preview, { color: theme.colors.mutedForeground }]}>
-              {preview}
-            </Text>
-          ) : (
-            <View style={styles.preview} />
-          )}
-          {unread ? (
-            <View
-              // Decorative: an `accessible` container hides its descendants on
-              // iOS, so the state is carried by the row's own label instead.
-              accessible={false}
-              style={[styles.unreadDot, { backgroundColor: theme.colors.primary }]}
-            />
-          ) : null}
-        </View>
-      </View>
+      <RowContent
+        name={name}
+        avatar={<Avatar name={name} color={avatarColor} imageUri={avatarImageUri} size={ROW_AVATAR_SIZE} />}
+        role={role}
+        time={time}
+        preview={preview || undefined}
+        unread={unread}
+      />
     </Pressable>
   )
 }
@@ -104,39 +69,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingVertical: 8
-  },
-  body: {
-    flex: 1,
-    gap: 2
-  },
-  line: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8
-  },
-  name: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: '500'
-  },
-  badge: {
-    fontSize: 12,
-    borderRadius: 6,
-    maxWidth: BADGE_MAX_WIDTH,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    overflow: 'hidden'
-  },
-  time: {
-    fontSize: 12
-  },
-  preview: {
-    flex: 1,
-    fontSize: 15
-  },
-  unreadDot: {
-    width: UNREAD_DOT_SIZE,
-    height: UNREAD_DOT_SIZE,
-    borderRadius: UNREAD_DOT_SIZE / 2
   }
 })

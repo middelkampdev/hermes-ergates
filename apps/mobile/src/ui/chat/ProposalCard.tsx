@@ -13,6 +13,7 @@ import { useProposal } from '@/features/chat'
 import { userMessage } from '@/gateway/errors'
 import type { AgentProposal } from '@/gateway/types'
 import { useTheme } from '@/theme/provider'
+import { LEADING, TYPE } from '@/theme/tokens'
 import { Button, type ButtonVariant } from '@/ui/Button'
 
 const LABELS: Record<ProposalAction, string> = {
@@ -90,9 +91,9 @@ export function ProposalCard({ proposal, onOpenChat }: { proposal: AgentProposal
 
 const styles = StyleSheet.create({
   card: { paddingVertical: 12, paddingHorizontal: 16, marginVertical: 6, gap: 6, alignSelf: 'stretch' },
-  kicker: { fontSize: 13 },
-  title: { fontSize: 17, lineHeight: 24, fontWeight: '500' },
-  body: { fontSize: 15, lineHeight: 21 },
-  meta: { fontSize: 13, lineHeight: 18 },
+  kicker: { ...TYPE.footnote },
+  title: { ...TYPE.bodyStrong, lineHeight: LEADING.body },
+  body: { ...TYPE.callout, lineHeight: LEADING.callout },
+  meta: { ...TYPE.footnote, lineHeight: LEADING.footnote },
   actions: { gap: 8, marginTop: 6 }
 })

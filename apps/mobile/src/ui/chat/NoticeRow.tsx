@@ -2,6 +2,7 @@ import React from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
+import { LEADING, TYPE } from '@/theme/tokens'
 import { Icon } from '@/ui/icons'
 
 export interface NoticeRowProps {
@@ -43,5 +44,5 @@ export function NoticeRow({ text, label, onPress }: NoticeRowProps) {
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 6, minHeight: 32, alignSelf: 'center', maxWidth: '92%' },
-  text: { fontSize: 13, lineHeight: 18, flexShrink: 1, textAlign: 'center' }
+  text: { ...TYPE.footnote, lineHeight: LEADING.footnote, flexShrink: 1, textAlign: 'center' }
 })

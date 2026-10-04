@@ -8,6 +8,7 @@ import type { ReactNode } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
+import { TYPE } from '@/theme/tokens'
 
 import { Card } from './Card'
 
@@ -34,7 +35,7 @@ const styles = StyleSheet.create({
     gap: 8
   },
   caption: {
-    fontSize: 13,
+    ...TYPE.footnote,
     paddingHorizontal: 4
   }
 })

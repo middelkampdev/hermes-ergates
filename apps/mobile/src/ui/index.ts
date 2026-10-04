@@ -1,6 +1,7 @@
 export * from './Screen'
 export * from './Avatar'
 export * from './Row'
+export * from './RowContent'
 export * from './Button'
 export * from './IconButton'
 export * from './Field'

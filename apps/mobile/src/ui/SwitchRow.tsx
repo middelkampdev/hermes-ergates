@@ -8,6 +8,7 @@
 import { Platform, StyleSheet, Switch, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
+import { TYPE } from '@/theme/tokens'
 
 /** Design floor for the row; never allowed below the shared min hit area. */
 const MIN_HEIGHT = 52
@@ -74,10 +75,10 @@ const styles = StyleSheet.create({
     gap: 2
   },
   label: {
-    fontSize: 17
+    ...TYPE.body
   },
   description: {
-    fontSize: 13
+    ...TYPE.footnote
   },
   switch: {
     height: 31,

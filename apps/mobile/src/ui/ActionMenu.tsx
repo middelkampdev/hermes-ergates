@@ -16,6 +16,7 @@ import { Keyboard, Modal, Platform, Pressable, StyleSheet, Text, View, useWindow
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useTheme } from '@/theme/provider'
+import { SCRIM, TYPE } from '@/theme/tokens'
 
 import { Button } from './Button'
 import { Field } from './Field'
@@ -172,8 +173,7 @@ export function ActionMenu({ visible, anchor, items, createSection, onClose }: A
 
 const styles = StyleSheet.create({
   backdrop: {
-    // The one literal color in src/ui: a translucent backdrop, the same on every theme.
-    backgroundColor: 'rgba(0,0,0,0.25)'
+    backgroundColor: SCRIM
   },
   // No shadow: in dark themes a shadow drawn in a light color glows. A hairline
   // border in the separator color marks the card's edge on every theme instead.
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14
   },
   label: {
-    fontSize: 15,
+    ...TYPE.callout,
     flexShrink: 1,
     flexGrow: 1
   },

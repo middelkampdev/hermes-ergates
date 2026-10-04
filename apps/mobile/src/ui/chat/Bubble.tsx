@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 import type { ChatItem } from '@/features/chat'
 import { formatClock } from '@/lib/time'
 import { useTheme } from '@/theme/provider'
+import { LEADING, TYPE } from '@/theme/tokens'
 import { MarkdownText } from '@/ui/MarkdownText'
 
 type UserItem = Extract<ChatItem, { kind: 'user' }>
@@ -77,7 +78,7 @@ const styles = StyleSheet.create({
   rightWrap: { alignItems: 'flex-end', maxWidth: '88%', alignSelf: 'flex-end', marginVertical: 4 },
   bubble: { paddingVertical: 12, paddingHorizontal: 16 },
   markdown: { marginBottom: -10 },
-  body: { fontSize: 17, lineHeight: 24 },
-  cursor: { fontSize: 17, lineHeight: 24 },
-  meta: { fontSize: 13, lineHeight: 18, marginTop: 4, marginHorizontal: 8 }
+  body: { ...TYPE.body, lineHeight: LEADING.body },
+  cursor: { ...TYPE.body, lineHeight: LEADING.body },
+  meta: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: 4, marginHorizontal: 8 }
 })

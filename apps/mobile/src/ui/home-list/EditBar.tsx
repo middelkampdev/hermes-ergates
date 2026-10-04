@@ -15,7 +15,7 @@ import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import type { EditBarLabels } from '@/features/agents'
 import { useTheme } from '@/theme/provider'
-import type { MobileTheme } from '@/theme/tokens'
+import { OPACITY, TYPE, type MobileTheme } from '@/theme/tokens'
 
 import { useBottomInset } from '../use-bottom-inset'
 import { MAX_FONT_SCALE } from './HomeRow'
@@ -74,7 +74,7 @@ export function EditBar({ labels, shown, onMove, onPin, onHide, onRead }: EditBa
           onPress={action.onPress}
           accessibilityRole="button"
           accessibilityLabel={action.label}
-          style={({ pressed }) => [styles.action, { minHeight: theme.hit, opacity: pressed ? 0.65 : 1 }]}
+          style={({ pressed }) => [styles.action, { minHeight: theme.hit, opacity: pressed ? OPACITY.pressed : 1 }]}
         >
           <Text numberOfLines={1} maxFontSizeMultiplier={MAX_FONT_SCALE} style={[styles.label, { color: theme.colors.primary }]}>
             {action.label}
@@ -88,5 +88,5 @@ export function EditBar({ labels, shown, onMove, onPin, onHide, onRead }: EditBa
 const styles = StyleSheet.create({
   frame: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, paddingTop: BAR_PADDING_TOP },
   action: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  label: { fontSize: 15, fontWeight: '600' }
+  label: { ...TYPE.calloutStrong }
 })

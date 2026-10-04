@@ -9,12 +9,12 @@ import { StyleSheet, Text, TextInput, View, type KeyboardTypeOptions } from 'rea
 
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
+import { LEADING, RADIUS, SIZE, TYPE } from '@/theme/tokens'
 
 import { useSurface } from './surface-context'
 
-const MIN_HEIGHT = 50
-const MULTILINE_MIN_HEIGHT = 128
-const RADIUS = 14
+const MIN_HEIGHT = SIZE.field
+const MULTILINE_MIN_HEIGHT = SIZE.fieldMultiline
 
 export interface FieldProps {
   label: string
@@ -76,21 +76,21 @@ const styles = StyleSheet.create({
     marginBottom: 12
   },
   label: {
-    fontSize: 13
+    ...TYPE.footnote
   },
   input: {
     minHeight: MIN_HEIGHT,
-    borderRadius: RADIUS,
+    borderRadius: RADIUS.field,
     paddingHorizontal: 14,
     paddingVertical: 13,
-    fontSize: 17,
-    lineHeight: 24
+    ...TYPE.body,
+    lineHeight: LEADING.body
   },
   multiline: {
     minHeight: MULTILINE_MIN_HEIGHT,
     textAlignVertical: 'top'
   },
   error: {
-    fontSize: 13
+    ...TYPE.footnote
   }
 })

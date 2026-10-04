@@ -8,12 +8,11 @@ import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native'
 
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import type { MobileTheme } from '@/theme/tokens'
+import { OPACITY, RADIUS, SIZE, TYPE, type MobileTheme } from '@/theme/tokens'
 
 import { useSurface } from './surface-context'
 
-const RADIUS = 16
-const MIN_HEIGHT = 50
+const MIN_HEIGHT = SIZE.button
 
 export type ButtonVariant = 'primary' | 'secondary' | 'destructive' | 'ghost'
 
@@ -56,7 +55,7 @@ export function Button({ label, onPress, variant = 'primary', loading, disabled,
       accessibilityState={{ disabled: isDisabled, busy: loading }}
       style={({ pressed }) => [
         styles.button,
-        { minHeight: MIN_HEIGHT, minWidth: theme.hit, backgroundColor: background, opacity: isDisabled ? 0.45 : pressed ? 0.7 : 1 },
+        { minHeight: MIN_HEIGHT, minWidth: theme.hit, backgroundColor: background, opacity: isDisabled ? OPACITY.disabled : pressed ? OPACITY.pressed : 1 },
         compact ? styles.compact : null
       ]}
     >
@@ -71,7 +70,7 @@ export function Button({ label, onPress, variant = 'primary', loading, disabled,
 
 const styles = StyleSheet.create({
   button: {
-    borderRadius: RADIUS,
+    borderRadius: RADIUS.button,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -82,7 +81,6 @@ const styles = StyleSheet.create({
     minWidth: 0
   },
   label: {
-    fontSize: 17,
-    fontWeight: '600'
+    ...TYPE.headline
   }
 })

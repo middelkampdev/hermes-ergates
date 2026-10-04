@@ -20,6 +20,7 @@ import Sortable from 'react-native-sortables'
 
 import { EDIT_ITEM_HEIGHT, EDIT_SECTION_ACTION, type MoveAction, type SectionDragEvent } from '@/features/agents'
 import { useTheme } from '@/theme/provider'
+import { TYPE } from '@/theme/tokens'
 
 import { Icon } from '../icons'
 import { Grip } from './Grip'
@@ -88,7 +89,7 @@ export function HomeSectionHeader({ name, expanded, editing, layoutEditing, prog
 const styles = StyleSheet.create({
   header: { height: EDIT_ITEM_HEIGHT.section, flexDirection: 'row', alignItems: 'center' },
   name: { flex: 1, alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: 4 },
-  text: { fontSize: 13, fontWeight: '400' },
+  text: { ...TYPE.footnote },
   trailing: { alignSelf: 'stretch', overflow: 'hidden', alignItems: 'flex-end' },
   fill: { flex: 1 },
   handleFill: { flex: 1, alignSelf: 'stretch', alignItems: 'flex-end', justifyContent: 'center' }

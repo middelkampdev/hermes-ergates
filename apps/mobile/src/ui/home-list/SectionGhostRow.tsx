@@ -13,6 +13,7 @@ import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reani
 
 import { EDIT_ITEM_HEIGHT } from '@/features/agents'
 import { useTheme } from '@/theme/provider'
+import { TYPE } from '@/theme/tokens'
 
 import { MAX_FONT_SCALE } from './HomeRow'
 
@@ -51,5 +52,5 @@ const styles = StyleSheet.create({
     borderRadius: OUTLINE_RADIUS,
     opacity: SKELETON_RING_OPACITY
   },
-  caption: { fontSize: 15 }
+  caption: { ...TYPE.callout }
 })

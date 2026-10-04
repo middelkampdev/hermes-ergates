@@ -62,6 +62,9 @@ export function Avatar({ name, color, imageUri, size }: AvatarProps) {
   )
 }
 
+/** Initials are bold on every avatar size, so the weight stays out of the type scale. */
+const INITIALS_WEIGHT = '600'
+
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
@@ -69,6 +72,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden'
   },
   initials: {
-    fontWeight: '600'
+    fontWeight: INITIALS_WEIGHT
   }
 })

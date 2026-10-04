@@ -122,9 +122,9 @@ module.exports = {
     },
     {
       name: 'adr029-4-drag-libraries-in-home-list',
-      comment: 'react-native-sortables and react-native-reanimated back the one Home list, its drag lists and its Edit mode motion; only the files in src/ui/home-list/ may import them.',
+      comment: 'react-native-sortables and react-native-reanimated back the one Home list, its drag lists and its Edit mode motion; only the files in src/ui/home-list/ may import them, and src/ui/RowContent.tsx, which takes the Home row\'s animated slide for the time and the unread dot.',
       severity: 'error',
-      from: { pathNot: `(^src/ui/home-list/|${TEST})` },
+      from: { pathNot: `(^src/ui/home-list/|^src/ui/RowContent\\.tsx$|${TEST})` },
       to: { path: '^node_modules/(react-native-sortables|react-native-reanimated)/' }
     },
     {

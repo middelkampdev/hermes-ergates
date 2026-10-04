@@ -66,6 +66,7 @@ import {
 import { lightTap } from '@/lib/haptics'
 import type { OrderMove } from '@/state/organization'
 import { useTheme } from '@/theme/provider'
+import { AVATAR, TYPE } from '@/theme/tokens'
 
 import type { AnchorRect } from '../ActionMenu'
 import { Avatar } from '../Avatar'
@@ -77,7 +78,7 @@ import { SelectionCircle } from './SelectionCircle'
 import type { CrossDrag } from './use-cross-drag'
 import { usePinSwipeSelect, type PinSwipeSelect } from './use-swipe-select'
 
-const AVATAR_SIZE = 84
+const AVATAR_SIZE = AVATAR.pinned
 const PIN_WIDTH = 96
 const PIN_GAP = 24
 /** The `Sortable.Flex`'s own `paddingVertical`, above the first line of pins. */
@@ -389,7 +390,7 @@ function PinnedAvatar({ item, editing, progress, selected, unread, actions, onAc
 
 const styles = StyleSheet.create({
   pin: { alignItems: 'center', gap: 8, width: PIN_WIDTH },
-  label: { fontSize: 15 },
+  label: { ...TYPE.callout },
   dot: { position: 'absolute', top: 2, right: 10, width: DOT_SIZE, height: DOT_SIZE, borderRadius: DOT_SIZE / 2 },
   // The badge and the move handle center on the avatar's round edge at 45°, top left and top right (see the arithmetic above).
   badge: { position: 'absolute', top: BADGE_OFFSET.y, left: BADGE_OFFSET.x },

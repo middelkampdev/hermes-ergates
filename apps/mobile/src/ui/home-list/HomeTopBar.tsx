@@ -12,6 +12,7 @@ import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reani
 
 import { selectionTitle } from '@/features/agents'
 import { useTheme } from '@/theme/provider'
+import { TYPE } from '@/theme/tokens'
 
 import { Button } from '../Button'
 import { IconButton } from '../IconButton'
@@ -74,5 +75,5 @@ const styles = StyleSheet.create({
   layer: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48 },
   spacer: { flex: 1 },
   centered: { alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: 17, fontWeight: '600' }
+  title: { ...TYPE.headline }
 })

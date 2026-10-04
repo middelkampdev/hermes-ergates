@@ -12,6 +12,7 @@ import type { ReactNode } from 'react'
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
+import { TYPE } from '@/theme/tokens'
 
 import { IconButton } from './IconButton'
 import { Screen } from './Screen'
@@ -66,8 +67,7 @@ const styles = StyleSheet.create({
   title: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 17,
-    fontWeight: '600'
+    ...TYPE.headline
   },
   fill: {
     flex: 1

@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import type { ChatItem } from '@/features/chat'
 import { useTheme } from '@/theme/provider'
+import { LEADING, RADIUS, TYPE } from '@/theme/tokens'
 import { Icon, type IconName } from '@/ui/icons'
 
 /** Compact centered event row (routine created, renamed, messaged X). */
@@ -95,17 +96,19 @@ export function ConnectionLine({ state }: { state: 'idle' | 'connecting' | 'open
   )
 }
 
+const DOT_SIZE = 8
+
 const styles = StyleSheet.create({
   event: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 6, minHeight: 32, alignSelf: 'center', maxWidth: '92%' },
-  eventText: { fontSize: 13, lineHeight: 18, flexShrink: 1, textAlign: 'center' },
+  eventText: { ...TYPE.footnote, lineHeight: LEADING.footnote, flexShrink: 1, textAlign: 'center' },
   commentary: { alignSelf: 'flex-start', maxWidth: '88%', paddingVertical: 4, paddingHorizontal: 4 },
-  commentaryText: { fontSize: 15, lineHeight: 21, fontStyle: 'italic' },
-  date: { fontSize: 13, textAlign: 'center', marginVertical: 12 },
+  commentaryText: { ...TYPE.callout, lineHeight: LEADING.callout, fontStyle: 'italic' },
+  date: { ...TYPE.footnote, textAlign: 'center', marginVertical: 12 },
   working: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, minHeight: 44 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  workingText: { fontSize: 15, flex: 1 },
+  dot: { width: DOT_SIZE, height: DOT_SIZE, borderRadius: DOT_SIZE / 2 },
+  workingText: { ...TYPE.callout, flex: 1 },
   stop: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
-  stopText: { fontSize: 15, fontWeight: '600' },
-  connection: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 12, alignSelf: 'center', marginVertical: 6 },
-  connectionText: { fontSize: 13 }
+  stopText: { ...TYPE.calloutStrong },
+  connection: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: RADIUS.small, alignSelf: 'center', marginVertical: 6 },
+  connectionText: { ...TYPE.footnote }
 })

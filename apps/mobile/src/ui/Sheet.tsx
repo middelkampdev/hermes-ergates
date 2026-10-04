@@ -12,6 +12,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } fr
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 
 import { useTheme } from '@/theme/provider'
+import { TYPE } from '@/theme/tokens'
 
 import { IconButton } from './IconButton'
 import { SurfaceProvider } from './surface-context'
@@ -133,8 +134,7 @@ const styles = StyleSheet.create({
   },
   title: {
     flex: 1,
-    fontSize: 20,
-    fontWeight: '600'
+    ...TYPE.title3
   },
   centered: {
     alignItems: 'center',
@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
   },
   centeredTitle: {
     flex: 0,
-    fontSize: 17
+    ...TYPE.headline
   },
   scroll: {
     flex: 1
