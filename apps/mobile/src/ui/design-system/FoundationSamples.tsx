@@ -63,6 +63,9 @@ export function TypeSamples() {
   )
 }
 
+/** The edge of a radius sample and of the column that holds it. */
+const RADIUS_SAMPLE_SIZE = SIZE.huge
+
 /** One step or rule: its drawing (if any) in a column of fixed width, then its name and value, so every label of a group starts at the same edge. */
 function ShapeRow({ label, name, value, slotWidth, children }: { label: string; name: string; value: number; slotWidth?: number; children?: ReactNode }) {
   const theme = useTheme()
@@ -97,7 +100,7 @@ export function ShapeSamples() {
       </Group>
       <Group caption="Radius" iconless>
         {shapes.radius.map(([name, value]) => (
-          <ShapeRow key={name} label="Radius" name={name} value={value} slotWidth={SIZE.huge}>
+          <ShapeRow key={name} label="Radius" name={name} value={value} slotWidth={RADIUS_SAMPLE_SIZE}>
             <View style={[styles.radiusSample, value === RADIUS.full && styles.pill, outline, { borderRadius: value }]} />
           </ShapeRow>
         ))}
@@ -155,8 +158,8 @@ const styles = StyleSheet.create({
     height: SIZE.tiny
   },
   radiusSample: {
-    width: SIZE.huge,
-    height: SIZE.huge
+    width: RADIUS_SAMPLE_SIZE,
+    height: RADIUS_SAMPLE_SIZE
   },
   // A full radius is a pill or a circle: a wide, shorter shape shows that.
   pill: {

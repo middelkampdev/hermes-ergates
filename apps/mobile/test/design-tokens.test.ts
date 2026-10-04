@@ -329,7 +329,7 @@ describe('design tokens', () => {
       const offenders = [...scanApp()].flatMap(([file, found]) =>
         found.filter(({ rule }) => rule === 'token').map(finding => offender(file, finding))
       )
-      expect(offenders, `use a role from src/theme/tokens.ts:\n${offenders.join('\n')}`).toEqual([])
+      expect(offenders, `use a step or a type role from src/theme/tokens.ts, or a color from the theme:\n${offenders.join('\n')}`).toEqual([])
     },
     30000
   )
