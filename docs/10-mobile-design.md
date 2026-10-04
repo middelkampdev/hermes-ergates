@@ -1,6 +1,6 @@
 # 10 - Mobile Design
 
-Version: 0.3. Date: 2026-09-12. Direction: requested by Jop. Implementation status: specification; no mobile app exists yet.
+Version: 0.4. Date: 2026-10-04. Direction: requested by Jop. Implementation status: specification; no mobile app exists yet.
 
 ## 1. Design direction
 
@@ -71,6 +71,8 @@ All dimensions below are logical points/dp, not screenshot pixels. Reference scr
 | Composer | Minimum 48 high; radius 24 | Grows up to five lines, then scrolls within the input |
 | Settings group | `muted` card, radius 20, optional small caption above; row minimum 56 with a leading line icon, title, optional subtitle and a chevron when the row opens something | Hairline dividers inset past the icon to the text; labels wrap at large text sizes |
 | Sheet | Radius 28 at top | Close button, native dismissal and Android back support |
+
+Every size, radius, type and opacity value in this table is a named role in section 4a, `apps/mobile/src/theme/tokens.ts`.
 
 Field, Card/Group and the secondary Button fill with whichever of `muted` or `background` reads more clearly against the surface they sit on — the page normally, a Sheet's `popover` inside one — so the fill stays visible in every theme's dark mode instead of nearly matching a sheet's own color.
 
@@ -182,6 +184,72 @@ Save retains the screen while it runs. Use per-key `ui_meta_expected_revisions`,
 Inspect each `applied` result, the separate avatar response, and notification save. On partial failure, show which sections saved and keep failed edits available for retry; Cancel cannot roll back sections already saved. A model-confirmation response resubmits only that section after the user's decision. Do not copy the desktop's immediate capability side effects into a form that promises Save/Cancel.
 
 Refresh Home, search, pinned labels, chat identity and details after confirmed saves. Model/instruction changes apply between turns according to verified lifecycle behavior; tool revocation stays “Applying…” until stop/rebuild/verification finishes. Keep the profile id, chat, memories, files and routines intact when changing the display name. Actual profile-directory renaming is a separate migration operation, outside this editor.
+
+## 4a. Design system
+
+The app's look is three tiers. Screens use the roles, never raw values.
+
+| Tier | What it holds | Where it lives |
+|---|---|---|
+| Tokens | Colors (the vendored Hermes semantic palette, section 3) and the geometry roles below | `src/theme/` (`tokens.ts`, `color.ts`, `contrast.ts`) |
+| Components | `Page`, `Screen`, `Sheet`, `Group`, `ListRow`, `Field`, `Button`, `IconButton`, `Avatar`, `Bubble`, `RowContent` and the other shared pieces, built only from tokens | `src/ui/` |
+| Screens | Routes that compose components | `app/` |
+
+### Type
+
+Size and weight only. There is no line height in a role, because Home rows have fixed drag heights; the multi-line roles in the leading table set their own.
+
+| Role | Size | Weight |
+|---|---|---|
+| `largeTitle` | 28 | 600 |
+| `title` | 22 | 600 |
+| `title3` | 20 | 600 |
+| `headline` | 17 | 600 |
+| `bodyStrong` | 17 | 500 |
+| `body` | 17 | 400 |
+| `calloutStrong` | 15 | 600 |
+| `callout` | 15 | 400 |
+| `footnote` | 13 | 400 |
+| `footnoteStrong` | 13 | 600 |
+| `caption` | 12 | 400 |
+
+Line heights for wrapping text (`LEADING`): `body` 24, `callout` 22, `footnote` 18.
+
+### Shape, space and size
+
+| Group | Roles (points) |
+|---|---|
+| Radius (`RADIUS`) | `bubble` 22, `composer` 24, `group` 20, `sheet` 28, `button` 16, `field` 14, `chip` 14, `small` 12, `badge` 6 |
+| Spacing (`SPACING`) | 4, 8, 12, 16, 24, 32 |
+| Page padding (`PAGE_PADDING`) | 20 |
+| Size (`SIZE`) | `hit` 44, `row` 56, `button` 50, `field` 50, `fieldMultiline` 128 |
+| Icon (`ICON`) | `row` 22, `chevron` 17, `small` 18 |
+| Avatar (`AVATAR`) | `inline` 18, `chat` 28, `chatHeader` 30, `list` 48, `identity` 60, `editor` 80, `pinned` 84, `profile` 88 |
+
+### Opacity and scrim
+
+| Role | Value | Use |
+|---|---|---|
+| `OPACITY.pressed` | 0.65 | A pressed control |
+| `OPACITY.disabled` | 0.45 | A disabled control |
+| `SCRIM` | `rgba(0,0,0,0.25)` | Backdrop behind the action menu; the one fixed color, the same on every theme |
+
+### Contrast
+
+`contrastRatio` and `rate` (WCAG 2.x: AAA from 7, AA from 4.5, AA large from 3, otherwise Fail) measure the pairs the app paints, listed in `CONTRAST_PAIRS`: `foreground` on `background`, `muted`, `userBubble` and `popover`; `mutedForeground` on `background` and `muted`; `primaryForeground` on `primary`; `destructiveForeground` on `destructive`. A palette that fails a pair is reported on the design system page, not rejected.
+
+### The rule
+
+- Colors come only from `theme.colors`. No vendored palette value changes, and there is no mobile color fallback.
+- Under `app/` and `src/ui/`, no numeric literal for `fontSize`, `fontWeight`, `lineHeight`, `letterSpacing`, `borderRadius` or `opacity` (except `0` and `1`), and no hex, `rgb(` or `rgba(` string.
+- A type role never carries a line height.
+- Chat, bubbles, the composer, `MarkdownText`, the Home list and its edit motion, and the action menu keep their own look. Their off-scale values stay as named constants in the component instead of moving onto the scale.
+
+`apps/mobile/test/design-tokens.test.ts` enforces this by parsing every `.tsx` file under `app/` and `src/ui/`, including values in conditional branches. Its message names the file, the line and the role to use.
+
+### Design system page
+
+Development builds have Settings › Developer tools › Design system. It shows the colors of the active theme (tap a row to copy the token name), the contrast pairs with their ratios and ratings, the type roles, space and shape, and live samples of the shared components, with its own mode and theme preview that does not change the owner's Appearance setting. The row and the route exist only when `__DEV__` is true; in a release build the route redirects to Settings and the row is absent.
 
 ## 5. Essential states
 
