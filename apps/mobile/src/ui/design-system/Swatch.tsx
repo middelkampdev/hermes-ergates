@@ -1,13 +1,13 @@
 /**
  * One color of the palette on the Design system page: a 28 pt disc with a
  * hairline ring, the token name and its value. A value that is not a hex
- * color (a backend skin can send one) still gets its row: the disc stays
- * empty and the raw value is shown as text.
+ * color React Native can paint (a backend skin can send one) still gets its
+ * row: the disc stays empty and the raw value is shown as text.
  */
 
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
-import { parseRgb } from '@/theme/color'
+import { isRenderableHex } from '@/theme/color'
 import { useTheme } from '@/theme/provider'
 import { OPACITY, SIZE, TYPE } from '@/theme/tokens'
 
@@ -21,13 +21,13 @@ export interface SwatchProps {
 
 export function Swatch({ name, value, onPress }: SwatchProps) {
   const theme = useTheme()
-  const fill = parseRgb(value) ? value : 'transparent'
+  const fill = isRenderableHex(value) ? value : 'transparent'
 
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${name}, ${value}`}
+      accessibilityLabel={value ? `${name}, ${value}` : name}
       accessibilityHint="Copies the token name"
       style={({ pressed }) => [styles.row, { opacity: pressed ? OPACITY.pressed : 1 }]}
     >

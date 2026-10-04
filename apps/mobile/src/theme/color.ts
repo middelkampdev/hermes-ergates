@@ -11,3 +11,8 @@ export function parseRgb(hex: string): Rgb | null {
 
   return [0, 2, 4].map(i => parseInt(full.slice(i, i + 2), 16)) as Rgb
 }
+
+/** True when React Native can paint `value` as-is: a `#` hex color, no surrounding whitespace, that `parseRgb` accepts. */
+export function isRenderableHex(value: string): boolean {
+  return value.startsWith('#') && value === value.trim() && parseRgb(value) !== null
+}

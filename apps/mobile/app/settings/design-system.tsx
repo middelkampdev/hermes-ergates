@@ -4,9 +4,10 @@
  * and shared component. Development builds only; a release build that is
  * deep-linked here lands on Settings.
  *
- * The body sits in its own ThemeProvider with a local Mode and Theme, so a
- * preview recolors only the page body. The header and the rest of the app
- * keep the saved Appearance, and the preview is dropped when the page closes.
+ * The whole page, header included, sits in its own ThemeProvider with a
+ * local Mode and Theme, so a preview recolors this page edge to edge. The
+ * rest of the app keeps the saved Appearance, nothing is written back, and
+ * the preview is dropped when the page closes.
  */
 
 import * as Clipboard from 'expo-clipboard'
@@ -26,7 +27,6 @@ import { ComponentSamples, ContrastSample, Swatch, TypeSample } from '@/ui/desig
 import { Group } from '@/ui/Group'
 import { ListRow } from '@/ui/ListRow'
 import { Page } from '@/ui/Page'
-import { usePagePadding } from '@/ui/Screen'
 
 const BAR_HEIGHT = 8
 
@@ -41,7 +41,6 @@ function DesignSystemPage() {
   const router = useRouter()
   const prefs = useDeviceStore(s => s.prefs)
   const backend = useSkinStore(s => s.state.backend)
-  const gutter = usePagePadding()
   const themes = listMobileThemes(backend)
   // The stored name can be an alias (`default` is Nous); start from the listed name so the first Theme tap moves on.
   const savedTheme = themes.find(t => isSelectedTheme(prefs.themeName, t.name))?.name ?? prefs.themeName
@@ -55,26 +54,17 @@ function DesignSystemPage() {
   }
 
   return (
-    <Page title="Design system" onBack={() => router.back()}>
-      <ThemeProvider appearance={appearance} themeName={themeName} backendThemes={backend}>
-        <PreviewSurface gutter={gutter}>
-          <Group caption="Preview">
-            <ListRow title="Mode" subtitle={APPEARANCE_LABELS[appearance]} icon="sun" onPress={() => setAppearance(nextAppearance(appearance))} />
-            <ListRow title="Theme" subtitle={themeLabel} icon="droplet" onPress={() => setThemeName(nextTheme(themeName, themes.map(t => t.name)))} />
-            <ListRow title="Reset" subtitle="Back to the saved Appearance" icon="rotate-ccw" onPress={reset} />
-          </Group>
-          <Specimen />
-        </PreviewSurface>
-      </ThemeProvider>
-    </Page>
+    <ThemeProvider appearance={appearance} themeName={themeName} backendThemes={backend}>
+      <Page title="Design system" onBack={() => router.back()}>
+        <Group caption="Preview">
+          <ListRow title="Mode" subtitle={APPEARANCE_LABELS[appearance]} icon="sun" onPress={() => setAppearance(nextAppearance(appearance))} />
+          <ListRow title="Theme" subtitle={themeLabel} icon="droplet" onPress={() => setThemeName(nextTheme(themeName, themes.map(t => t.name)))} />
+          <ListRow title="Reset" subtitle="Back to the saved Appearance" icon="rotate-ccw" onPress={reset} />
+        </Group>
+        <Specimen />
+      </Page>
+    </ThemeProvider>
   )
-}
-
-/** Paints the preview theme's background edge to edge, so a dark preview does not sit on the app's light page. */
-function PreviewSurface({ gutter, children }: { gutter: number; children: React.ReactNode }) {
-  const theme = useTheme()
-
-  return <View style={[styles.surface, { backgroundColor: theme.colors.background, marginHorizontal: -gutter, paddingHorizontal: gutter }]}>{children}</View>
 }
 
 async function copyToken(key: string) {
@@ -142,10 +132,6 @@ function Specimen() {
 }
 
 const styles = StyleSheet.create({
-  surface: {
-    gap: 24,
-    paddingVertical: 12
-  },
   shapeRow: {
     minHeight: SIZE.row,
     flexDirection: 'row',

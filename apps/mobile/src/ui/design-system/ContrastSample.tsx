@@ -7,7 +7,7 @@
 
 import { StyleSheet, Text, View } from 'react-native'
 
-import { parseRgb } from '@/theme/color'
+import { isRenderableHex } from '@/theme/color'
 import type { ContrastRating } from '@/theme/contrast'
 import { useTheme } from '@/theme/provider'
 import { RADIUS, SIZE, TYPE } from '@/theme/tokens'
@@ -25,8 +25,8 @@ export interface ContrastSampleProps {
 
 export function ContrastSample({ fg, bg, fgValue, bgValue, ratio, rating }: ContrastSampleProps) {
   const theme = useTheme()
-  const chipColor = parseRgb(bgValue) ? bgValue : 'transparent'
-  const textColor = parseRgb(fgValue) ? fgValue : theme.colors.foreground
+  const chipColor = isRenderableHex(bgValue) ? bgValue : 'transparent'
+  const textColor = isRenderableHex(fgValue) ? fgValue : theme.colors.foreground
   const ratioText = ratio === null ? '—' : ratio.toFixed(1)
   const summary = rating ? `${ratioText} · ${rating}` : ratioText
 
