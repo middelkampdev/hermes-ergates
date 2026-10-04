@@ -48,6 +48,7 @@ const BASELINE: ReadonlySet<string> = new Set<string>([
   'src/ui/Button.tsx',
   'src/ui/Field.tsx',
   'src/ui/Group.tsx',
+  'src/ui/IconButton.tsx',
   'src/ui/ListRow.tsx',
   'src/ui/MarkdownText.tsx',
   'src/ui/Page.tsx',
@@ -75,7 +76,8 @@ type Finding = { line: number; key: string; text: string }
 const BAD = `
 const styles = StyleSheet.create({
   title: { fontSize: 17, fontWeight: '600', lineHeight: 22, letterSpacing: 0.2 },
-  card: { borderRadius: 12, opacity: 0.7 }
+  card: { borderRadius: 12, opacity: 0.7 },
+  pressable: { opacity: pressed ? 0.7 : 1, fontSize: big ? 20 : 17 }
 })
 export const Inline = () => (
   <View style={{ backgroundColor: '#fff', color: 'rgba(0,0,0,0.25)' }} />
@@ -97,6 +99,7 @@ export const Inline = ({ size, pressed, progress }) => (
     <View style={{ opacity: 0 }} />
     <View style={{ opacity: progress.get() }} />
     <Text>#hashtag</Text>
+    <Text>#deface</Text>
     <Text>{'#hashtag'}</Text>
   </View>
 )
@@ -120,6 +123,17 @@ function numericValue(node: ts.Expression): number | undefined {
   return undefined
 }
 
+/** The value itself, or each branch of a conditional, through parentheses. Operators and calls are not entered. */
+function literalBranches(node: ts.Expression): ts.Expression[] {
+  if (ts.isParenthesizedExpression(node)) {
+    return literalBranches(node.expression)
+  }
+  if (ts.isConditionalExpression(node)) {
+    return [...literalBranches(node.whenTrue), ...literalBranches(node.whenFalse)]
+  }
+  return [node]
+}
+
 function findRawStyleValues(source: string, fileName: string): Finding[] {
   const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const found: Finding[] = []
@@ -130,14 +144,14 @@ function findRawStyleValues(source: string, fileName: string): Finding[] {
   const visit = (node: ts.Node): void => {
     if (ts.isPropertyAssignment(node)) {
       const key = propertyName(node.name)
-      const value = node.initializer
-      if (key && NUMERIC_KEYS.has(key)) {
-        const number = numericValue(value)
-        if (number !== undefined && !(key === 'opacity' && (number === 0 || number === 1))) {
-          report(node, key)
+      if (key && (NUMERIC_KEYS.has(key) || key === 'fontWeight')) {
+        for (const value of literalBranches(node.initializer)) {
+          const number = numericValue(value)
+          const raw = key === 'fontWeight' ? ts.isStringLiteral(value) || number !== undefined : number !== undefined
+          if (raw && !(key === 'opacity' && (number === 0 || number === 1))) {
+            report(value, key)
+          }
         }
-      } else if (key === 'fontWeight' && (ts.isStringLiteral(value) || numericValue(value) !== undefined)) {
-        report(node, key)
       }
     }
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
@@ -187,10 +201,13 @@ describe('design tokens', () => {
       'letterSpacing',
       'borderRadius',
       'opacity',
+      'opacity',
+      'fontSize',
+      'fontSize',
       'backgroundColor',
       'color'
     ])
-    expect(found).toHaveLength(8)
+    expect(found).toHaveLength(11)
   })
 
   it('lets tokens and computed values through', () => {
