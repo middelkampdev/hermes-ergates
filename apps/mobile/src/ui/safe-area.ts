@@ -6,10 +6,10 @@
  * wanted. A fixed bottom bar (no scrolling) uses the same rule with its own
  * padding as `base`, which is 0 when it had none before.
  *
- * While the keyboard is open, `KeyboardAvoidingView`'s `padding` behavior
- * already pushes the view up by the full keyboard height, measured down to
- * the physical bottom of the screen — the inset is already covered by the
- * keyboard. Adding it again here would leave an empty gap between the last
+ * While the keyboard is open, a keyboard-avoiding view (`padding` behavior)
+ * or a scroll view's keyboard inset already moves the content up by the full
+ * keyboard height, measured down to the physical bottom of the screen — the
+ * inset is already covered by the keyboard. Adding it again here would leave an empty gap between the last
  * field and the keyboard, so it is dropped until the keyboard closes.
  */
 

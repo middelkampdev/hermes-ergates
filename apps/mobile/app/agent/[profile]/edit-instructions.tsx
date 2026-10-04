@@ -6,7 +6,7 @@
 
 import { useRouter } from 'expo-router'
 import React from 'react'
-import { ActivityIndicator, StyleSheet, Text, TextInput, useWindowDimensions } from 'react-native'
+import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, useWindowDimensions } from 'react-native'
 
 import { useEditBotContext } from '@/features/agents'
 import { softFill } from '@/theme/fill'
@@ -20,7 +20,10 @@ export default function EditInstructionsScreen() {
   const router = useRouter()
   const { draft, update } = useEditBotContext()
   const surface = useSurface()
-  // The editor grows with its text inside the page's scroll view; Page insets that scroll view by the keyboard, so the view follows the caret above the keyboard.
+  // iOS: the editor grows with its text and Page's scroll view, inset by the
+  // keyboard, follows the caret above it. Android has no keyboard avoidance
+  // under edge-to-edge yet, so there the editor keeps a fixed height and
+  // scrolls its own text (`scrollEnabled` is iOS-only).
   const { height } = useWindowDimensions()
 
   return (
@@ -37,7 +40,7 @@ export default function EditInstructionsScreen() {
             textAlignVertical="top"
             accessibilityLabel="Instructions"
             selectionColor={theme.colors.primary}
-            style={[styles.editor, { minHeight: height / 2, color: theme.colors.foreground, backgroundColor: softFill(theme.colors, surface) }]}
+            style={[styles.editor, { ...(Platform.OS === 'ios' ? { minHeight: height / 2 } : { height: height / 2 }), color: theme.colors.foreground, backgroundColor: softFill(theme.colors, surface) }]}
           />
           <Text style={[styles.note, { color: theme.colors.mutedForeground }]}>
             The Bot Chat messaging protocol is added by Hermes at run time; do not paste it here.
