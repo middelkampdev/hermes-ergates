@@ -29,12 +29,15 @@ import { usePrimaryConnection } from '@/features/settings'
 import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
 import type { CronJob, CronRun } from '@/gateway/types'
+import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
+import { LEADING, RADIUS, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Card } from '@/ui/Card'
 import { Field } from '@/ui/Field'
 import { Sheet } from '@/ui/Sheet'
 import { SwitchRow } from '@/ui/SwitchRow'
+import { useSurface } from '@/ui/surface-context'
 
 export default function RoutineScreen() {
   const { profile, id } = useLocalSearchParams<{ profile: string; id?: string }>()
@@ -78,6 +81,8 @@ function RoutineEditor({
   onClose: () => void
 }) {
   const theme = useTheme()
+  // The badge sits inside a Card, so it takes the fill that differs from the Card's.
+  const badgeFill = softFill(theme.colors, softFill(theme.colors, useSurface()))
   const gateway = useGateway(connection)
   const isNew = id === 'new'
   const routines = useRoutines(gateway, connection.id, profile)
@@ -299,7 +304,7 @@ function RoutineEditor({
                     <View style={styles.runTitleLine}>
                       <Text style={[styles.runWhen, { color: theme.colors.foreground }]}>{formatRunTime(run)}</Text>
                       {run.is_active ? (
-                        <View style={[styles.runningBadge, { backgroundColor: theme.colors.muted }]}>
+                        <View style={[styles.runningBadge, { backgroundColor: badgeFill }]}>
                           <Text style={[styles.runningText, { color: theme.colors.mutedForeground }]}>Running</Text>
                         </View>
                       ) : null}
@@ -327,18 +332,18 @@ function RoutineEditor({
 }
 
 const styles = StyleSheet.create({
-  hint: { fontSize: 13, lineHeight: 18, marginTop: 4 },
+  hint: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: 4 },
   switchWrap: { marginTop: 16 },
   actions: { marginTop: 20, gap: 10, marginBottom: 24 },
   history: { marginBottom: 40 },
-  sectionTitle: { fontSize: 17, fontWeight: '600', marginBottom: 8 },
+  sectionTitle: { ...TYPE.headline, marginBottom: 8 },
   spinner: { marginVertical: 12 },
-  line: { fontSize: 15, lineHeight: 22, paddingVertical: 16, textAlign: 'center' },
+  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: 16, textAlign: 'center' },
   runRow: { minHeight: 44, paddingVertical: 10, paddingHorizontal: 16, gap: 2 },
   runTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  runWhen: { fontSize: 15, fontWeight: '500' },
-  runStatus: { fontSize: 13 },
-  runLine: { fontSize: 13 },
-  runningBadge: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
-  runningText: { fontSize: 12 }
+  runWhen: { ...TYPE.calloutStrong },
+  runStatus: { ...TYPE.footnote },
+  runLine: { ...TYPE.footnote },
+  runningBadge: { borderRadius: RADIUS.badge, paddingHorizontal: 6, paddingVertical: 2 },
+  runningText: { ...TYPE.caption }
 })

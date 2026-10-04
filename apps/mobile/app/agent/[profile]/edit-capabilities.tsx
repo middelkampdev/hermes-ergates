@@ -6,39 +6,28 @@
 
 import { useRouter } from 'expo-router'
 import React, { useState } from 'react'
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
 import { useEditBotContext } from '@/features/agents'
 import { useTheme } from '@/theme/provider'
-import { Card } from '@/ui/Card'
-import { IconButton } from '@/ui/IconButton'
-import { Screen } from '@/ui/Screen'
-import { SwitchRow } from '@/ui/SwitchRow'
-import { useBottomInset } from '@/ui/use-bottom-inset'
+import { LEADING, TYPE } from '@/theme/tokens'
+import { Field } from '@/ui/Field'
+import { Group } from '@/ui/Group'
+import { ListRow } from '@/ui/ListRow'
+import { Page } from '@/ui/Page'
+import { Toggle } from '@/ui/SwitchRow'
 
 export default function EditCapabilitiesScreen() {
   const theme = useTheme()
   const router = useRouter()
   const { draft, errors, update } = useEditBotContext()
   const [query, setQuery] = useState('')
-  const bottomInset = useBottomInset(40)
-
-  const header = (
-    <View style={styles.header}>
-      <IconButton name="chevron-left" accessibilityLabel="Back" onPress={() => router.back()} />
-      <Text style={[styles.title, { color: theme.colors.foreground }]}>Capabilities</Text>
-      <View style={styles.spacer} />
-    </View>
-  )
 
   if (!draft) {
-    // This screen never had a top inset (its header sits flush with the
-    // status bar, unchanged); only the old bottom-edge reservation goes.
     return (
-      <Screen edges={[]}>
-        {header}
+      <Page title="Capabilities" onBack={() => router.back()}>
         <ActivityIndicator style={styles.loading} color={theme.colors.foreground} />
-      </Screen>
+      </Page>
     )
   }
 
@@ -84,73 +73,77 @@ export default function EditCapabilitiesScreen() {
   }
 
   return (
-    <Screen edges={[]}>
-      {header}
-      <TextInput
+    <Page title="Capabilities" onBack={() => router.back()}>
+      <Field
+        label=""
         value={query}
         onChangeText={setQuery}
         placeholder="Search skills, toolsets and connectors"
-        placeholderTextColor={theme.colors.mutedForeground}
         accessibilityLabel="Search capabilities"
-        style={[styles.search, { backgroundColor: theme.colors.input, borderColor: theme.colors.border, color: theme.colors.foreground }]}
       />
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.foreground }]}>Skills</Text>
+
+      <Group caption="Skills">
         {skills.length > 0 ? (
-          <Card>
-            {skills.map(s => (
-              <SwitchRow key={s.name} label={s.name} value={!draft.disabledSkills.includes(s.name)} onValueChange={on => toggleSkill(s.name, on)} accessibilityLabel={`${s.name} skill`} />
-            ))}
-          </Card>
+          skills.map(s => (
+            <ListRow
+              key={s.name}
+              title={s.name}
+              right={<Toggle value={!draft.disabledSkills.includes(s.name)} onValueChange={on => toggleSkill(s.name, on)} accessibilityLabel={`${s.name} skill`} />}
+            />
+          ))
         ) : (
-          <Text style={[styles.empty, { color: theme.colors.mutedForeground }]}>No matching skills.</Text>
+          <EmptyRow text="No matching skills." />
         )}
+      </Group>
 
-        <Text style={[styles.sectionTitle, { color: theme.colors.foreground }]}>Toolsets</Text>
+      <Group caption="Toolsets">
         {toolsets.length > 0 ? (
-          <Card>
-            {toolsets.map(t => (
-              <SwitchRow
-                key={t.name}
-                label={t.label}
-                description={`${t.description} (${t.tool_count} tools)`}
-                value={enabledToolsets.includes(t.name)}
-                onValueChange={on => toggleToolset(t.name, on)}
-                accessibilityLabel={`${t.label} toolset`}
-              />
-            ))}
-          </Card>
+          toolsets.map(t => (
+            <ListRow
+              key={t.name}
+              title={t.label}
+              subtitle={`${t.description} (${t.tool_count} tools)`}
+              right={<Toggle value={enabledToolsets.includes(t.name)} onValueChange={on => toggleToolset(t.name, on)} accessibilityLabel={`${t.label} toolset`} />}
+            />
+          ))
         ) : (
-          <Text style={[styles.empty, { color: theme.colors.mutedForeground }]}>No matching toolsets.</Text>
+          <EmptyRow text="No matching toolsets." />
         )}
-        {errors.toolsets ? <Text style={[styles.error, { color: theme.colors.destructive }]}>{errors.toolsets}</Text> : null}
+      </Group>
+      {errors.toolsets ? <Text style={[styles.error, { color: theme.colors.destructive }]}>{errors.toolsets}</Text> : null}
 
-        <Text style={[styles.sectionTitle, { color: theme.colors.foreground }]}>Connectors</Text>
+      <Group caption="Connectors">
         {mcpServers.length > 0 ? (
-          <Card>
-            {mcpServers.map(m => (
-              <SwitchRow key={m.name} label={m.name} value={enabledMcp.includes(m.name)} onValueChange={on => toggleMcp(m.name, on)} accessibilityLabel={`${m.name} connector`} />
-            ))}
-          </Card>
+          mcpServers.map(m => (
+            <ListRow
+              key={m.name}
+              title={m.name}
+              right={<Toggle value={enabledMcp.includes(m.name)} onValueChange={on => toggleMcp(m.name, on)} accessibilityLabel={`${m.name} connector`} />}
+            />
+          ))
         ) : (
-          <Text style={[styles.empty, { color: theme.colors.mutedForeground }]}>No matching connectors.</Text>
+          <EmptyRow text="No matching connectors." />
         )}
+      </Group>
 
-        <Text style={[styles.note, { color: theme.colors.mutedForeground }]}>Changes take effect on the assistant&apos;s next session.</Text>
-      </ScrollView>
-    </Screen>
+      <Text style={[styles.note, { color: theme.colors.mutedForeground }]}>Changes take effect on the assistant&apos;s next session.</Text>
+    </Page>
+  )
+}
+
+function EmptyRow({ text }: { text: string }) {
+  const theme = useTheme()
+  return (
+    <View style={styles.emptyRow}>
+      <Text style={[styles.empty, { color: theme.colors.mutedForeground }]}>{text}</Text>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 48, marginBottom: 8, gap: 8 },
-  title: { flex: 1, fontSize: 17, fontWeight: '600', textAlign: 'center' },
-  spacer: { width: 44 },
   loading: { marginTop: 40 },
-  search: { minHeight: 44, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, fontSize: 16, marginBottom: 8 },
-  content: { gap: 8 },
-  sectionTitle: { fontSize: 15, fontWeight: '600', marginTop: 16, marginBottom: 8 },
-  empty: { fontSize: 14, lineHeight: 20, marginBottom: 8 },
-  error: { fontSize: 13, marginTop: 4 },
-  note: { fontSize: 13, lineHeight: 18, marginTop: 16 }
+  emptyRow: { paddingVertical: 12, paddingHorizontal: 16 },
+  empty: { ...TYPE.callout, lineHeight: LEADING.callout },
+  error: { ...TYPE.footnote },
+  note: { ...TYPE.footnote, lineHeight: LEADING.footnote }
 })

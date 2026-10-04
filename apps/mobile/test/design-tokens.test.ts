@@ -22,15 +22,7 @@ const HEX = /^#[0-9a-f]{3,8}$/i
 const RGB = /^rgba?\(/i
 
 const BASELINE: ReadonlySet<string> = new Set<string>([
-  'app/agent/[profile]/edit-capabilities.tsx',
-  'app/agent/[profile]/edit-instructions.tsx',
-  'app/agent/[profile]/edit-model.tsx',
   'app/agent/[profile]/edit.tsx',
-  'app/agent/[profile]/index.tsx',
-  'app/agent/[profile]/memory.tsx',
-  'app/agent/[profile]/routine.tsx',
-  'app/agent/[profile]/routines.tsx',
-  'app/agent/[profile]/tools.tsx',
   'app/chat/[profile]/activity.tsx',
   'app/chat/[profile]/exchange.tsx',
   'app/chat/[profile]/index.tsx',

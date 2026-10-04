@@ -6,7 +6,7 @@
 
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useRef, useState } from 'react'
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { deleteAgent, useAvatar, useHome, useOrganizer, useSetHidden, type Bot } from '@/features/agents'
 import { usePrimaryConnection } from '@/features/settings'
@@ -15,13 +15,14 @@ import { useGateway } from '@/gateway/registry'
 import { lightTap } from '@/lib/haptics'
 import { useDeviceStore } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
+import { AVATAR, LEADING, TYPE } from '@/theme/tokens'
 import type { AnchorRect } from '@/ui/ActionMenu'
 import { Avatar } from '@/ui/Avatar'
 import { BotActions } from '@/ui/BotActions'
 import { Button } from '@/ui/Button'
-import { Card } from '@/ui/Card'
-import { Icon } from '@/ui/icons'
+import { Group } from '@/ui/Group'
 import { IconButton } from '@/ui/IconButton'
+import { ListRow } from '@/ui/ListRow'
 import { Screen } from '@/ui/Screen'
 import { useBottomInset } from '@/ui/use-bottom-inset'
 
@@ -121,22 +122,20 @@ function AgentDetails({ connectionId, connectionLabel, profile }: { connectionId
       </View>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: contentBottomInset }]}>
         <Identity bot={bot} gateway={gateway} connectionId={connectionId} />
-        <Card>
-          <MenuRow label="Edit Bot" onPress={() => router.push({ pathname: '/agent/[profile]/edit', params: { profile } })} />
-          <MenuRow label="Routines" onPress={() => router.push({ pathname: '/agent/[profile]/routines', params: { profile } })} />
-          <MenuRow label="Tools & connectors" onPress={() => router.push({ pathname: '/agent/[profile]/tools', params: { profile } })} />
-          <MenuRow label="Memory" onPress={() => router.push({ pathname: '/agent/[profile]/memory', params: { profile } })} />
-          <MenuRow label="Notifications" onPress={() => router.push({ pathname: '/notifications', params: { profile } })} />
-        </Card>
+        <Group>
+          <ListRow title="Edit Bot" icon="edit-2" onPress={() => router.push({ pathname: '/agent/[profile]/edit', params: { profile } })} />
+          <ListRow title="Routines" icon="clock" onPress={() => router.push({ pathname: '/agent/[profile]/routines', params: { profile } })} />
+          <ListRow title="Tools & connectors" icon="tool" onPress={() => router.push({ pathname: '/agent/[profile]/tools', params: { profile } })} />
+          <ListRow title="Memory" icon="book-open" onPress={() => router.push({ pathname: '/agent/[profile]/memory', params: { profile } })} />
+          <ListRow title="Notifications" icon="bell" onPress={() => router.push({ pathname: '/notifications', params: { profile } })} />
+        </Group>
 
-        <Card>
-          <View style={styles.info}>
-            <InfoRow label="Profile id" value={profile} theme={theme} />
-            <InfoRow label="Model" value={bot.model || '—'} theme={theme} />
-            <InfoRow label="Provider" value={bot.provider || '—'} theme={theme} />
-            <InfoRow label="Description" value={bot.description || '—'} theme={theme} />
-          </View>
-        </Card>
+        <Group caption="Details">
+          <InfoRow label="Profile id" value={profile} theme={theme} />
+          <InfoRow label="Model" value={bot.model || '—'} theme={theme} />
+          <InfoRow label="Provider" value={bot.provider || '—'} theme={theme} />
+          <InfoRow label="Description" value={bot.description || '—'} theme={theme} />
+        </Group>
       </ScrollView>
       <BotActions
         bot={menu?.bot ?? null}
@@ -158,7 +157,7 @@ function Identity({ bot, gateway, connectionId }: { bot: Bot; gateway: ReturnTyp
   const avatar = useAvatar(gateway, connectionId, bot.profile, bot.hasAvatar)
   return (
     <View style={styles.identity} accessibilityRole="header" accessibilityLabel={[bot.name, bot.role].filter(Boolean).join(', ')}>
-      <Avatar name={bot.name} color={bot.color} imageUri={avatar.data ?? null} size={88} />
+      <Avatar name={bot.name} color={bot.color} imageUri={avatar.data ?? null} size={AVATAR.profile} />
       <Text style={[styles.identityName, { color: theme.colors.foreground }]} numberOfLines={1}>
         {bot.name}
       </Text>
@@ -168,21 +167,6 @@ function Identity({ bot, gateway, connectionId }: { bot: Bot; gateway: ReturnTyp
         </Text>
       ) : null}
     </View>
-  )
-}
-
-function MenuRow({ label, onPress }: { label: string; onPress: () => void }) {
-  const theme = useTheme()
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      style={({ pressed }) => [styles.menuRow, { backgroundColor: pressed ? theme.colors.accent : 'transparent' }]}
-    >
-      <Text style={[styles.menuRowLabel, { color: theme.colors.foreground }]}>{label}</Text>
-      <Icon name="chevron-right" size={20} color={theme.colors.mutedForeground} />
-    </Pressable>
   )
 }
 
@@ -199,14 +183,11 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 48, marginBottom: 8, gap: 8 },
   headerSpacer: { flex: 1 },
   identity: { alignItems: 'center', gap: 8, paddingTop: 8, paddingBottom: 4 },
-  identityName: { fontSize: 22, fontWeight: '600' },
-  identityRole: { fontSize: 15 },
+  identityName: { ...TYPE.title },
+  identityRole: { ...TYPE.callout },
   errorBlock: { gap: 12, alignItems: 'flex-start', marginTop: 24 },
   content: { paddingTop: 8, gap: 24 },
-  menuRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, gap: 12 },
-  menuRowLabel: { fontSize: 17, flex: 1 },
-  info: { gap: 14, paddingHorizontal: 16, paddingVertical: 14 },
-  infoRow: { gap: 2 },
-  infoLabel: { fontSize: 13 },
-  infoValue: { fontSize: 15, lineHeight: 20 }
+  infoRow: { gap: 2, paddingHorizontal: 16, paddingVertical: 14 },
+  infoLabel: { ...TYPE.footnote },
+  infoValue: { ...TYPE.callout, lineHeight: LEADING.callout }
 })

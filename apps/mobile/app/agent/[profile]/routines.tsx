@@ -6,17 +6,23 @@
 
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useMemo, useState } from 'react'
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { displayName, isActive, isFinishedOneShot, nextRunLabel, useRoutines } from '@/features/routines'
 import { usePrimaryConnection } from '@/features/settings'
 import { useGateway } from '@/gateway/registry'
 import { userMessage } from '@/gateway/errors'
 import type { CronJob } from '@/gateway/types'
+import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
+import { ICON, LEADING, RADIUS, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
+import { Group } from '@/ui/Group'
+import { Icon } from '@/ui/icons'
 import { IconButton } from '@/ui/IconButton'
+import { ListRow } from '@/ui/ListRow'
 import { Screen } from '@/ui/Screen'
+import { useSurface } from '@/ui/surface-context'
 import { useBottomInset } from '@/ui/use-bottom-inset'
 
 export default function RoutinesScreen() {
@@ -83,9 +89,13 @@ function Routines({
             {userMessage(routines.error)}
           </Text>
         ) : null}
-        {jobs.map(job => (
-          <RoutineRow key={job.id} job={job} profile={profile} tz={tz} onPress={() => onOpen(job.id)} />
-        ))}
+        {jobs.length > 0 ? (
+          <Group caption="Routines">
+            {jobs.map(job => (
+              <RoutineRow key={job.id} job={job} profile={profile} tz={tz} onPress={() => onOpen(job.id)} />
+            ))}
+          </Group>
+        ) : null}
         {routines.isSuccess && jobs.length === 0 ? (
           <Text style={[styles.line, { color: theme.colors.mutedForeground }]}>No routines yet. Add one to have this assistant check in on a schedule.</Text>
         ) : null}
@@ -99,55 +109,40 @@ function Routines({
 
 function RoutineRow({ job, profile, tz, onPress }: { job: CronJob; profile: string; tz: string; onPress: () => void }) {
   const theme = useTheme()
+  // The badge sits on the group's own fill, so it takes the fill that differs from that one.
+  const badgeFill = softFill(theme.colors, softFill(theme.colors, useSurface()))
   const name = displayName(job, profile)
   const paused = !isActive(job)
   const next = nextRunLabel(job, new Date(), tz)
   const label = `${name}, ${job.schedule}, ${next}${paused ? ', paused' : ''}`
 
   return (
-    <Pressable
-      accessibilityRole="button"
+    <ListRow
+      title={name}
+      subtitle={`${job.schedule}\n${next}`}
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.row,
-        { minHeight: Math.max(theme.hit, 52), borderColor: theme.colors.border, backgroundColor: pressed ? theme.colors.muted : 'transparent' }
-      ]}
-    >
-      <View style={styles.rowBody}>
-        <View style={styles.rowTitleLine}>
-          <Text style={[styles.rowName, { color: theme.colors.foreground }]} numberOfLines={1}>
-            {name}
-          </Text>
+      right={
+        <View style={styles.rowRight}>
           {paused ? (
-            <View style={[styles.pausedBadge, { backgroundColor: theme.colors.muted }]}>
+            <View style={[styles.pausedBadge, { backgroundColor: badgeFill }]}>
               <Text style={[styles.pausedText, { color: theme.colors.mutedForeground }]}>Paused</Text>
             </View>
           ) : null}
+          <Icon name="chevron-right" size={ICON.chevron} color={theme.colors.mutedForeground} />
         </View>
-        <Text style={[styles.rowSchedule, { color: theme.colors.mutedForeground }]} numberOfLines={1}>
-          {job.schedule}
-        </Text>
-        <Text style={[styles.rowNext, { color: theme.colors.mutedForeground }]} numberOfLines={1}>
-          {next}
-        </Text>
-      </View>
-    </Pressable>
+      }
+    />
   )
 }
 
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, marginBottom: 8 },
-  headerTitle: { flex: 1, fontSize: 20, fontWeight: '700' },
+  headerTitle: { flex: 1, ...TYPE.title3 },
   list: { gap: 4 },
   footer: { paddingTop: 8 },
-  row: { paddingVertical: 12, paddingHorizontal: 4, borderBottomWidth: StyleSheet.hairlineWidth },
-  rowBody: { gap: 2 },
-  rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  rowName: { flex: 1, fontSize: 17, fontWeight: '500' },
-  rowSchedule: { fontSize: 15 },
-  rowNext: { fontSize: 13 },
-  pausedBadge: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
-  pausedText: { fontSize: 12 },
-  line: { fontSize: 15, lineHeight: 22, paddingVertical: 16, textAlign: 'center' }
+  rowRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  pausedBadge: { borderRadius: RADIUS.badge, paddingHorizontal: 6, paddingVertical: 2 },
+  pausedText: { ...TYPE.caption },
+  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: 16, textAlign: 'center' }
 })
