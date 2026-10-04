@@ -36,10 +36,11 @@ import Sortable from 'react-native-sortables'
 import { EDIT_ITEM_HEIGHT, editRowLabel, useAvatar, type Bot, type MoveAction } from '@/features/agents'
 import { formatRowTime } from '@/lib/time'
 import { useTheme } from '@/theme/provider'
+import { AVATAR } from '@/theme/tokens'
 
 import type { AnchorRect } from '../ActionMenu'
 import { Avatar } from '../Avatar'
-import { ROW_AVATAR_SIZE, RowContent } from '../RowContent'
+import { RowContent } from '../RowContent'
 import { Grip } from './Grip'
 import { CIRCLE_COLUMN, HANDLE_WIDTH, handleOffset, rowOffsets } from './row-offsets'
 import { SelectionCircle } from './SelectionCircle'
@@ -114,7 +115,7 @@ export function HomeRow(props: HomeRowProps) {
         <Animated.View style={[styles.bodyContent, { paddingLeft: gutter }, body]}>
           <RowContent
             name={bot.name}
-            avatar={<Avatar name={bot.name} color={bot.color} imageUri={avatar.data ?? null} size={ROW_AVATAR_SIZE} />}
+            avatar={<Avatar name={bot.name} color={bot.color} imageUri={avatar.data ?? null} size={AVATAR.list} />}
             role={bot.role}
             time={time}
             preview={preview}

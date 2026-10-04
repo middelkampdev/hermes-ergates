@@ -17,6 +17,8 @@ import { astTableToRows, tableToStacked } from './markdown-table'
 const NARROW_TABLE_WIDTH = 400
 /** Large headings and bold text are heavier than the type scale's 600. */
 const HEADING_WEIGHT = '700'
+const HEADING2_SIZE = 24
+const HEADING4_SIZE = 18
 const STRONG_WEIGHT = '700'
 /** Inline code is a tighter chip than the shared radii. */
 const CODE_INLINE_RADIUS = 8
@@ -44,9 +46,9 @@ function buildStyle(theme: MobileTheme): Record<string, TextStyle> {
     // Space between paragraphs only; the first paragraph starts flush with the container.
     paragraph: { marginTop: 0, marginBottom: 10 },
     heading1: { color: theme.colors.foreground, ...TYPE.largeTitle, fontWeight: HEADING_WEIGHT },
-    heading2: { color: theme.colors.foreground, ...TYPE.title, fontWeight: HEADING_WEIGHT },
+    heading2: { color: theme.colors.foreground, fontSize: HEADING2_SIZE, fontWeight: HEADING_WEIGHT },
     heading3: { color: theme.colors.foreground, ...TYPE.title3 },
-    heading4: { color: theme.colors.foreground, ...TYPE.headline },
+    heading4: { color: theme.colors.foreground, fontSize: HEADING4_SIZE, fontWeight: TYPE.headline.fontWeight },
     heading5: { color: theme.colors.foreground, ...TYPE.headline },
     heading6: { color: theme.colors.foreground, ...TYPE.headline },
     strong: { fontWeight: STRONG_WEIGHT },

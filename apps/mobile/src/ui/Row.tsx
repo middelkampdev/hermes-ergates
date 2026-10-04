@@ -10,9 +10,10 @@
 import { Pressable, StyleSheet } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
+import { AVATAR } from '@/theme/tokens'
 
 import { Avatar } from './Avatar'
-import { ROW_AVATAR_SIZE, RowContent } from './RowContent'
+import { RowContent } from './RowContent'
 
 /** Design floor for the row; never allowed below the shared min hit area. */
 const ROW_MIN_HEIGHT = 52
@@ -53,7 +54,7 @@ export function Row({ name, avatarColor, avatarImageUri, role, time, preview, un
     >
       <RowContent
         name={name}
-        avatar={<Avatar name={name} color={avatarColor} imageUri={avatarImageUri} size={ROW_AVATAR_SIZE} />}
+        avatar={<Avatar name={name} color={avatarColor} imageUri={avatarImageUri} size={AVATAR.list} />}
         role={role}
         time={time}
         preview={preview || undefined}

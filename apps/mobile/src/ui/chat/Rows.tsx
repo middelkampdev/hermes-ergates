@@ -97,12 +97,14 @@ export function ConnectionLine({ state }: { state: 'idle' | 'connecting' | 'open
 }
 
 const DOT_SIZE = 8
+/** The italic commentary leads one point tighter than the callout leading. */
+const COMMENTARY_LINE_HEIGHT = 21
 
 const styles = StyleSheet.create({
   event: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 6, minHeight: 32, alignSelf: 'center', maxWidth: '92%' },
   eventText: { ...TYPE.footnote, lineHeight: LEADING.footnote, flexShrink: 1, textAlign: 'center' },
   commentary: { alignSelf: 'flex-start', maxWidth: '88%', paddingVertical: 4, paddingHorizontal: 4 },
-  commentaryText: { ...TYPE.callout, lineHeight: LEADING.callout, fontStyle: 'italic' },
+  commentaryText: { ...TYPE.callout, lineHeight: COMMENTARY_LINE_HEIGHT, fontStyle: 'italic' },
   date: { ...TYPE.footnote, textAlign: 'center', marginVertical: 12 },
   working: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, minHeight: 44 },
   dot: { width: DOT_SIZE, height: DOT_SIZE, borderRadius: DOT_SIZE / 2 },

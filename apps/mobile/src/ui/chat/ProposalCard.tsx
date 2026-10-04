@@ -16,6 +16,9 @@ import { useTheme } from '@/theme/provider'
 import { LEADING, TYPE } from '@/theme/tokens'
 import { Button, type ButtonVariant } from '@/ui/Button'
 
+/** The proposal body leads one point tighter than the callout leading. */
+const BODY_LINE_HEIGHT = 21
+
 const LABELS: Record<ProposalAction, string> = {
   accept: 'Accept',
   reject: 'Reject',
@@ -93,7 +96,7 @@ const styles = StyleSheet.create({
   card: { paddingVertical: 12, paddingHorizontal: 16, marginVertical: 6, gap: 6, alignSelf: 'stretch' },
   kicker: { ...TYPE.footnote },
   title: { ...TYPE.bodyStrong, lineHeight: LEADING.body },
-  body: { ...TYPE.callout, lineHeight: LEADING.callout },
+  body: { ...TYPE.callout, lineHeight: BODY_LINE_HEIGHT },
   meta: { ...TYPE.footnote, lineHeight: LEADING.footnote },
   actions: { gap: 8, marginTop: 6 }
 })

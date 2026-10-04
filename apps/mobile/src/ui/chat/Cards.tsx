@@ -131,6 +131,11 @@ export function ApprovalCard({ item, onChoose }: { item: ApprovalItem; onChoose:
   )
 }
 
+/** The command block's own monospace size, leading and corner. */
+const COMMAND_FONT_SIZE = 14
+const COMMAND_LINE_HEIGHT = 20
+const COMMAND_RADIUS = 10
+
 const styles = StyleSheet.create({
   card: { paddingVertical: 12, paddingHorizontal: 16, marginVertical: 6, gap: 8, alignSelf: 'stretch' },
   question: { gap: 8 },
@@ -141,5 +146,5 @@ const styles = StyleSheet.create({
   optionText: { ...TYPE.body, flex: 1 },
   input: { minHeight: 44, borderRadius: RADIUS.chip, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, ...TYPE.body },
   actions: { gap: 8, marginTop: 4 },
-  command: { fontFamily: 'Menlo', ...TYPE.footnote, lineHeight: LEADING.footnote, padding: 10, borderRadius: RADIUS.small }
+  command: { fontFamily: 'Menlo', fontSize: COMMAND_FONT_SIZE, lineHeight: COMMAND_LINE_HEIGHT, padding: 10, borderRadius: COMMAND_RADIUS }
 })

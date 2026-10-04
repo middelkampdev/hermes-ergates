@@ -14,7 +14,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import Animated from 'react-native-reanimated'
 
 import { useTheme } from '@/theme/provider'
-import { AVATAR, RADIUS, TYPE } from '@/theme/tokens'
+import { RADIUS, TYPE } from '@/theme/tokens'
 
 const BADGE_MAX_WIDTH = 113
 const UNREAD_DOT_SIZE = 8
@@ -80,9 +80,6 @@ export function RowContent({ name, avatar, role, time, preview, unread, maxFontS
     </View>
   )
 }
-
-/** The avatar diameter every conversation row uses. */
-export const ROW_AVATAR_SIZE = AVATAR.list
 
 const styles = StyleSheet.create({
   content: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
