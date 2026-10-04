@@ -17,6 +17,7 @@ import { TYPE } from '@/theme/tokens'
 import { IconButton } from './IconButton'
 import { SurfaceProvider } from './surface-context'
 import { useBottomInset } from './use-bottom-inset'
+import { useFontScaleKey } from './use-font-scale-key'
 
 const HEADER_MIN_HEIGHT = 48
 
@@ -33,6 +34,7 @@ export interface SheetProps {
 
 export function Sheet({ title, onClose, headerLeft, headerRight, centerTitle, children }: SheetProps) {
   const theme = useTheme()
+  const fontScaleKey = useFontScaleKey()
 
   return (
     // Its own provider: the inset is measured from this view, so a real iOS
@@ -61,7 +63,7 @@ export function Sheet({ title, onClose, headerLeft, headerRight, centerTitle, ch
         {/* The sheet paints `popover`, not the page's `background`: soft fills
             (Field, Card/Group, the secondary Button) read against this color,
             wherever in the sheet's header or body they sit. */}
-        <SurfaceProvider color={theme.colors.popover}>
+        <SurfaceProvider key={fontScaleKey} color={theme.colors.popover}>
           <View style={[styles.header, { paddingHorizontal: theme.pagePadding }]}>
             {centerTitle ? (
               <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.centered]}>

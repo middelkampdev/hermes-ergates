@@ -12,6 +12,7 @@ import { PeerAvatar } from '@/ui/chat/PeerAvatar'
 import { DateSeparator } from '@/ui/chat/Rows'
 import { IconButton } from '@/ui/IconButton'
 import { MarkdownText } from '@/ui/MarkdownText'
+import { useFontScaleKey } from '@/ui/use-font-scale-key'
 import { useBottomInset } from '@/ui/use-bottom-inset'
 
 const AVATAR_SIZE = AVATAR.chat
@@ -34,6 +35,7 @@ function ExchangeTranscript({ peer, anchorRowId, anchorToolCallId }: { peer: str
   const theme = useTheme()
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const fontScaleKey = useFontScaleKey()
   // The transcript list scrolls to the bottom edge of the phone; its content
   // carries the inset instead of the screen reserving a strip for it.
   const listBottomInset = useBottomInset(20)
@@ -112,7 +114,7 @@ function ExchangeTranscript({ peer, anchorRowId, anchorToolCallId }: { peer: str
   )
 
   return (
-    <View style={[styles.screen, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
+    <View key={fontScaleKey} style={[styles.screen, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
       <View style={[styles.header, { paddingHorizontal: theme.pagePadding, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
         <IconButton name="chevron-left" accessibilityLabel="Back" onPress={() => router.back()} />
         <View style={styles.titleBlock}>

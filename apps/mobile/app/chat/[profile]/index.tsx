@@ -24,6 +24,7 @@ import { CommentaryRow, ConnectionLine, DateSeparator, EventRow, ToolRow, Workin
 import { Icon } from '@/ui/icons'
 import { IconButton } from '@/ui/IconButton'
 import { useBottomInset } from '@/ui/use-bottom-inset'
+import { useFontScaleKey } from '@/ui/use-font-scale-key'
 
 export default function ChatScreen() {
   const { profile, devSend, devFocus, devInject } = useLocalSearchParams<{ profile: string; devSend?: string; devFocus?: string; devInject?: string }>()
@@ -39,6 +40,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
   const theme = useTheme()
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const fontScaleKey = useFontScaleKey()
   // The composer is a fixed bottom bar: it pads its own content by the
   // inset, dropped while the keyboard is open (the KeyboardAvoidingView
   // below already pushes it up by the full keyboard height, measured down
@@ -294,7 +296,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
   )
 
   return (
-    <View style={[styles.screen, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
+    <View key={fontScaleKey} style={[styles.screen, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
       <View style={[styles.header, { paddingHorizontal: theme.pagePadding, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
         {/* A chat opened from a push notification has nothing beneath it: Back goes Home. */}
         <IconButton name="chevron-left" accessibilityLabel="Back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />

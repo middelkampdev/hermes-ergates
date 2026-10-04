@@ -18,6 +18,7 @@ import { SafeAreaView, type Edge } from 'react-native-safe-area-context'
 import { useTheme } from '@/theme/provider'
 
 import { pagePadding } from './page-padding'
+import { useFontScaleKey } from './use-font-scale-key'
 
 /** Default edges: top, left and right. Never bottom — see the module comment. */
 const DEFAULT_EDGES: readonly Edge[] = ['top', 'left', 'right']
@@ -39,6 +40,7 @@ export function usePagePadding(): number {
 export function Screen({ children, edges, style }: ScreenProps) {
   const theme = useTheme()
   const horizontalPadding = usePagePadding()
+  const fontScaleKey = useFontScaleKey()
   const resolvedEdges = (edges ?? DEFAULT_EDGES).filter(edge => edge !== 'bottom')
 
   return (
@@ -46,7 +48,9 @@ export function Screen({ children, edges, style }: ScreenProps) {
       edges={resolvedEdges}
       style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
     >
-      <View style={[styles.content, { paddingHorizontal: horizontalPadding }, style]}>{children}</View>
+      <View key={fontScaleKey} style={[styles.content, { paddingHorizontal: horizontalPadding }, style]}>
+        {children}
+      </View>
     </SafeAreaView>
   )
 }
