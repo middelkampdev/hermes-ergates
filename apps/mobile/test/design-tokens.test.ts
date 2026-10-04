@@ -5,9 +5,6 @@
  * parses every `.tsx` file under app/ and src/ui/ with the TypeScript
  * compiler and reports a numeric literal for a type, radius or opacity key,
  * a string literal for `fontWeight`, and any hex or rgb(a) color string.
- *
- * BASELINE lists the files that still hold raw values. It only shrinks: a
- * file leaves it when it is clean, and the last test fails until it does.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
@@ -20,22 +17,6 @@ const FOLDERS = ['app', 'src/ui']
 const NUMERIC_KEYS = new Set(['fontSize', 'lineHeight', 'letterSpacing', 'borderRadius', 'opacity'])
 const HEX = /^#[0-9a-f]{3,8}$/i
 const RGB = /^rgba?\(/i
-
-const BASELINE: ReadonlySet<string> = new Set<string>([
-  'app/agent/[profile]/edit.tsx',
-  'app/chat/[profile]/activity.tsx',
-  'app/chat/[profile]/exchange.tsx',
-  'app/chat/[profile]/index.tsx',
-  'app/connect.tsx',
-  'app/hidden-bots.tsx',
-  'app/index.tsx',
-  'app/move-to-section.tsx',
-  'app/new-agent.tsx',
-  'app/notifications.tsx',
-  'app/search.tsx',
-  'app/section.tsx',
-  'app/settings/index.tsx',
-])
 
 type Finding = { line: number; key: string; text: string }
 
@@ -184,19 +165,8 @@ describe('design tokens', () => {
     'app and shared UI use tokens',
     () => {
       const offenders = [...scanApp()]
-        .filter(([file]) => !BASELINE.has(file))
         .flatMap(([file, found]) => found.map(({ line, key, text }) => `${file}:${line} ${key} ${text}`))
       expect(offenders, `use a role from src/theme/tokens.ts:\n${offenders.join('\n')}`).toEqual([])
-    },
-    30000
-  )
-
-  it(
-    'the baseline only lists files that still need work',
-    () => {
-      const scan = scanApp()
-      const stale = [...BASELINE].filter(file => (scan.get(file) ?? []).length === 0)
-      expect(stale, `remove from BASELINE, these files are clean:\n${stale.join('\n')}`).toEqual([])
     },
     30000
   )

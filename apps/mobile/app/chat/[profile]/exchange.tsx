@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { exchangeTranscript, peerKey, useChatSession, useExchangeAcknowledgement, type TranscriptEntry } from '@/features/chat'
 import { useTheme } from '@/theme/provider'
+import { LEADING, RADIUS, TYPE } from '@/theme/tokens'
 import { Avatar } from '@/ui/Avatar'
 import { Button } from '@/ui/Button'
 import { PeerAvatar } from '@/ui/chat/PeerAvatar'
@@ -142,21 +143,21 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth },
   titleBlock: { flex: 1, gap: 2 },
-  title: { fontSize: 17, fontWeight: '500' },
-  subtitle: { fontSize: 13 },
-  pill: { borderRadius: 12, paddingVertical: 4, paddingHorizontal: 10 },
-  pillText: { fontSize: 13 },
+  title: { ...TYPE.bodyStrong },
+  subtitle: { ...TYPE.footnote },
+  pill: { borderRadius: RADIUS.small, paddingVertical: 4, paddingHorizontal: 10 },
+  pillText: { ...TYPE.footnote },
   listHeader: { paddingBottom: 12, gap: 8 },
   wrap: { maxWidth: '88%', marginVertical: 4 },
   wrapPeer: { alignSelf: 'flex-start' },
   wrapSelf: { alignSelf: 'flex-end' },
-  author: { fontSize: 13, marginBottom: 4 },
+  author: { ...TYPE.footnote, marginBottom: 4 },
   authorPeer: { marginLeft: AVATAR_SIZE + 8 },
   authorSelf: { marginRight: AVATAR_SIZE + 8, textAlign: 'right' },
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   rowSelf: { justifyContent: 'flex-end' },
   bubble: { paddingVertical: 12, paddingHorizontal: 16, flexShrink: 1 },
   markdown: { marginBottom: -10 },
-  state: { fontSize: 13, lineHeight: 18, marginTop: 4 },
+  state: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: 4 },
   stateCenter: { textAlign: 'center' }
 })

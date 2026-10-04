@@ -10,6 +10,7 @@ import { userMessage } from '@/gateway/errors'
 import { lightTap } from '@/lib/haptics'
 import { useDeviceStore, draftKey } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
+import { LEADING, RADIUS, SIZE, TYPE } from '@/theme/tokens'
 import { Avatar } from '@/ui/Avatar'
 import { BotMessageBubble } from '@/ui/chat/BotMessageBubble'
 import { AssistantBubble, StreamingBubble, UserBubble } from '@/ui/chat/Bubble'
@@ -384,19 +385,22 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
   )
 }
 
+// Kept from before the radius roles: the identity pill is rounder than any role.
+const IDENTITY_RADIUS = 25
+
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   flex: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth },
-  identity: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 25, paddingVertical: 6, paddingLeft: 6, paddingRight: 12, minHeight: 44, maxWidth: '70%' },
-  name: { fontSize: 17, fontWeight: '500', flexShrink: 1 },
+  identity: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: IDENTITY_RADIUS, paddingVertical: 6, paddingLeft: 6, paddingRight: 12, minHeight: SIZE.hit, maxWidth: '70%' },
+  name: { ...TYPE.bodyStrong, flexShrink: 1 },
   spacer: { flex: 1 },
   list: { paddingVertical: 20 },
   center: { padding: 20 },
-  error: { fontSize: 15, lineHeight: 22, textAlign: 'center' },
-  errorLine: { marginHorizontal: 20, marginTop: 6, padding: 10, borderRadius: 12 },
-  errorText: { fontSize: 13, lineHeight: 18 },
-  state: { fontSize: 13, lineHeight: 18, textAlign: 'center', marginVertical: 8 },
-  jump: { position: 'absolute', right: 20, bottom: 96, width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  error: { ...TYPE.callout, lineHeight: LEADING.callout, textAlign: 'center' },
+  errorLine: { marginHorizontal: 20, marginTop: 6, padding: 10, borderRadius: RADIUS.small },
+  errorText: { ...TYPE.footnote, lineHeight: LEADING.footnote },
+  state: { ...TYPE.footnote, lineHeight: LEADING.footnote, textAlign: 'center', marginVertical: 8 },
+  jump: { position: 'absolute', right: 20, bottom: 96, width: SIZE.hit, height: SIZE.hit, borderRadius: SIZE.hit / 2, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   composer: { paddingTop: 4 }
 })

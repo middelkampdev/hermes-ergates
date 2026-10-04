@@ -15,6 +15,7 @@ import { useGateway } from '@/gateway/registry'
 import { useDeviceStore, type Connection } from '@/state/device-store'
 import type { Section } from '@/state/organization'
 import { useTheme } from '@/theme/provider'
+import { LEADING, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Field } from '@/ui/Field'
 import { Page } from '@/ui/Page'
@@ -100,5 +101,5 @@ function SectionEditor({ connection, section, onDone }: { connection: Connection
 }
 
 const styles = StyleSheet.create({
-  hint: { fontSize: 15, lineHeight: 22 }
+  hint: { ...TYPE.callout, lineHeight: LEADING.callout }
 })

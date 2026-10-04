@@ -7,6 +7,7 @@ import { usePrimaryConnection } from '@/features/settings'
 import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
 import { useTheme } from '@/theme/provider'
+import { LEADING, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Row } from '@/ui/Row'
 import { Sheet } from '@/ui/Sheet'
@@ -41,6 +42,6 @@ function HiddenBots({ connection, onClose }: { connection: NonNullable<ReturnTyp
 }
 
 const styles = StyleSheet.create({
-  hint: { fontSize: 15, lineHeight: 22, marginVertical: 12 },
+  hint: { ...TYPE.callout, lineHeight: LEADING.callout, marginVertical: 12 },
   item: { gap: 8, marginBottom: 12 }
 })

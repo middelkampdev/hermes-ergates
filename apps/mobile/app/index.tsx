@@ -31,6 +31,7 @@ import { lightTap } from '@/lib/haptics'
 import { useDeviceStore } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
 import { useSkinStore } from '@/theme/skin-store'
+import { LEADING, TYPE } from '@/theme/tokens'
 import type { AnchorRect } from '@/ui/ActionMenu'
 import { BotActions } from '@/ui/BotActions'
 import { EditBar, editBarHeight } from '@/ui/home-list/EditBar'
@@ -236,7 +237,7 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
     setRefreshing(false)
   }
 
-  const empty = !home.loading && home.bots.length === 0
+  const empty = !home.loading && !home.error && home.bots.length === 0
 
   return (
     <Screen>
@@ -300,5 +301,5 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
 }
 
 const styles = StyleSheet.create({
-  line: { fontSize: 15, lineHeight: 22, paddingVertical: 24, textAlign: 'center' }
+  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: 24, textAlign: 'center' }
 })

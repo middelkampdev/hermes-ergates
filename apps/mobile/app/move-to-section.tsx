@@ -13,6 +13,7 @@ import { usePrimaryConnection } from '@/features/settings'
 import { useGateway } from '@/gateway/registry'
 import type { Connection } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
+import { LEADING, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Field } from '@/ui/Field'
 import { Group } from '@/ui/Group'
@@ -88,6 +89,6 @@ function MoveToSection({ connection, profiles, onDone }: { connection: Connectio
 }
 
 const styles = StyleSheet.create({
-  hint: { fontSize: 15, lineHeight: 22 },
+  hint: { ...TYPE.callout, lineHeight: LEADING.callout },
   noCheck: { width: 22 }
 })

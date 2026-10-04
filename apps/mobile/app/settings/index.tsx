@@ -15,6 +15,7 @@ import { appearanceSummary, signOut, usePrimaryConnection } from '@/features/set
 import { useGatewayRegistry } from '@/gateway/registry'
 import { useDeviceStore } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
+import { TYPE } from '@/theme/tokens'
 import { listMobileThemes } from '@/theme/resolve'
 import { useSkinStore } from '@/theme/skin-store'
 import { Avatar } from '@/ui/Avatar'
@@ -108,6 +109,6 @@ function SettingsBody({ connection, onBack }: { connection: NonNullable<ReturnTy
 const styles = StyleSheet.create({
   identity: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 8 },
   identityText: { flex: 1, gap: 2 },
-  name: { fontSize: 22, fontWeight: '600' },
-  address: { fontSize: 14 }
+  name: { ...TYPE.title },
+  address: { ...TYPE.footnote }
 })

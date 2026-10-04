@@ -15,6 +15,7 @@ import { botsMeta, instructionsSummary, modelSummary, useEditBotContext, type Sa
 import { pickAvatar } from '@/features/files'
 import { userMessage } from '@/gateway/errors'
 import { useTheme } from '@/theme/provider'
+import { LEADING, TYPE } from '@/theme/tokens'
 import { Avatar } from '@/ui/Avatar'
 import { Button } from '@/ui/Button'
 import { Field } from '@/ui/Field'
@@ -245,11 +246,11 @@ function EditBotForm({
 
 const styles = StyleSheet.create({
   loading: { marginVertical: 40 },
-  errorText: { fontSize: 15, lineHeight: 22, marginBottom: 16 },
+  errorText: { ...TYPE.callout, lineHeight: LEADING.callout, marginBottom: 16 },
   avatar: { alignItems: 'center', paddingVertical: 12 },
   photoButtons: { gap: 12, marginBottom: 16 },
-  fieldError: { fontSize: 13, marginTop: 2 },
+  fieldError: { ...TYPE.footnote, marginTop: 2 },
   groups: { gap: 24, marginTop: 12, marginBottom: 16 },
   outcome: { gap: 4, marginBottom: 24 },
-  outcomeLine: { fontSize: 13, lineHeight: 18 }
+  outcomeLine: { ...TYPE.footnote, lineHeight: LEADING.footnote }
 })

@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { useChatSession, type ActivityEntry } from '@/features/chat'
 import { useTheme } from '@/theme/provider'
+import { LEADING, TYPE } from '@/theme/tokens'
 import { Card } from '@/ui/Card'
 import { Icon } from '@/ui/icons'
 import { Sheet } from '@/ui/Sheet'
@@ -109,17 +110,22 @@ function DetailRow({ entry, code }: { entry: ActivityEntry; code?: boolean }) {
   )
 }
 
+// Values kept from before the type roles: no role has a 20 pt line height, a 14 pt code size or a 10 pt radius.
+const TITLE_LEADING = 20
+const CODE_SIZE = 14
+const CODE_RADIUS = 10
+
 const styles = StyleSheet.create({
   row: { paddingVertical: 12, paddingHorizontal: 16, gap: 2, minHeight: 52 },
   entryRow: { paddingVertical: 12, paddingHorizontal: 16, gap: 4, minHeight: 52 },
-  label: { fontSize: 13 },
-  value: { fontSize: 17 },
+  label: { ...TYPE.footnote },
+  value: { ...TYPE.body },
   group: { marginTop: 16, gap: 6 },
-  groupTitle: { fontSize: 13, marginLeft: 16 },
-  title: { fontSize: 15, lineHeight: 20 },
+  groupTitle: { ...TYPE.footnote, marginLeft: 16 },
+  title: { ...TYPE.callout, lineHeight: TITLE_LEADING },
   reasoningHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   reasoningSummary: { flexGrow: 1, flexShrink: 1, flexBasis: 'auto' },
-  detail: { fontSize: 13, lineHeight: 18 },
-  code: { fontFamily: 'Menlo', fontSize: 14, lineHeight: 20, padding: 10, borderRadius: 10 },
-  hint: { fontSize: 15, lineHeight: 22, marginTop: 16 }
+  detail: { ...TYPE.footnote, lineHeight: LEADING.footnote },
+  code: { fontFamily: 'Menlo', fontSize: CODE_SIZE, lineHeight: TITLE_LEADING, padding: 10, borderRadius: CODE_RADIUS },
+  hint: { ...TYPE.callout, lineHeight: LEADING.callout, marginTop: 16 }
 })

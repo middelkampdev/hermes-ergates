@@ -14,6 +14,7 @@ import { usePrimaryConnection } from '@/features/settings'
 import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
 import { useTheme } from '@/theme/provider'
+import { LEADING, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Card } from '@/ui/Card'
 import { Field } from '@/ui/Field'
@@ -98,9 +99,9 @@ function Notifications({ connection, profile, onClose }: { connection: NonNullab
 }
 
 const styles = StyleSheet.create({
-  line: { fontSize: 15, lineHeight: 22, paddingVertical: 16, textAlign: 'center' },
+  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: 16, textAlign: 'center' },
   spinner: { marginVertical: 24 },
   times: { marginTop: 16 },
-  hint: { fontSize: 13, lineHeight: 18 },
+  hint: { ...TYPE.footnote, lineHeight: LEADING.footnote },
   actions: { marginTop: 20, marginBottom: 32 }
 })

@@ -7,6 +7,7 @@ import { createAgent, rosterKey, slugFromTitle, useModelOptions, validateCreate 
 import { usePrimaryConnection } from '@/features/settings'
 import { useGateway } from '@/gateway/registry'
 import { useTheme } from '@/theme/provider'
+import { LEADING, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Field } from '@/ui/Field'
 import { Group } from '@/ui/Group'
@@ -111,6 +112,6 @@ function NewAgent({ connection, onClose }: { connection: NonNullable<ReturnType<
 const styles = StyleSheet.create({
   groups: { gap: 24, marginBottom: 16 },
   noCheck: { width: 22 },
-  hint: { fontSize: 13, lineHeight: 18, marginTop: 12 },
+  hint: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: 12 },
   actions: { marginTop: 16, marginBottom: 40 }
 })

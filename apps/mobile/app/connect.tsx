@@ -6,6 +6,7 @@ import { connectGateway, probeGateway } from '@/features/settings'
 import { useGatewayRegistry } from '@/gateway/registry'
 import type { BackendStatus } from '@/gateway/types'
 import { useTheme } from '@/theme/provider'
+import { LEADING, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Field } from '@/ui/Field'
 import { Screen } from '@/ui/Screen'
@@ -138,9 +139,9 @@ export default function ConnectScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { gap: 4, paddingTop: 24 },
-  title: { fontSize: 28, fontWeight: '600' },
-  subtitle: { fontSize: 17, lineHeight: 24, marginBottom: 16 },
+  title: { ...TYPE.largeTitle },
+  subtitle: { ...TYPE.body, lineHeight: LEADING.body, marginBottom: 16 },
   section: { gap: 4, marginTop: 8 },
-  hint: { fontSize: 15, lineHeight: 22 },
-  error: { fontSize: 15, lineHeight: 22, marginTop: 4 }
+  hint: { ...TYPE.callout, lineHeight: LEADING.callout },
+  error: { ...TYPE.callout, lineHeight: LEADING.callout, marginTop: 4 }
 })
