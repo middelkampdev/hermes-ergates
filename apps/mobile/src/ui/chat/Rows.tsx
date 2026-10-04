@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import type { ChatItem } from '@/features/chat'
 import { useTheme } from '@/theme/provider'
-import { LEADING, RADIUS, TYPE } from '@/theme/tokens'
+import { LEADING, LEGACY_RADIUS, TYPE } from '@/theme/tokens'
 import { Icon, type IconName } from '@/ui/icons'
 
 /** Compact centered event row (routine created, renamed, messaged X). */
@@ -111,6 +111,6 @@ const styles = StyleSheet.create({
   workingText: { ...TYPE.callout, flex: 1 },
   stop: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 },
   stopText: { ...TYPE.calloutStrong },
-  connection: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: RADIUS.small, alignSelf: 'center', marginVertical: 6 },
+  connection: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: LEGACY_RADIUS.small, alignSelf: 'center', marginVertical: 6 },
   connectionText: { ...TYPE.footnote }
 })

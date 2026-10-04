@@ -14,7 +14,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import Animated from 'react-native-reanimated'
 
 import { useTheme } from '@/theme/provider'
-import { RADIUS, TYPE } from '@/theme/tokens'
+import { LEGACY_RADIUS, TYPE } from '@/theme/tokens'
 
 const BADGE_MAX_WIDTH = 113
 const UNREAD_DOT_SIZE = 8
@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
   name: { flex: 1, ...TYPE.bodyStrong },
   badge: {
     ...TYPE.caption,
-    borderRadius: RADIUS.badge,
+    borderRadius: LEGACY_RADIUS.badge,
     maxWidth: BADGE_MAX_WIDTH,
     paddingHorizontal: 6,
     paddingVertical: 2,

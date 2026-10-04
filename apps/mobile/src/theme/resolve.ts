@@ -8,7 +8,7 @@ import { normalizeHex } from '@vendor/hermes/themes/color'
 import { BUILTIN_THEMES, DEFAULT_SKIN_NAME } from '@vendor/hermes/themes/presets'
 import type { DesktopTheme, DesktopThemeColors } from '@vendor/hermes/themes/types'
 
-import { HIT, PAGE_PADDING, RADIUS, SPACING, type Appearance, type MobileTheme } from './tokens'
+import { HIT, PAGE_PADDING, LEGACY_RADIUS, SPACING, type Appearance, type MobileTheme } from './tokens'
 
 export type BackendThemes = Record<string, DesktopTheme>
 
@@ -72,7 +72,7 @@ export function resolvePalette(p: { themeName: string; appearance: Appearance; s
     name: theme.name,
     dark,
     colors: withFallbacks(colors),
-    radius: RADIUS,
+    radius: LEGACY_RADIUS,
     spacing: SPACING,
     pagePadding: PAGE_PADDING,
     hit: HIT

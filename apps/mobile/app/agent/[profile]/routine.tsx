@@ -31,7 +31,7 @@ import { useGateway } from '@/gateway/registry'
 import type { CronJob, CronRun } from '@/gateway/types'
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { LEADING, RADIUS, TYPE } from '@/theme/tokens'
+import { LEADING, LEGACY_RADIUS, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Card } from '@/ui/Card'
 import { Field } from '@/ui/Field'
@@ -344,6 +344,6 @@ const styles = StyleSheet.create({
   runWhen: { ...TYPE.calloutStrong },
   runStatus: { ...TYPE.footnote },
   runLine: { ...TYPE.footnote },
-  runningBadge: { borderRadius: RADIUS.badge, paddingHorizontal: 6, paddingVertical: 2 },
+  runningBadge: { borderRadius: LEGACY_RADIUS.badge, paddingHorizontal: 6, paddingVertical: 2 },
   runningText: { ...TYPE.caption }
 })

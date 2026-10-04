@@ -9,7 +9,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 
 import type { PendingAttachment } from '@/features/files'
 import { useTheme } from '@/theme/provider'
-import { RADIUS, TYPE } from '@/theme/tokens'
+import { LEGACY_RADIUS, TYPE } from '@/theme/tokens'
 import { Icon } from '@/ui/icons'
 import { IconButton } from '@/ui/IconButton'
 
@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
   input: { flex: 1, ...TYPE.body, minHeight: 40, maxHeight: 22 * 5 + 20, paddingTop: 10, paddingBottom: 10, paddingLeft: 0, paddingRight: 6 },
   send: { width: SEND_SIZE, height: SEND_SIZE, borderRadius: SEND_SIZE / 2, alignItems: 'center', justifyContent: 'center', marginBottom: 1 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: RADIUS.chip, borderWidth: 1, maxWidth: '100%', minHeight: 32 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: LEGACY_RADIUS.chip, borderWidth: 1, maxWidth: '100%', minHeight: 32 },
   chipText: { ...TYPE.footnote, maxWidth: 200 },
   recording: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 14, paddingRight: 4, minHeight: 48 },
   dot: { width: RECORDING_DOT_SIZE, height: RECORDING_DOT_SIZE, borderRadius: RECORDING_DOT_SIZE / 2 },

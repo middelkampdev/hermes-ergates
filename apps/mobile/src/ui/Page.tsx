@@ -21,7 +21,7 @@ import { useState, type ReactElement, type ReactNode } from 'react'
 import { ScrollView, type LayoutChangeEvent, type RefreshControlProps, StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { SIZE, TYPE } from '@/theme/tokens'
+import { LEGACY_SIZE, TYPE } from '@/theme/tokens'
 
 import { IconButton } from './IconButton'
 import { Screen } from './Screen'
@@ -50,7 +50,7 @@ export function Page({ title, onBack, variant = 'push', right, refreshControl, f
   const bottomInset = footer ? BODY_BOTTOM_PADDING : bodyInset
   const [leftWidth, setLeftWidth] = useState(0)
   const [rightWidth, setRightWidth] = useState(0)
-  const sideWidth = Math.max(SIZE.hit, leftWidth, rightWidth)
+  const sideWidth = Math.max(LEGACY_SIZE.hit, leftWidth, rightWidth)
   const measure = (set: (width: number) => void) => (event: LayoutChangeEvent) => set(event.nativeEvent.layout.width)
   return (
     <Screen edges={['top']}>

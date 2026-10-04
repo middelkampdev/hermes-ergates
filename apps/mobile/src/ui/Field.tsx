@@ -9,12 +9,12 @@ import { StyleSheet, Text, TextInput, View, type KeyboardTypeOptions } from 'rea
 
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { LEADING, RADIUS, SIZE, TYPE } from '@/theme/tokens'
+import { LEADING, LEGACY_RADIUS, LEGACY_SIZE, TYPE } from '@/theme/tokens'
 
 import { useSurface } from './surface-context'
 
-const MIN_HEIGHT = SIZE.field
-const MULTILINE_MIN_HEIGHT = SIZE.fieldMultiline
+const MIN_HEIGHT = LEGACY_SIZE.field
+const MULTILINE_MIN_HEIGHT = LEGACY_SIZE.fieldMultiline
 
 export interface FieldProps {
   label?: string
@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
   },
   input: {
     minHeight: MIN_HEIGHT,
-    borderRadius: RADIUS.field,
+    borderRadius: LEGACY_RADIUS.field,
     paddingHorizontal: 14,
     paddingVertical: 13,
     ...TYPE.body,

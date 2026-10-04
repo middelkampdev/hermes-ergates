@@ -13,7 +13,7 @@ import { useGateway } from '@/gateway/registry'
 import { useDeviceStore } from '@/state/device-store'
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { ICON, LEADING, RADIUS, SIZE, TYPE } from '@/theme/tokens'
+import { ICON, LEADING, LEGACY_RADIUS, LEGACY_SIZE, TYPE } from '@/theme/tokens'
 import { BotRow } from '@/ui/BotRow'
 import { Icon } from '@/ui/icons'
 import { IconButton } from '@/ui/IconButton'
@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
   // `paddingTop` matches the header row other sheets draw (`Sheet`'s own
   // header), so the field does not sit flush against the top safe-area inset.
   bar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 10, marginBottom: 12 },
-  field: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: SIZE.field, borderRadius: RADIUS.field, paddingHorizontal: 16 },
+  field: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: LEGACY_SIZE.field, borderRadius: LEGACY_RADIUS.field, paddingHorizontal: 16 },
   input: { flex: 1, ...TYPE.body, paddingVertical: 10 },
   empty: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: 24, textAlign: 'center' }
 })

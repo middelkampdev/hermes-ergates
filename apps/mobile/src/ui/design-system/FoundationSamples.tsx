@@ -10,7 +10,7 @@ import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native'
 import { colorSwatches, contrastRows, shapeRows, typeRows } from '@/features/design-system'
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { SIZE, TYPE } from '@/theme/tokens'
+import { LEGACY_SIZE, TYPE } from '@/theme/tokens'
 
 import { Group } from '../Group'
 import { ListRow } from '../ListRow'
@@ -104,7 +104,7 @@ export function ShapeSamples() {
 
 const styles = StyleSheet.create({
   shapeRow: {
-    minHeight: SIZE.row,
+    minHeight: LEGACY_SIZE.row,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -123,15 +123,15 @@ const styles = StyleSheet.create({
   },
   // Bars and squares share one left column, so every label starts at the same edge.
   slot: {
-    width: SIZE.hit
+    width: LEGACY_SIZE.hit
   },
   bar: {
     height: BAR_HEIGHT
   },
   // The hairline keeps the shape visible where the fill is close to the card's (light themes).
   square: {
-    width: SIZE.hit,
-    height: SIZE.hit,
+    width: LEGACY_SIZE.hit,
+    height: LEGACY_SIZE.hit,
     borderWidth: StyleSheet.hairlineWidth
   }
 })

@@ -15,7 +15,7 @@ import { userMessage } from '@/gateway/errors'
 import type { CronJob } from '@/gateway/types'
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
-import { ICON, LEADING, RADIUS, TYPE } from '@/theme/tokens'
+import { ICON, LEADING, LEGACY_RADIUS, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Group } from '@/ui/Group'
 import { Icon } from '@/ui/icons'
@@ -122,7 +122,7 @@ function RoutineRow({ job, profile, tz, onPress }: { job: CronJob; profile: stri
 
 const styles = StyleSheet.create({
   rowRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  pausedBadge: { borderRadius: RADIUS.badge, paddingHorizontal: 6, paddingVertical: 2 },
+  pausedBadge: { borderRadius: LEGACY_RADIUS.badge, paddingHorizontal: 6, paddingVertical: 2 },
   pausedText: { ...TYPE.caption },
   line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: 16, textAlign: 'center' }
 })

@@ -10,9 +10,9 @@ import { StyleSheet, Text, View } from 'react-native'
 import { isRenderableHex } from '@/theme/color'
 import type { ContrastRating } from '@/theme/contrast'
 import { useTheme } from '@/theme/provider'
-import { RADIUS, SIZE, TYPE } from '@/theme/tokens'
+import { LEGACY_RADIUS, LEGACY_SIZE, TYPE } from '@/theme/tokens'
 
-const CHIP_SIZE = SIZE.hit
+const CHIP_SIZE = LEGACY_SIZE.hit
 
 export interface ContrastSampleProps {
   fg: string
@@ -52,7 +52,7 @@ export function ContrastSample({ fg, bg, fgValue, bgValue, ratio, rating }: Cont
 
 const styles = StyleSheet.create({
   row: {
-    minHeight: SIZE.row,
+    minHeight: LEGACY_SIZE.row,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
   chip: {
     width: CHIP_SIZE,
     height: CHIP_SIZE,
-    borderRadius: RADIUS.small,
+    borderRadius: LEGACY_RADIUS.small,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center'

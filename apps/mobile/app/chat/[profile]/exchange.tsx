@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { exchangeTranscript, peerKey, useChatSession, useExchangeAcknowledgement, type TranscriptEntry } from '@/features/chat'
 import { useTheme } from '@/theme/provider'
-import { AVATAR, LEADING, RADIUS, TYPE } from '@/theme/tokens'
+import { AVATAR, LEADING, LEGACY_RADIUS, TYPE } from '@/theme/tokens'
 import { Avatar } from '@/ui/Avatar'
 import { Button } from '@/ui/Button'
 import { PeerAvatar } from '@/ui/chat/PeerAvatar'
@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
   titleBlock: { flex: 1, gap: 2 },
   title: { ...TYPE.bodyStrong },
   subtitle: { ...TYPE.footnote },
-  pill: { borderRadius: RADIUS.small, paddingVertical: 4, paddingHorizontal: 10 },
+  pill: { borderRadius: LEGACY_RADIUS.small, paddingVertical: 4, paddingHorizontal: 10 },
   pillText: { ...TYPE.footnote },
   listHeader: { paddingBottom: 12, gap: 8 },
   wrap: { maxWidth: '88%', marginVertical: 4 },

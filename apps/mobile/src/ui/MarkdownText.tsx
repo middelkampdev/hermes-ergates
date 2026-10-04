@@ -10,7 +10,7 @@ import { Platform, StyleSheet, Text, View, useWindowDimensions, type TextStyle }
 import Markdown, { renderRules as defaultRenderRules, type RenderRules } from 'react-native-markdown-display'
 
 import { useTheme } from '@/theme/provider'
-import { LEADING, RADIUS, TYPE, type MobileTheme } from '@/theme/tokens'
+import { LEADING, LEGACY_RADIUS, TYPE, type MobileTheme } from '@/theme/tokens'
 
 import { astTableToRows, tableToStacked } from './markdown-table'
 
@@ -63,15 +63,15 @@ function buildStyle(theme: MobileTheme): Record<string, TextStyle> {
       marginLeft: 0
     },
     code_inline: code,
-    code_block: { ...code, borderRadius: RADIUS.small, padding: 12 },
-    fence: { ...code, borderRadius: RADIUS.small, padding: 12 },
+    code_block: { ...code, borderRadius: LEGACY_RADIUS.small, padding: 12 },
+    fence: { ...code, borderRadius: LEGACY_RADIUS.small, padding: 12 },
     // The library defaults both list-content boxes to `{ flex: 1 }`, i.e. flexBasis 0. Yoga ignores an
     // explicit `flexBasis: 'auto'` while `flex` is positive, so the shorthand itself must be reset. Inside a
     // shrink-to-fit bubble that measures as zero width, so the text wraps one glyph per line and
     // spills out of the bubble. Grow and shrink as before, but start from the content's own width.
     bullet_list_content: { flex: 0, flexGrow: 1, flexShrink: 1 },
     ordered_list_content: { flex: 0, flexGrow: 1, flexShrink: 1 },
-    table: { borderColor: theme.colors.border, borderWidth: StyleSheet.hairlineWidth, borderRadius: RADIUS.small },
+    table: { borderColor: theme.colors.border, borderWidth: StyleSheet.hairlineWidth, borderRadius: LEGACY_RADIUS.small },
     th: { padding: 8 },
     tr: { borderColor: theme.colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
     td: { padding: 8 },

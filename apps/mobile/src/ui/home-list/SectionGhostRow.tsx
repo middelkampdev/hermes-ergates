@@ -13,7 +13,7 @@ import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reani
 
 import { EDIT_ITEM_HEIGHT } from '@/features/agents'
 import { useTheme } from '@/theme/provider'
-import { RADIUS, TYPE } from '@/theme/tokens'
+import { LEGACY_RADIUS, TYPE } from '@/theme/tokens'
 
 import { MAX_FONT_SCALE } from './HomeRow'
 
@@ -21,7 +21,7 @@ import { MAX_FONT_SCALE } from './HomeRow'
 export const SKELETON_RING_OPACITY = 0.45
 /** How far the outline sits inside the row, top and bottom. */
 const OUTLINE_INSET = 8
-const OUTLINE_RADIUS = RADIUS.small
+const OUTLINE_RADIUS = LEGACY_RADIUS.small
 
 export function SectionGhostRow({ progress, gutter }: { progress: SharedValue<number>; gutter: number }) {
   const theme = useTheme()

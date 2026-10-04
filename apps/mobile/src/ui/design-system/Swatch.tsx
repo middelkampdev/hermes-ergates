@@ -9,7 +9,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { isRenderableHex } from '@/theme/color'
 import { useTheme } from '@/theme/provider'
-import { OPACITY, SIZE, TYPE } from '@/theme/tokens'
+import { LEGACY_OPACITY, LEGACY_SIZE, TYPE } from '@/theme/tokens'
 
 const DISC_SIZE = 28
 
@@ -29,7 +29,7 @@ export function Swatch({ name, value, onPress }: SwatchProps) {
       accessibilityRole="button"
       accessibilityLabel={value ? `${name}, ${value}` : name}
       accessibilityHint="Copies the token name"
-      style={({ pressed }) => [styles.row, { opacity: pressed ? OPACITY.pressed : 1 }]}
+      style={({ pressed }) => [styles.row, { opacity: pressed ? LEGACY_OPACITY.pressed : 1 }]}
     >
       <View style={[styles.disc, { backgroundColor: fill, borderColor: theme.colors.border }]} />
       <View style={styles.text}>
@@ -42,7 +42,7 @@ export function Swatch({ name, value, onPress }: SwatchProps) {
 
 const styles = StyleSheet.create({
   row: {
-    minHeight: SIZE.row,
+    minHeight: LEGACY_SIZE.row,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,

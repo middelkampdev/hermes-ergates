@@ -3,7 +3,7 @@
 import { StyleSheet, Text, View } from 'react-native'
 
 import { useTheme } from '@/theme/provider'
-import { SIZE, TYPE, type TypeRole } from '@/theme/tokens'
+import { LEGACY_SIZE, TYPE, type TypeRole } from '@/theme/tokens'
 
 export interface TypeSampleProps {
   role: TypeRole
@@ -23,7 +23,7 @@ export function TypeSample({ role, label }: TypeSampleProps) {
 
 const styles = StyleSheet.create({
   row: {
-    minHeight: SIZE.row,
+    minHeight: LEGACY_SIZE.row,
     justifyContent: 'center',
     gap: 3,
     paddingHorizontal: 16,

@@ -1,5 +1,5 @@
 import { CONTRAST_PAIRS, contrastRatio, rate, type ContrastRating } from '@/theme/contrast'
-import { AVATAR, ICON, RADIUS, SIZE, SPACING, TYPE, TYPE_ROLES, type MobileTheme, type TypeRole } from '@/theme/tokens'
+import { AVATAR, ICON, LEGACY_RADIUS, LEGACY_SIZE, SPACING, TYPE, TYPE_ROLES, type MobileTheme, type TypeRole } from '@/theme/tokens'
 
 type Colors = MobileTheme['colors']
 
@@ -47,8 +47,8 @@ export function shapeRows(): {
 } {
   return {
     spacing: [...SPACING],
-    radius: Object.entries(RADIUS),
-    size: Object.entries(SIZE),
+    radius: Object.entries(LEGACY_RADIUS),
+    size: Object.entries(LEGACY_SIZE),
     icon: Object.entries(ICON),
     avatar: Object.entries(AVATAR)
   }

@@ -11,7 +11,7 @@ export interface MobileTheme {
   name: string
   dark: boolean
   colors: DesktopThemeColors & { midground: string; userBubble: string }
-  radius: typeof RADIUS
+  radius: typeof LEGACY_RADIUS
   spacing: readonly [4, 8, 12, 16, 24, 32]
   /**
    * Horizontal page gutter. Applied by `Screen` and `Sheet` only — rows,
@@ -23,8 +23,11 @@ export interface MobileTheme {
   hit: 44
 }
 
-/** Corner radii: bubble, composer, group and sheet are the docs/10 section 4 shapes; the rest are control and chip shapes. */
-export const RADIUS = {
+/**
+ * Corner radii of today's components, kept until each one points to a step of
+ * `RADIUS`. Not a scale: every key is a component name.
+ */
+export const LEGACY_RADIUS = {
   bubble: 22,
   composer: 24,
   group: 20,
@@ -35,12 +38,73 @@ export const RADIUS = {
   small: 12,
   badge: 6,
 } as const
+
+/**
+ * Spacing steps in points, for padding, margin and gap. A component points to
+ * a step; no step is named after a component.
+ */
+export const SPACE = {
+  hairline: 2,
+  extraSmall: 4,
+  small: 8,
+  medium: 12,
+  large: 16,
+  extraLarge: 20,
+  huge: 24,
+  giant: 32,
+} as const
+
+/**
+ * Corner radius steps in points. A component points to a step; no step is
+ * named after a component. `full` is a pill or a circle.
+ */
+export const RADIUS = {
+  small: 8,
+  medium: 12,
+  large: 16,
+  extraLarge: 20,
+  huge: 24,
+  giant: 28,
+  full: 9999,
+} as const
+
+/** Icon glyph steps in points. A component points to a step; no step is named after a component. */
+export const ICON_SIZE = { small: 16, medium: 20, large: 24 } as const
+
+/** Width and height steps in points, for avatars, controls and rows. A component points to a step; no step is named after a component. */
+export const SIZE = {
+  tiny: 8,
+  extraSmall: 20,
+  small: 28,
+  medium: 40,
+  large: 48,
+  extraLarge: 56,
+  huge: 64,
+  giant: 88,
+} as const
+
+/** Opacity steps from the most to the least visible. A component points to a step; no step is named after a component. */
+export const OPACITY = { strong: 0.65, medium: 0.45, faint: 0.25 } as const
+
+/**
+ * Values that are neither a step nor drag geometry, named by what they mean.
+ * `touch` is the smallest hit area and is never snapped to a step. A
+ * component points to a rule; no rule is named after a component.
+ */
+export const RULE = {
+  touch: 44,
+  narrowScreen: 360,
+  maxFontScale: 1.4,
+  panelWidth: 240,
+  textAreaMinHeight: 128,
+} as const
+
 export const SPACING = [4, 8, 12, 16, 24, 32] as const
 export const PAGE_PADDING = 20
 
-/** Control and row sizes in points; `hit` is the minimum touch target. */
-export const SIZE = { hit: 44, row: 56, button: 50, field: 50, fieldMultiline: 128 } as const
-export const HIT = SIZE.hit
+/** Control and row sizes of today's components, in points, kept until each one points to a step of `SIZE`; `hit` is the minimum touch target. */
+export const LEGACY_SIZE = { hit: 44, row: 56, button: 50, field: 50, fieldMultiline: 128 } as const
+export const HIT = LEGACY_SIZE.hit
 
 export type TypeRole =
   | 'largeTitle'
@@ -103,8 +167,8 @@ export const AVATAR = {
   pinned: 84,
 } as const
 
-/** Opacity of a pressed and of a disabled control. */
-export const OPACITY = { pressed: 0.65, disabled: 0.45 } as const
+/** Opacity of a pressed and of a disabled control, kept until each control points to a step of `OPACITY`. */
+export const LEGACY_OPACITY = { pressed: 0.65, disabled: 0.45 } as const
 
 /** Backdrop behind the action menu; the one fixed color, identical on every theme. */
 export const SCRIM = 'rgba(0,0,0,0.25)'

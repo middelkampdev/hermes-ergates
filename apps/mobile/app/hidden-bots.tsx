@@ -7,7 +7,7 @@ import { usePrimaryConnection } from '@/features/settings'
 import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
 import { useTheme } from '@/theme/provider'
-import { LEADING, SIZE, TYPE } from '@/theme/tokens'
+import { LEADING, LEGACY_SIZE, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { Group } from '@/ui/Group'
 import { Row } from '@/ui/Row'
@@ -50,6 +50,6 @@ function HiddenBots({ connection, onClose }: { connection: NonNullable<ReturnTyp
 
 const styles = StyleSheet.create({
   hint: { ...TYPE.callout, lineHeight: LEADING.callout, marginVertical: 12 },
-  item: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, minHeight: SIZE.row },
+  item: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, minHeight: LEGACY_SIZE.row },
   rowBody: { flex: 1 }
 })
