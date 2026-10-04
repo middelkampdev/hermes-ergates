@@ -10,9 +10,11 @@ import type { Appearance } from '@/theme/tokens'
 
 export interface DesignSystemPreview {
   appearance: Appearance
-  themeLabel: string
-  nextMode(): void
-  nextTheme(): void
+  themeName: string
+  /** The themes the phone can show, as Settings › Appearance lists them. */
+  themes: { name: string; label: string }[]
+  setAppearance(appearance: Appearance): void
+  setThemeName(themeName: string): void
   /** Back to the saved Appearance. */
   reset(): void
 }

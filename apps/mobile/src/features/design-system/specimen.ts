@@ -1,5 +1,5 @@
 import { CONTRAST_PAIRS, contrastRatio, rate, type ContrastRating } from '@/theme/contrast'
-import { AVATAR, ICON, RADIUS, SIZE, SPACING, TYPE, TYPE_ROLES, type Appearance, type MobileTheme, type TypeRole } from '@/theme/tokens'
+import { AVATAR, ICON, RADIUS, SIZE, SPACING, TYPE, TYPE_ROLES, type MobileTheme, type TypeRole } from '@/theme/tokens'
 
 type Colors = MobileTheme['colors']
 
@@ -52,17 +52,4 @@ export function shapeRows(): {
     icon: Object.entries(ICON),
     avatar: Object.entries(AVATAR)
   }
-}
-
-const APPEARANCE_CYCLE: Appearance[] = ['system', 'light', 'dark']
-
-export function nextAppearance(a: Appearance): Appearance {
-  return APPEARANCE_CYCLE[(APPEARANCE_CYCLE.indexOf(a) + 1) % APPEARANCE_CYCLE.length]
-}
-
-/** The name after `current`, wrapping; the first name when `current` is not listed. */
-export function nextTheme(current: string, names: string[]): string {
-  const i = names.indexOf(current)
-
-  return names[i === -1 ? 0 : (i + 1) % names.length]
 }

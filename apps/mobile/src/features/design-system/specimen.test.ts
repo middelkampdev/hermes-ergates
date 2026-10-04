@@ -1,7 +1,7 @@
 import { resolvePalette } from '@/theme/resolve'
 import { CONTRAST_PAIRS } from '@/theme/contrast'
 
-import { colorSwatches, contrastRows, nextAppearance, nextTheme, typeRows } from './specimen'
+import { colorSwatches, contrastRows, typeRows } from './specimen'
 
 const nousLight = resolvePalette({ themeName: 'nous', appearance: 'light', systemDark: false }).colors
 const nousDark = resolvePalette({ themeName: 'nous', appearance: 'dark', systemDark: false }).colors
@@ -30,17 +30,5 @@ describe('specimen data', () => {
   it('lists the type scale in order', () => {
     expect(typeRows()[0]).toEqual({ role: 'largeTitle', fontSize: 28, fontWeight: '600', label: '28 / 600' })
     expect(typeRows()).toHaveLength(11)
-  })
-
-  it('cycles appearance', () => {
-    expect(nextAppearance('system')).toBe('light')
-    expect(nextAppearance('light')).toBe('dark')
-    expect(nextAppearance('dark')).toBe('system')
-  })
-
-  it('cycles themes', () => {
-    expect(nextTheme('nous', ['nous', 'mono'])).toBe('mono')
-    expect(nextTheme('mono', ['nous', 'mono'])).toBe('nous')
-    expect(nextTheme('gone', ['nous', 'mono'])).toBe('nous')
   })
 })

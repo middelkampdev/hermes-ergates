@@ -4,16 +4,16 @@
  * Development builds only; a release build that is deep-linked here lands
  * on Settings.
  *
- * The whole stack sits in its own ThemeProvider with one local Mode and
- * Theme, set on the index, so a preview recolors every design-system page
- * edge to edge. The rest of the app keeps the saved Appearance, nothing is
- * written back, and the preview is dropped when the stack closes.
+ * The whole stack sits in its own ThemeProvider with one local Appearance,
+ * picked on its own Appearance page like Settings › Appearance, so a preview
+ * recolors every design-system page edge to edge. The rest of the app keeps
+ * the saved Appearance, nothing is written back, and the preview is dropped
+ * when the stack closes.
  */
 
 import { Redirect, Stack } from 'expo-router'
 import React, { useMemo, useState } from 'react'
 
-import { nextAppearance, nextTheme } from '@/features/design-system'
 import { isSelectedTheme } from '@/features/settings'
 import { useDeviceStore } from '@/state/device-store'
 import { ThemeProvider } from '@/theme/provider'
@@ -33,7 +33,7 @@ function PreviewStack() {
   const prefs = useDeviceStore(s => s.prefs)
   const backend = useSkinStore(s => s.state.backend)
   const themes = useMemo(() => listMobileThemes(backend), [backend])
-  // The stored name can be an alias (`default` is Nous); start from the listed name so the first Theme tap moves on.
+  // The stored name can be an alias (`default` is Nous); the preview starts from the listed name.
   const savedTheme = themes.find(t => isSelectedTheme(prefs.themeName, t.name))?.name ?? prefs.themeName
   const [appearance, setAppearance] = useState<Appearance>(prefs.appearance)
   const [themeName, setThemeName] = useState(savedTheme)
@@ -41,9 +41,10 @@ function PreviewStack() {
   const preview = useMemo<DesignSystemPreview>(
     () => ({
       appearance,
-      themeLabel: themes.find(t => isSelectedTheme(themeName, t.name))?.label ?? themeName,
-      nextMode: () => setAppearance(nextAppearance(appearance)),
-      nextTheme: () => setThemeName(nextTheme(themeName, themes.map(t => t.name))),
+      themeName,
+      themes,
+      setAppearance,
+      setThemeName,
       reset: () => {
         setAppearance(prefs.appearance)
         setThemeName(savedTheme)

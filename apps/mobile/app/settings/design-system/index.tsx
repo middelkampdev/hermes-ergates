@@ -1,13 +1,14 @@
 /**
- * The Design system index: the preview controls, then the Foundations and
- * the Components, each row with a one-line summary and opening its own page.
+ * The Design system index: the preview Appearance (its own page, like
+ * Settings › Appearance) and Reset, then the Foundations and the Components,
+ * each row with a one-line summary and opening its own page.
  */
 
 import { useRouter } from 'expo-router'
 import React from 'react'
 
 import { DESIGN_SYSTEM_SECTIONS, sectionSummary, type DesignSystemSection, type SectionId } from '@/features/design-system'
-import { APPEARANCE_LABELS } from '@/features/settings'
+import { appearanceSummary } from '@/features/settings'
 import { useTheme } from '@/theme/provider'
 import { SECTION_ICONS, useDesignSystemPreview } from '@/ui/design-system'
 import { Group } from '@/ui/Group'
@@ -28,8 +29,12 @@ export default function DesignSystemIndex() {
   return (
     <Page title="Design system" onBack={() => router.back()}>
       <Group caption="Preview">
-        <ListRow title="Mode" subtitle={APPEARANCE_LABELS[preview.appearance]} icon="sun" onPress={preview.nextMode} />
-        <ListRow title="Theme" subtitle={preview.themeLabel} icon="droplet" onPress={preview.nextTheme} />
+        <ListRow
+          title="Appearance"
+          subtitle={appearanceSummary(preview.appearance, preview.themeName, preview.themes)}
+          icon="moon"
+          onPress={() => router.push('/settings/design-system/appearance')}
+        />
         <ListRow title="Reset" subtitle="Back to the saved Appearance" icon="rotate-ccw" onPress={preview.reset} />
       </Group>
       {GROUPS.map(({ group, caption }) => (
