@@ -14,7 +14,7 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "bundleIdentifier": "dev.ergates.mobile",
+      "bundleIdentifier": "com.nousresearch.hermesergates",
       "supportsTablet": false,
       "infoPlist": {
         "NSAppTransportSecurity": {
@@ -24,7 +24,7 @@
       }
     },
     "android": {
-      "package": "dev.ergates.mobile",
+      "package": "com.nousresearch.hermesergates",
       "adaptiveIcon": {
         "backgroundColor": "#ffffff",
         "foregroundImage": "./assets/android-icon-foreground.png",

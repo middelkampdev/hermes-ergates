@@ -98,7 +98,7 @@ describe('cli ios-signing', () => {
       PROFILE_NAME: 'Ergates Development',
       PROFILE_UUID: '0f5e3c9a-1111-4222-8333-944455556666',
       PROFILE_TEAM_ID: 'AB12CD34EF',
-      PROFILE_APP_ID: 'AB12CD34EF.dev.ergates.mobile',
+      PROFILE_APP_ID: 'AB12CD34EF.com.nousresearch.hermesergates',
       PROFILE_GET_TASK_ALLOW: 'true',
       PROFILE_DEVICES: '',
     })
