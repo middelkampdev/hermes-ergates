@@ -15,6 +15,7 @@
     },
     "ios": {
       "bundleIdentifier": "dev.middelkamp.ergates",
+      "deploymentTarget": "16.4",
       "supportsTablet": false,
       "infoPlist": {
         "NSAppTransportSecurity": {
@@ -50,7 +51,15 @@
           "speechRecognitionPermission": "Ergates turns your voice into text for the composer. On-device recognition is used when available."
         }
       ],
-      "./plugins/with-release-signing"
+      "./plugins/with-release-signing",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
