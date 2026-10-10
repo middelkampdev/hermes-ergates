@@ -56,3 +56,17 @@ describe('looking an agent up in a roster', () => {
     expect(nameOfRoster(undefined, 'linh')).toBe('linh')
   })
 })
+
+describe('the Home row preview', () => {
+  const withPreview = (preview: string): ProfileSummary => ({ name: 'mia', is_default: false, canonical_session: { id: 's1', title: 'Chat', preview } })
+
+  it('shows plain text, as Desktop does (stripPreviewMarkdown in hermes-bots/labels.ts)', () => {
+    expect(toBot(withPreview('**Day 1: Canals & Culture** - Morning: _Canal_ cruise')).preview).toBe('Day 1: Canals & Culture - Morning: Canal cruise')
+    expect(toBot(withPreview('## Plan\n> Note: see [the map](https://example.com) and `route`')).preview).toBe('Plan Note: see the map and route')
+    expect(toBot(withPreview('Code:\n```\nls -la\n```\ndone ~~not~~')).preview).toBe('Code: done not')
+  })
+
+  it('keeps snake_case words and lone stars', () => {
+    expect(toBot(withPreview('use snake_case_name and 2 * 3')).preview).toBe('use snake_case_name and 2 * 3')
+  })
+})

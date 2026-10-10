@@ -38,6 +38,22 @@ export interface Bot {
 
 const seconds = (v: number | undefined | null) => (typeof v === 'number' && v > 0 ? Math.round(v * 1000) : 0)
 
+/** A chat preview as one line of plain text: Desktop's `stripPreviewMarkdown` (hermes-bots/labels.ts at the pin). */
+export function stripPreviewMarkdown(text: unknown): string {
+  return String(text || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`\n]*)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(^|\s)[*_](\S(?:.*?\S)?)[*_](?=\s|$|[.,;:!?])/g, '$1$2')
+    .replace(/~~(.*?)~~/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s{0,3}>\s?/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /** A trimmed non-empty string, or null (an empty or non-string value means none). */
 const textOrNull = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
 
@@ -59,7 +75,7 @@ export function toBot(p: ProfileSummary): Bot {
     model: p.model,
     provider: p.provider,
     lastActivityAt: Math.max(seconds(cs?.last_active), seconds(cs?.started_at), seconds((p.last_session as { last_active?: number } | null)?.last_active)),
-    preview: cs?.preview ?? (p.last_session as { preview?: string } | null)?.preview ?? '',
+    preview: stripPreviewMarkdown(cs?.preview ?? (p.last_session as { preview?: string } | null)?.preview ?? ''),
     canonicalSessionId: cs ? cs.resolved_id || cs.id : null,
     pinned: typeof meta.pinned === 'boolean' ? meta.pinned : undefined,
     sectionId: 'sectionId' in meta ? sectionIdOrNull(meta.sectionId) : undefined,
