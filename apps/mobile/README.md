@@ -61,7 +61,9 @@ test/fake-gateway/  FakeGateway (same GatewayPort), in-memory outbox, transcript
 test/scenarios/     behavior tests: the real session controller against the FakeGateway
 vendor/hermes/  pinned upstream client and theme sources (MIT), see PIN.md
 patches/        patch-package fixes that `npm install` and `npm ci` apply (postinstall): @react-native-cookies/cookies
-                asks for mavenCentral() instead of jcenter(), which Gradle 9 removed
+                asks for mavenCentral() instead of jcenter(), which Gradle 9 removed; decode-uri-component 0.2.2
+                (expo-router's query parsing) gets the linear decoder from 0.5.0 (GHSA-vcc3-ghjq-m6fr), because
+                0.5.0 is ESM-only; drop it once expo-router no longer depends on 0.2.x
 ```
 
 Rules (ADR-029), enforced by `npm run depcruise`:
