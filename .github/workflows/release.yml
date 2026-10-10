@@ -132,3 +132,36 @@ jobs:
           tag_name: ${{ needs.metadata.outputs.tag }}
           prerelease: ${{ needs.metadata.outputs.channel == 'rc' }}
           generate_release_notes: true
+
+  # A final release is on its way to the stores: once it is live there, the
+  # website (middelkamp.dev/ergates/) needs the same version's store links,
+  # screenshots and privacy policy. The site deploys over SSH from the owner's
+  # VPN only, so this job cannot publish it; it opens an issue with the
+  # checklist instead (RELEASING.md "After a public store release").
+  website-reminder:
+    needs: [metadata, github-release]
+    if: needs.metadata.outputs.channel == 'final'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open the website checklist issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+        run: |
+          title="Update middelkamp.dev for ${TAG}"
+          # A manual re-run of the same tag must not open a second issue.
+          if gh issue list --state all --search "in:title \"${title}\"" --json title --jq '.[].title' | grep -Fxq "${title}"; then
+            echo "Issue already exists: ${title}"
+            exit 0
+          fi
+          gh issue create --title "${title}" --body "${TAG} is on its way to the App Store and Google Play. When it is live in both stores, update and publish the website: see the checklist in apps/mobile/RELEASING.md, section \"After a public store release\".
+
+          - [ ] Store links: the App Store and Google Play badges on /ergates/ point to the live listings
+          - [ ] Screenshots: still match the app in ${TAG}
+          - [ ] Privacy policy: still true for ${TAG} (new permissions, push services, analytics, servers?); if changed, update the date
+          - [ ] Support page: still matches the connect flow
+          - [ ] Published: run ~/Projects/mdev/website/deploy.sh and check https://middelkamp.dev/ergates/"

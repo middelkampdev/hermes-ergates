@@ -188,8 +188,22 @@ scripts/release/build-ios.sh
 
 This runbook stops at testing tracks. A public release also needs:
 
-- A privacy policy URL, a store listing with screenshots, and the data-safety and content-rating forms.
+- A privacy policy URL, a store listing with screenshots, and the data-safety and content-rating forms. The privacy policy is https://middelkamp.dev/ergates/privacy/ and the support URL is https://middelkamp.dev/ergates/support/.
 - A way for Apple's reviewers to use the app. Ergates needs a Hermes server, so reviewers need a demo server and login.
 - On a Google **personal** account created after 13 November 2023: a closed test with at least 12 testers, opted in for 14 days in a row, before production access. Internal testing does not count ([Google](https://support.google.com/googleplay/android-developer/answer/14151465)).
 
 Then submit the TestFlight build for review in App Store Connect, and promote the internal release to production in Play Console.
+
+## After a public store release
+
+The product page, privacy policy and support page live on the website https://middelkamp.dev, in its own repository (`~/Projects/mdev/website` on the owner's Mac). The website must match the app in the stores, so every public release ends with a website update. A final tag (`vX.Y.Z`) opens a GitHub issue "Update middelkamp.dev for vX.Y.Z" with this checklist.
+
+When the version is live in both stores:
+
+1. **Store links:** the App Store and Google Play links on `/ergates/` point to the live listings. Before the first release the page says "Coming to the App Store and Google Play".
+2. **Screenshots:** still match the app. New ones come from the simulator; `public/assets/ergates/` holds them at 300 and 600 pixels wide.
+3. **Privacy policy:** still true for this version. Check it whenever a release adds a permission, a push or notification service, analytics or crash reporting, or a new server the app talks to. If the text changes, update the date at the top of `/ergates/privacy/`.
+4. **Support page:** still matches the connect and sign-out flow.
+5. **Publish:** run `~/Projects/mdev/website/deploy.sh` (VPN on, Bitwarden unlocked), check https://middelkamp.dev/ergates/, and close the issue.
+
+The website deploys over SSH from the owner's VPN address only, so GitHub Actions cannot publish it; the issue is the reminder.
