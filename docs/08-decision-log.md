@@ -1,6 +1,6 @@
 # 08 - Architecture Decision Log
 
-Updated 2026-09-12 after Jop requested corrections and supplied mobile references; ADR-029 (app code shape) added 2026-09-13. These are current design decisions, not claims of implementation or approval of purchases/deployment. Unverified extension mechanisms are gates in 11. Earlier own-platform records ADR-001–016 remain in the [archived decision log](archive/2026-09-12-own-platform-design/08-decision-log.md); do not build from them.
+Updated 2026-09-12 after Jop requested corrections and supplied mobile references; ADR-029 (app code shape) added 2026-09-13. These are current design decisions, not claims of implementation or approval of purchases/deployment. Unverified extension mechanisms are gates in 11. Earlier own-platform records ADR-001–016 belong to the dropped design and are kept in the maintainer's private project notes; do not build from them.
 
 ## ADR-017 Hermes owns the backend domain
 

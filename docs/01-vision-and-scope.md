@@ -111,4 +111,3 @@ Jop wants the same experience on a VPS he controls, with agents that act only th
 | 09-glossary.md | Terms |
 | 10-mobile-design.md | Screenshot-informed layouts, Hermes theme mapping, visual acceptance |
 | 11-implementation-readiness.md | Verified support, custom integration contracts and acceptance gates |
-| archive/2026-09-12-own-platform-design/ | The design we dropped; history only |
