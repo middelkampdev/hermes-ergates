@@ -36,6 +36,7 @@ flowchart TB
 | Concern | Choice | Boundary |
 |---|---|---|
 | Mobile runtime | React Native, Expo development builds, TypeScript strict | Verify required native modules and OS settings in P0; do not assume Expo Go compatibility |
+| Minimum OS | iOS 16.4 and Android 8.0 (API 26), declared in `app.json` (ADR-039) | Never below the Expo and React Native floors; `test/minimum-os-versions.test.ts` checks them |
 | Code shape | Feature modules behind one `GatewayPort` contract with a real native adapter and a fake (ADR-029) | Rules, port sketch and state table in 3.1; every P0 gate runs through the real adapter |
 | Navigation | expo-router stack/sheets | Home and chat are primary; details/settings are secondary (10) |
 | Transport | Vendored `JsonRpcGatewayClient`, native HTTP/cookie/ticket adapter | Exact contract in 06; native cookie persistence is a P0 gate |
