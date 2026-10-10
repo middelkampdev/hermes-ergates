@@ -1,6 +1,6 @@
 # Ergates
 
-[![CI](https://github.com/jopmiddelkamp/hermes-ergates/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/jopmiddelkamp/hermes-ergates/actions/workflows/ci.yml)
+[![CI](https://github.com/middelkampdev/hermes-ergates/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/middelkampdev/hermes-ergates/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A clean React Native messaging app for a team of Hermes Agent assistants on your own server. Hermes owns the agents; Ergates is the phone app, a small server integration package and the deployment configuration.
@@ -63,4 +63,4 @@ Releases go to TestFlight and the Google Play internal testing track through gfl
 
 ## License
 
-Ergates is licensed under the [MIT License](LICENSE), copyright Jop Middelkamp. `apps/mobile/LICENSE` is a separate notice that covers the Expo template code the mobile app started from and stays with that code.
+Ergates is licensed under the [MIT License](LICENSE), copyright Middelkamp Development. `apps/mobile/LICENSE` is a separate notice that covers the Expo template code the mobile app started from and stays with that code.

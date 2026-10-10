@@ -39,7 +39,7 @@ chmod 600 .release/release.env
 
 ### Step 1: GitHub
 
-1. The repository, `github.com/jopmiddelkamp/hermes-ergates`, already exists, is public, and its default branch is `master`; nobody pushes a `main` branch to it. It is MIT-licensed, with contributions under the repository's own license and no DCO; `apps/mobile/LICENSE` (the Expo template's) and the rest of the repository's license and community files land in a separate step, not this one.
+1. The repository, `github.com/middelkampdev/hermes-ergates`, already exists, is public, and its default branch is `develop`; gflow's mainline is `master`, and nobody pushes a `main` branch to it. It is MIT-licensed, with contributions under the repository's own license and no DCO; `apps/mobile/LICENSE` (the Expo template's) and the rest of the repository's license and community files land in a separate step, not this one.
 2. Push `master`, land the current work on `develop`, and push `develop`. Run `git config gflow.branch.main master` in this checkout, and again right after any future clone of the repository: gflow otherwise tries `main` first when it picks the mainline branch.
 3. In the repository settings, turn on **Automatically delete head branches**. gflow's landing branches, and its `release-fix/*` and `hotfix-fix/*` work branches, are never cleaned up otherwise.
 4. Install `gh` and log in (`gh auth login`). gflow uses it to open pull requests.

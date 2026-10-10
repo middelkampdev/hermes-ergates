@@ -9,7 +9,7 @@ Only the latest release of Ergates is supported with security fixes. Older relea
 Report a vulnerability privately through GitHub, using either:
 
 - the **Report a vulnerability** button on this repository's Security tab, or
-- the [security advisory form](https://github.com/jopmiddelkamp/hermes-ergates/security/advisories/new) directly.
+- the [security advisory form](https://github.com/middelkampdev/hermes-ergates/security/advisories/new) directly.
 
 Do not report a security issue in a public GitHub issue, discussion, or pull request.
 

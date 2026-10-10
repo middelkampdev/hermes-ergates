@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
-    url: https://github.com/jopmiddelkamp/hermes-ergates/security/advisories/new
+    url: https://github.com/middelkampdev/hermes-ergates/security/advisories/new
     about: Report security issues privately here — never in a public issue. See SECURITY.md.
   - name: Project overview and setup
-    url: https://github.com/jopmiddelkamp/hermes-ergates#readme
+    url: https://github.com/middelkampdev/hermes-ergates#readme
     about: Read the README before filing an issue — it covers quick start, verification, and where each part of the project lives.
