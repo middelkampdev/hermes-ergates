@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import { appStoreProfileProblems, exportOptionsPlist } from '../../scripts/release/ios-signing.mjs'
 
-const APP = { teamId: 'AB12CD34EF', bundleId: 'com.nousresearch.hermesergates' }
+const APP = { teamId: 'AB12CD34EF', bundleId: 'dev.middelkamp.ergates' }
 const PROFILE = {
   name: 'Ergates App Store',
   uuid: '0f5e3c9a-1111-4222-8333-944455556666',
   teamId: 'AB12CD34EF',
-  appId: 'AB12CD34EF.com.nousresearch.hermesergates',
+  appId: 'AB12CD34EF.dev.middelkamp.ergates',
   getTaskAllow: 'false',
   hasDevices: false,
 }
@@ -18,12 +18,12 @@ describe('appStoreProfileProblems', () => {
   })
 
   it('names a profile of another team or another app', () => {
-    expect(appStoreProfileProblems({ ...PROFILE, teamId: 'ZZ99ZZ99ZZ', appId: 'ZZ99ZZ99ZZ.com.nousresearch.hermesergates' }, APP)).toEqual([
+    expect(appStoreProfileProblems({ ...PROFILE, teamId: 'ZZ99ZZ99ZZ', appId: 'ZZ99ZZ99ZZ.dev.middelkamp.ergates' }, APP)).toEqual([
       'The provisioning profile belongs to team ZZ99ZZ99ZZ, not to APPLE_TEAM_ID AB12CD34EF.',
-      'The provisioning profile is for the app ID ZZ99ZZ99ZZ.com.nousresearch.hermesergates, not AB12CD34EF.com.nousresearch.hermesergates.',
+      'The provisioning profile is for the app ID ZZ99ZZ99ZZ.dev.middelkamp.ergates, not AB12CD34EF.dev.middelkamp.ergates.',
     ])
     expect(appStoreProfileProblems({ ...PROFILE, appId: 'AB12CD34EF.*' }, APP)).toEqual([
-      'The provisioning profile is for the app ID AB12CD34EF.*, not AB12CD34EF.com.nousresearch.hermesergates.',
+      'The provisioning profile is for the app ID AB12CD34EF.*, not AB12CD34EF.dev.middelkamp.ergates.',
     ])
   })
 
@@ -38,7 +38,7 @@ describe('appStoreProfileProblems', () => {
     expect(appStoreProfileProblems(empty, APP)).toEqual([
       'The provisioning profile has no Name or UUID. Is IOS_APPSTORE_PROFILE_BASE64 a .mobileprovision file?',
       'The provisioning profile belongs to team (none), not to APPLE_TEAM_ID AB12CD34EF.',
-      'The provisioning profile is for the app ID (none), not AB12CD34EF.com.nousresearch.hermesergates.',
+      'The provisioning profile is for the app ID (none), not AB12CD34EF.dev.middelkamp.ergates.',
       'The provisioning profile is a development or ad hoc profile. Create an App Store profile (RELEASING.md).',
     ])
   })
@@ -46,7 +46,7 @@ describe('appStoreProfileProblems', () => {
 
 describe('exportOptionsPlist', () => {
   it('signs manually for App Store Connect with the profile of the app', () => {
-    expect(exportOptionsPlist({ teamId: 'AB12CD34EF', bundleId: 'com.nousresearch.hermesergates', profileName: 'Ergates App Store' })).toBe(
+    expect(exportOptionsPlist({ teamId: 'AB12CD34EF', bundleId: 'dev.middelkamp.ergates', profileName: 'Ergates App Store' })).toBe(
       [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
@@ -60,7 +60,7 @@ describe('exportOptionsPlist', () => {
         '  <string>app-store-connect</string>',
         '  <key>provisioningProfiles</key>',
         '  <dict>',
-        '    <key>com.nousresearch.hermesergates</key>',
+        '    <key>dev.middelkamp.ergates</key>',
         '    <string>Ergates App Store</string>',
         '  </dict>',
         '  <key>signingCertificate</key>',
@@ -77,7 +77,7 @@ describe('exportOptionsPlist', () => {
   })
 
   it('escapes XML characters in a profile name', () => {
-    expect(exportOptionsPlist({ teamId: 'AB12CD34EF', bundleId: 'com.nousresearch.hermesergates', profileName: 'Ergates & "Store" <1>' })).toContain(
+    expect(exportOptionsPlist({ teamId: 'AB12CD34EF', bundleId: 'dev.middelkamp.ergates', profileName: 'Ergates & "Store" <1>' })).toContain(
       '    <string>Ergates &amp; &quot;Store&quot; &lt;1&gt;</string>'
     )
   })

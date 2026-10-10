@@ -82,18 +82,18 @@ describe('formatOutputs', () => {
 })
 
 describe('withBuildNumber', () => {
-  const APP = { expo: { name: 'Ergates', version: '0.3.0', ios: { bundleIdentifier: 'com.nousresearch.hermesergates' }, android: { package: 'com.nousresearch.hermesergates' } } }
+  const APP = { expo: { name: 'Ergates', version: '0.3.0', ios: { bundleIdentifier: 'dev.middelkamp.ergates' }, android: { package: 'dev.middelkamp.ergates' } } }
 
   it('sets the iOS build number and the Android version code and keeps the rest', () => {
     expect(withBuildNumber(APP, 42)).toEqual({
       expo: {
         name: 'Ergates',
         version: '0.3.0',
-        ios: { bundleIdentifier: 'com.nousresearch.hermesergates', buildNumber: '42' },
-        android: { package: 'com.nousresearch.hermesergates', versionCode: 42 },
+        ios: { bundleIdentifier: 'dev.middelkamp.ergates', buildNumber: '42' },
+        android: { package: 'dev.middelkamp.ergates', versionCode: 42 },
       },
     })
-    expect(APP.expo.ios).toEqual({ bundleIdentifier: 'com.nousresearch.hermesergates' })
+    expect(APP.expo.ios).toEqual({ bundleIdentifier: 'dev.middelkamp.ergates' })
   })
 
   it('refuses a build number Google Play would refuse', () => {

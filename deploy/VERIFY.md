@@ -358,7 +358,7 @@ setups are all still there. On the simulator, nothing in the app's storage
 holds a draft's text in the clear:
 
 ```bash
-dir="$(xcrun simctl get_app_container booted com.nousresearch.hermesergates data)/Library/Application Support/com.nousresearch.hermesergates/RCTAsyncLocalStorage_V1"
+dir="$(xcrun simctl get_app_container booted dev.middelkamp.ergates data)/Library/Application Support/dev.middelkamp.ergates/RCTAsyncLocalStorage_V1"
 grep -rl "ergates-sealed-v1:" "$dir"
 grep -rl "<a word from one of your drafts>" "$dir"
 ```

@@ -114,3 +114,11 @@ Rejected: keeping allowlist-only as the default, which does not survive a fresh 
 Decided 2026-10-10. The app's domain is `hermes-ergates.nousresearch.com`, and an app ID is the domain reversed. The hyphen cannot stay on both platforms: an iOS bundle ID allows letters, digits, hyphens and periods, and an Android application ID allows letters, digits and underscores. One ID without a separator, `com.nousresearch.hermesergates`, is valid on both, so the release workflow, the signing checks and the runbook carry a single value. It replaces `dev.ergates.mobile`, which never reached a store. The ID is permanent once the first build is uploaded: Google Play treats an upload with a new application ID as a different app.
 
 Rejected: a different ID per platform (`com.nousresearch.hermes-ergates` on iOS, `com.nousresearch.hermes_ergates` on Android), which is closer to the domain but gives two values to keep in step everywhere the ID appears.
+
+Superseded by [ADR-038](#adr-038-the-app-id-uses-the-publishers-own-domain-devmiddelkampergates): the one-ID reasoning stands, but the ID now uses the publisher's own domain.
+
+## ADR-038 The app ID uses the publisher's own domain: dev.middelkamp.ergates
+
+Decided 2026-10-10, before any build reached a store. An app ID is a domain reversed, so `com.nousresearch.hermesergates` claimed a domain that Nous Research owns, for an app that Middelkamp Development publishes without their permission; `hermes-ergates.nousresearch.com` does not exist. Apple's guideline 5.2.1 forbids misleading names in the app bundle, and Google Play's impersonation policy forbids implying a relationship that does not exist. The new ID, `dev.middelkamp.ergates`, is `middelkamp.dev` reversed plus the app name, and is valid on iOS and Android, so ADR-037's single value stays. If Nous Research takes the app over later, both stores transfer an app with its ID, users and reviews, so the ID does not need their name for that.
+
+Rejected: keeping the Nous Research ID and asking them first, which blocks the store setup on their answer and still cannot be undone if they refuse after the first upload. Rejected: `dev.middelkamp.hermesergates`, which is longer and adds nothing the app name does not already say.

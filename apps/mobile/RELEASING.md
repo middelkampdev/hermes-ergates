@@ -63,11 +63,11 @@ done
 ### Step 2: Apple
 
 1. Join the Apple Developer Program. Copy your Team ID (developer.apple.com, Account, Membership details) into `APPLE_TEAM_ID`.
-2. Register the bundle ID: Certificates, Identifiers & Profiles, Identifiers, the plus button, App IDs, explicit bundle ID `com.nousresearch.hermesergates`.
-3. Create the app record: App Store Connect, Apps, the plus button, New App. Choose iOS, the name Ergates, the bundle ID `com.nousresearch.hermesergates`, and any unique SKU such as `ergates-ios`. Apple's API cannot create an app, so this step stays manual.
+2. Register the bundle ID: Certificates, Identifiers & Profiles, Identifiers, the plus button, App IDs, explicit bundle ID `dev.middelkamp.ergates`.
+3. Create the app record: App Store Connect, Apps, the plus button, New App. Choose iOS, the name Ergates, the bundle ID `dev.middelkamp.ergates`, and any unique SKU such as `ergates-ios`. Apple's API cannot create an app, so this step stays manual.
 4. Create an App Store Connect API key: Users and Access, Integrations, App Store Connect API, Team Keys, the plus button. Give it the **App Manager** role. Apple lets the Developer role upload builds too ([Apple](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds)), but the upload action asks for App Manager ([upload-testflight-build](https://github.com/apple-actions/upload-testflight-build#getting-started)). Download the `.p8` file (Apple offers it **only once**) and save it as `.release/asc-api-key.p8`. Copy the Key ID into `APP_STORE_CONNECT_KEY_ID` and the Issuer ID above the key list into `APP_STORE_CONNECT_ISSUER_ID`.
 5. Create the distribution certificate: in Keychain Access, Certificate Assistant, Request a Certificate From a Certificate Authority, saved to disk. Upload that request under Certificates, the plus button, **Apple Distribution**. Download the certificate and open it, so it lands in your login keychain with its private key. In Keychain Access, select the certificate and its key, Export, and save as `.release/ios-distribution.p12` with a password. Put that password in `IOS_DIST_CERT_PASSWORD`.
-6. Create the provisioning profile: Profiles, the plus button, **App Store Connect**, the app ID `com.nousresearch.hermesergates`, the certificate from step 5. Name it, for example `Ergates App Store`, download it and save it as `.release/ios-appstore.mobileprovision`.
+6. Create the provisioning profile: Profiles, the plus button, **App Store Connect**, the app ID `dev.middelkamp.ergates`, the certificate from step 5. Name it, for example `Ergates App Store`, download it and save it as `.release/ios-appstore.mobileprovision`.
 7. In TestFlight, add yourself to an internal testing group. Internal testers are App Store Connect users (up to 100). Builds for external testers may need Beta App Review ([Apple](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testflight-overview)).
 
 The certificate and the profile show an expiry date in the portal. Before one expires, renew it, replace its file, and run step 4 again.
@@ -139,7 +139,7 @@ This cuts `release/0.3.0`, commits `chore: set version 0.3.0` there, and pushes 
 - **Final release:** `gflow finish` on the release branch. It opens a pull request into `master`; merge it and run `gflow finish` again, which tags `vX.Y.0` and opens the pull request into `develop`; merge that and run it once more. gflow refuses to finish a release branch with commits after its last RC tag: run `gflow bump` first, so every commit on `master` was tested as an RC.
 - **Hotfix:** `gflow start hotfix-fix --name <name>` on `master` creates `hotfix/X.Y.Z` with the version set, then `gflow finish`.
 - **A hotfix while a release branch is open** also lands in that release branch, and there both sides changed the version lines, so gflow stops mid-merge and says where. In each conflict block of the eight version files (`package-lock.json` has two) keep the release branch's version, the higher one. Then `git add . && git commit --no-edit`, run `gflow finish` again, and `gflow bump` the release branch for a new RC. `master` and `develop` take the hotfix without a conflict.
-- The same app (`com.nousresearch.hermesergates`) gets every build, RC or final. TestFlight shows `0.3.0 (42)`: the version and the build number, and the build number leads back to the run and its tag.
+- The same app (`dev.middelkamp.ergates`) gets every build, RC or final. TestFlight shows `0.3.0 (42)`: the version and the build number, and the build number leads back to the run and its tag.
 
 ## When a run fails
 
