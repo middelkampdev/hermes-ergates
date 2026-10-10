@@ -8,7 +8,7 @@
  */
 
 import type { ReactNode } from 'react'
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 
 import { useTheme } from '@/theme/provider'
@@ -96,18 +96,19 @@ export function Sheet({ title, onClose, headerLeft, headerRight, centerTitle, ch
 function SheetBody({ children }: { children: ReactNode }) {
   const bottomInset = useBottomInset(SPACE.huge)
   return (
-    // Sheets carry forms (New Agent, Edit Bot, Routine); iOS ScrollViews do
-    // not move for the keyboard on their own, so the lower fields and the
-    // primary button would sit under it.
-    <KeyboardAvoidingView style={styles.scroll} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView
-        style={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingHorizontal: SPACE.extraLarge, paddingTop: SPACE.medium, paddingBottom: bottomInset }}
-      >
-        {children}
-      </ScrollView>
-    </KeyboardAvoidingView>
+    // Sheets carry forms (New Agent, Edit Bot, Routine). On iOS the body is
+    // inset by the keyboard (`automaticallyAdjustKeyboardInsets`), as in
+    // `Page`: a keyboard-avoiding view only shrank the body and did not scroll
+    // it, so a focused field low in the form stayed under the keyboard.
+    // Android does not avoid the keyboard here (see `Page`).
+    <ScrollView
+      style={styles.scroll}
+      keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
+      contentContainerStyle={{ paddingHorizontal: SPACE.extraLarge, paddingTop: SPACE.medium, paddingBottom: bottomInset }}
+    >
+      {children}
+    </ScrollView>
   )
 }
 
