@@ -43,7 +43,13 @@ def test_a_user_plugin_loads_only_when_its_home_enables_it(hermes: PinnedSource)
         "            \"Skipping '%s' (not in plugins.enabled)\",\n"
         "        )"
     )
-    # ... else it loads (hermes_cli/plugins_discovery.py:311).
+    # ... then, new at v0.21.6, the plugin catalog's recall list (hermes_cli/plugins_discovery.py:302-311):
+    # a user plugin the catalog recalled after install is refused, else it loads.
+    assert hermes.lines(DISCOVERY, 302, 302) == '    if manifest.source != "bundled":'
+    assert hermes.lines(DISCOVERY, 305, 306) == (
+        "        from hermes_cli.plugins_cmd_catalog import installed_plugin_removal\n"
+        "        removed = installed_plugin_removal(manifest.name, manifest.path)"
+    )
     assert hermes.lines(DISCOVERY, 311, 311) == '    return ManifestGate("load")'
     # hermes_cli/plugins_discovery.py:127-129: the allow-list comes from load_config() ...
     assert hermes.lines(DISCOVERY, 127, 129) == (
