@@ -2,12 +2,13 @@ import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-
 import { Stack, useRootNavigationState, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import React, { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, AppState, View, type AppStateStatus } from 'react-native'
+import { ActivityIndicator, Alert, AppState, Platform, View, type AppStateStatus } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 import { GatewayRegistryProvider } from '@/gateway/registry'
-import { secureSecretStore } from '@/state/persistence'
+import { currentDeviceTrust, expoTrustProbe, rootedNoticeCopy, startDeviceTrust } from '@/state/device-trust'
+import { authSecretStore, clearPlatformCookieJar, secureSecretStore } from '@/state/persistence'
 import { useDeviceStore, waitForHydration } from '@/state/device-store'
 import { ThemeProvider, useTheme } from '@/theme/provider'
 import { useSkinStore } from '@/theme/skin-store'
@@ -24,11 +25,23 @@ function useHydrated(): boolean {
   useEffect(() => {
     let alive = true
     void useDeviceStore.persist.rehydrate()
-    waitForHydration(useDeviceStore).then(() => {
-      if (alive) {
-        setHydrated(true)
-      }
-    })
+    // The trust check needs the saved connection ids and must finish before any
+    // gateway restores a sign-in, so the spinner stays up until both are done.
+    waitForHydration(useDeviceStore)
+      .then(() =>
+        startDeviceTrust(
+          authSecretStore,
+          secureSecretStore,
+          useDeviceStore.getState().connections.map(c => c.id),
+          expoTrustProbe,
+          clearPlatformCookieJar
+        )
+      )
+      .then(() => {
+        if (alive) {
+          setHydrated(true)
+        }
+      })
     return () => {
       alive = false
     }
@@ -110,6 +123,22 @@ function SkinApplier() {
   return null
 }
 
+/** Tells the owner once that this phone is rooted or jailbroken, and so keeps no sign-in. */
+function RootedNotice() {
+  const seen = useDeviceStore(s => s.prefs.rootedNoticeSeen)
+  const setPrefs = useDeviceStore(s => s.setPrefs)
+  const shownRef = useRef(false)
+  useEffect(() => {
+    if (seen || shownRef.current || currentDeviceTrust() !== 'rooted') {
+      return
+    }
+    shownRef.current = true
+    const { title, body } = rootedNoticeCopy(Platform.OS)
+    Alert.alert(title, body, [{ text: 'OK', onPress: () => setPrefs({ rootedNoticeSeen: true }) }])
+  }, [seen, setPrefs])
+  return null
+}
+
 function ThemedStack() {
   const theme = useTheme()
   return (
@@ -123,6 +152,8 @@ function ThemedStack() {
       >
         <Stack.Screen name="index" />
         <Stack.Screen name="connect" />
+        {/* Home replaces itself with this screen when the connection has no sign-in on this phone. */}
+        <Stack.Screen name="sign-in" />
         {/* A push deep link lands here first (app/+native-intent.tsx), then replaces itself with the chat. */}
         <Stack.Screen name="open" options={{ animation: 'none' }} />
         <Stack.Screen name="search" options={{ presentation: 'modal' }} />
@@ -158,9 +189,10 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
-          <GatewayRegistryProvider secrets={secureSecretStore}>
+          <GatewayRegistryProvider secrets={authSecretStore}>
             <ThemeProvider appearance={appearance} themeName={themeName} backendThemes={backendThemes}>
               <SkinApplier />
+              <RootedNotice />
               <DevInitialRoute />
               <ThemedStack />
             </ThemeProvider>

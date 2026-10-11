@@ -3,8 +3,15 @@ node_modules/
 dist/
 web-build/
 expo-env.d.ts
-ios/
-android/
+# Generated native projects (expo prebuild). Anchored to this folder so the
+# native sources of the local modules under modules/ stay tracked.
+/ios/
+/android/
+# Gradle output of the local modules' native sources.
+/modules/*/android/build/
+/modules/*/android/.gradle/
+/modules/*/android/.cxx/
+/modules/*/android/local.properties
 # Release build output (scripts/release/build-*.sh).
 /build/
 *.orig.*

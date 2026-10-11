@@ -2,12 +2,13 @@ import { useRouter } from 'expo-router'
 import React, { useEffect, useState } from 'react'
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 
-import { connectGateway, probeGateway } from '@/features/settings'
+import { BLANK_CREDENTIALS, connectGateway, credentialsFrom, credentialsReady, firstProvider, probeGateway, type CredentialValues } from '@/features/settings'
 import { useGatewayRegistry } from '@/gateway/registry'
 import type { BackendStatus } from '@/gateway/types'
 import { useTheme } from '@/theme/provider'
 import { LEADING, SPACE, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
+import { CredentialFields } from '@/ui/CredentialFields'
 import { Field } from '@/ui/Field'
 import { Screen } from '@/ui/Screen'
 import { useBottomInset } from '@/ui/use-bottom-inset'
@@ -20,12 +21,10 @@ export default function ConnectScreen() {
   const [label, setLabel] = useState('Local Hermes')
   const [baseUrl, setBaseUrl] = useState('http://127.0.0.1:9119')
   const [status, setStatus] = useState<BackendStatus | null>(null)
-  const [token, setToken] = useState('')
-  const [provider, setProvider] = useState('basic')
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
+  const [credentials, setCredentials] = useState<CredentialValues>(BLANK_CREDENTIALS)
   const [busy, setBusy] = useState<'check' | 'connect' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const mode = status?.auth_required ? 'password' : 'token'
 
   const check = async () => {
     setBusy('check')
@@ -33,8 +32,9 @@ export default function ConnectScreen() {
     try {
       const s = await probeGateway(registry, baseUrl)
       setStatus(s)
-      if (s.auth_providers?.[0]) {
-        setProvider(s.auth_providers[0])
+      const provider = firstProvider(s)
+      if (provider) {
+        setCredentials(c => ({ ...c, provider }))
       }
     } catch (err) {
       setStatus(null)
@@ -51,10 +51,7 @@ export default function ConnectScreen() {
     setBusy('connect')
     setError(null)
     try {
-      await connectGateway(
-        registry,
-        status.auth_required ? { label, baseUrl, mode: 'password', provider, username, password } : { label, baseUrl, mode: 'token', token }
-      )
+      await connectGateway(registry, { label, baseUrl, ...credentialsFrom(mode, credentials) })
       router.replace('/')
     } catch (err) {
       setError((err as Error).message)
@@ -76,7 +73,7 @@ export default function ConnectScreen() {
     }
     setBaseUrl(devUrl)
     if (devToken) {
-      setToken(devToken)
+      setCredentials(c => ({ ...c, token: devToken }))
       void (async () => {
         setBusy('connect')
         try {
@@ -95,7 +92,7 @@ export default function ConnectScreen() {
     }
   }, [registry, router])
 
-  const canConnect = Boolean(status) && (status?.auth_required ? username.trim() && password : token.trim())
+  const canConnect = Boolean(status) && credentialsReady(mode, credentials)
 
   return (
     <Screen>
@@ -111,15 +108,7 @@ export default function ConnectScreen() {
               <Text style={[styles.hint, { color: theme.colors.mutedForeground }]}>
                 Hermes {status.version}. {status.auth_required ? 'This gateway asks for a username and password.' : 'This gateway runs on a private loopback address and uses a session token.'}
               </Text>
-              {status.auth_required ? (
-                <>
-                  <Field label="Provider" value={provider} onChangeText={setProvider} />
-                  <Field label="Username" value={username} onChangeText={setUsername} />
-                  <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry />
-                </>
-              ) : (
-                <Field label="Session token" value={token} onChangeText={setToken} placeholder="HERMES_DASHBOARD_SESSION_TOKEN" secureTextEntry />
-              )}
+              <CredentialFields mode={mode} values={credentials} onChange={patch => setCredentials(c => ({ ...c, ...patch }))} />
               <Button label={busy === 'connect' ? 'Connecting…' : 'Connect'} onPress={connect} loading={busy === 'connect'} disabled={!canConnect || busy !== null} />
             </View>
           ) : null}

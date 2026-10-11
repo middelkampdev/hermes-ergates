@@ -1,12 +1,13 @@
 /**
- * The AES-GCM blob cipher, with expo-crypto and expo-secure-store replaced by
- * Node stand-ins: the native modules cannot load in Node. The stand-in keeps
+ * The AES-GCM blob cipher and the platform cookie jar clear, with expo-crypto,
+ * expo-secure-store and the cookie module replaced by Node stand-ins: the native
+ * modules cannot load in Node. The stand-in keeps
  * expo-crypto's combined format (12-byte IV, ciphertext, 16-byte tag).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // vi.mock calls below are hoisted above these imports.
-import { BLOB_KEY_NAME, createAesBlobCipher, createDeviceBlobStorage, DEVICE_STORAGE_KEY } from './persistence'
+import { BLOB_KEY_NAME, clearPlatformCookieJar, createAesBlobCipher, createDeviceBlobStorage, DEVICE_STORAGE_KEY } from './persistence'
 import { SEALED_PREFIX } from './sealed-storage'
 
 /** The raw ciphertext bytes of a stored value, decoded past the sealed prefix and its base64 wrapper. */
@@ -97,7 +98,22 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
   }
 }))
 
+const cookieJar = vi.hoisted(() => ({ calls: [] as string[] }))
+
+vi.mock('@react-native-cookies/cookies', () => ({
+  default: {
+    clearAll: async (useWebKit?: boolean) => {
+      cookieJar.calls.push(`clearAll(${String(useWebKit)})`)
+      return true
+    },
+    flush: async () => {
+      cookieJar.calls.push('flush')
+    }
+  }
+}))
+
 beforeEach(() => {
+  cookieJar.calls.length = 0
   asyncStorage.clear()
   keychain.items.clear()
   keychain.options.length = 0
@@ -194,5 +210,13 @@ describe('the device blob storage on the phone', () => {
 
     expect(warn.mock.calls).toEqual([['ergates: device storage failed (Error)']])
     warn.mockRestore()
+  })
+})
+
+describe('the platform cookie jar', () => {
+  it('empties the whole jar, then writes it to disk', async () => {
+    await clearPlatformCookieJar()
+
+    expect(cookieJar.calls).toEqual(['clearAll(undefined)', 'flush'])
   })
 })

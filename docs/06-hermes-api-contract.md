@@ -26,7 +26,7 @@ Source: `hermes_cli/dashboard_auth/routes.py`, `ws_tickets.py`, `native_flow.py`
 | POST | `/auth/native/token` | JSON `{code,code_verifier}`; native token exchange |
 | POST | `/auth/native/refresh` | Native rotating-refresh flow; not the basic-cookie renewal mechanism |
 
-Basic login is JSON, not HTTP Basic Authorization. Retain/replay the server's cookies using a tested native adapter; inspect secure-cookie behavior on the chosen private HTTP/HTTPS endpoint. Do not assume React Native and a system browser share a cookie jar.
+Basic login is JSON, not HTTP Basic Authorization. The app keeps the session cookie itself (SecureStore, or memory only on a rooted or jailbroken phone, ADR-041) and replays it as a `Cookie` header; requests send `credentials: 'omit'` and skip the platform cookie jar (`src/gateway/real/http.ts`). Inspect secure-cookie behavior on the chosen private HTTP/HTTPS endpoint. Do not assume React Native and a system browser share a cookie jar.
 
 After login, mint a fresh ticket and open:
 

@@ -323,7 +323,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
           </View>
         ) : null}
         {session.needsReauth ? (
-          <Pressable onPress={() => router.push('/settings')} accessibilityRole="button" accessibilityLabel="Sign in again" style={[styles.errorLine, { marginHorizontal: gutter, backgroundColor: theme.colors.muted }]}>
+          <Pressable onPress={() => router.push({ pathname: '/sign-in', params: { connection: connectionId } })} accessibilityRole="button" accessibilityLabel="Sign in again" style={[styles.errorLine, { marginHorizontal: gutter, backgroundColor: theme.colors.muted }]}>
             <Text style={[styles.errorText, { color: theme.colors.destructive }]}>
               {session.connectionError ?? 'Sign-in required.'} Tap to sign in again.
             </Text>
