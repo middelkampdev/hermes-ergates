@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { GatewayError } from '@/gateway/errors'
+import { GatewayError, mapRpcError } from '@/gateway/errors'
+import { jsonRpcErrorFromFrame } from '@vendor/hermes/shared/json-rpc-channel'
 import type { GatewayConnection, GatewayPort } from '@/gateway/port'
 import type { ActivateResult, ReplayResult } from '@/gateway/types'
 
@@ -121,6 +122,17 @@ describe('resyncSession', () => {
     expect(result.stale).toBe(true)
     expect(result.activated).toBe(false)
     expect(result.error).toBeTruthy()
+  })
+
+  it('reports a stale session id when activate answers the 4001 of a restarted Hermes', async () => {
+    // What the socket hands up for `{"code": 4001, "message": "session not found"}` (tui_gateway/server.py:1229-1245).
+    const h = harness({
+      activate: async () => {
+        throw mapRpcError(jsonRpcErrorFromFrame({ code: 4001, message: 'session not found' }))
+      }
+    })
+    const result = await resyncSession({ port: h.port, connection: h.connection, liveSessionId: LIVE, lastSeq: () => 0, dispatch: h.dispatch, sleep: async () => undefined })
+    expect(result).toMatchObject({ activated: false, stale: true })
   })
 
   it('still replays when activate fails for another reason', async () => {

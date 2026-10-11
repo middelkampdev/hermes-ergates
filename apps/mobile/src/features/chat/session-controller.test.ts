@@ -5,7 +5,8 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 
-import { GatewayError } from '@/gateway/errors'
+import { GatewayError, mapRpcError } from '@/gateway/errors'
+import { jsonRpcErrorFromFrame } from '@vendor/hermes/shared/json-rpc-channel'
 
 import { flush } from '@test/fake-gateway/fake-websocket'
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
@@ -61,6 +62,22 @@ describe('createSessionController', () => {
     expect(gateway.calls.title).toHaveLength(2)
     expect(controller.getView().phase).toBe('ready')
     expect(controller.getView().state.liveSessionId).toBe('live0001')
+  })
+
+  it('re-opens the chat when a reconnect after a Hermes restart answers 4001 "session not found"', async () => {
+    const gateway = new FakeGateway()
+    const controller = controllerFor(gateway)
+    await controller.open()
+    expect(gateway.calls.title).toHaveLength(1)
+
+    // A restarted `hermes serve` holds no live ids: every session-scoped RPC on the old one answers
+    // this frame (tui_gateway/server.py:1229-1245), and the socket maps it like any RPC error.
+    vi.spyOn(gateway.sessions, 'activate').mockRejectedValueOnce(mapRpcError(jsonRpcErrorFromFrame({ code: 4001, message: 'session not found' })))
+    await controller.reconnect()
+    await flush(20)
+
+    expect(gateway.calls.title).toHaveLength(2)
+    expect(controller.getView().phase).toBe('ready')
   })
 
   it('never re-opens a closed controller when a reconnect resolves to a reaped session late', async () => {

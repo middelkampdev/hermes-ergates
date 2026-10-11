@@ -2,7 +2,7 @@
  * Reconnect resynchronisation for one bound session.
  *
  * A WebSocket disconnect parks the session's transport on a drop sink
- * (`_detached_ws_transport`, tui_gateway/session_lifecycle.py:1039), and exactly
+ * (`_detached_ws_transport`, tui_gateway/server.py:235), and exactly
  * three RPCs rebind it: `session.resume`'s reuse-live branch, `session.activate`
  * and `prompt.submit`. `session.events.since` reads an in-process ring and needs
  * no transport, so replaying alone leaves the socket open and silent: every later
