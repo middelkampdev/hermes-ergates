@@ -143,7 +143,7 @@ Decided 2026-10-11, when a build made with Xcode 27 stopped at launch on the iOS
 
 Rejected: upgrading to SDK 58 now, which would put a store build on a React Native release candidate and change every native dependency at once. Rejected: building with Xcode 26 only, which works until Apple requires the iOS 27 SDK for uploads but leaves every local Xcode 27 build broken until then.
 
-## ADR-040 Rooted and jailbroken phones are warned, not blocked; the sign-in stays in memory there
+## ADR-041 Rooted and jailbroken phones are warned, not blocked; the sign-in stays in memory there
 
 Decided 2026-10-11. On a physical phone, `isRootedExperimentalAsync()` from `expo-device` flags a rooted (Android) or jailbroken (iOS) phone at every start (`src/state/device-trust.ts`). A simulator or emulator counts as standard, and so does any failure of the check or a check that has not answered within two seconds (start-up waits for it). The result is not remembered between starts. A development-only flag, `EXPO_PUBLIC_DEV_FORCE_ROOTED=1`, forces the flagged path; it is read only while `__DEV__` is true, so a release bundle never sees it.
 

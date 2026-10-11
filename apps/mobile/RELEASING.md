@@ -191,7 +191,7 @@ This runbook stops at testing tracks. A public release also needs:
 - A privacy policy URL, a store listing with screenshots, and the data-safety and content-rating forms. The privacy policy is https://middelkamp.dev/ergates/privacy/ and the support URL is https://middelkamp.dev/ergates/support/.
 - A way for Apple's reviewers to use the app. Ergates needs a Hermes server, so reviewers need a demo server and login.
 - On a Google **personal** account created after 13 November 2023: a closed test with at least 12 testers, opted in for 14 days in a row, before production access. Internal testing does not count ([Google](https://support.google.com/googleplay/android-developer/answer/14151465)).
-- Two Play Console protections against tampered devices and copies (ADR-040). Both are set by hand in Play Console; nothing in the pipeline sets them:
+- Two Play Console protections against tampered devices and copies (ADR-041). Both are set by hand in Play Console; nothing in the pipeline sets them:
   - [ ] Store listing visibility: turn on "Device integrity checks".
   - [ ] Automatic protection: turn on the "installer check". It needs Play App Signing and app bundles, which the pipeline already uses.
   - [ ] Check them on one internal testing track build: it installs from Play on a stock phone; a sideloaded copy of the same build prompts the user to get the app on Google Play; the crash rate in Play vitals stays flat for a week. Use the testing track, not internal app sharing: the installer check is not applied to internal app sharing uploads.
