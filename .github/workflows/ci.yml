@@ -71,7 +71,7 @@ jobs:
         with:
           repository: NousResearch/hermes-agent
           # Same pin in scripts/ci-local.sh and integrations/ergates/contract/pinned.py (HERMES_PIN).
-          ref: d76856cc6971b6e0e1903b5369498bcc4bb83a60
+          ref: 818c13be1dc4fd28987e1e881a9408224afd4535
           path: .cache/hermes-pin
           persist-credentials: false
       - uses: astral-sh/setup-uv@v10.2.0

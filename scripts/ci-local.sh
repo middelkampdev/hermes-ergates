@@ -45,7 +45,7 @@ job_integration() {
 }
 
 # Same pin in integrations/ergates/contract/pinned.py and .github/workflows/ci.yml (contract job `ref`).
-HERMES_PIN="d76856cc6971b6e0e1903b5369498bcc4bb83a60"
+HERMES_PIN="818c13be1dc4fd28987e1e881a9408224afd4535"
 
 # Fails unless $1 is a Hermes checkout at the pin without local changes or
 # untracked files (`git diff` would miss the untracked ones).

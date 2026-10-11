@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Same pin in scripts/ci-local.sh (HERMES_PIN) and .github/workflows/ci.yml (contract job `ref`).
-HERMES_PIN = "d76856cc6971b6e0e1903b5369498bcc4bb83a60"
+HERMES_PIN = "818c13be1dc4fd28987e1e881a9408224afd4535"
 
 
 def check_pin(root: Path, pin: str) -> str | None:
