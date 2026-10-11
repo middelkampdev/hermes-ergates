@@ -47,3 +47,38 @@ def test_no_route_names_a_path_parameter_profile():
 
     assert "/profiles/{name}/plugin" in paths
     assert "profile" not in fields
+
+
+def _parents(tree):
+    return {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+
+
+def _reads_the_profile_query(node):
+    """``request.query_params.get("profile")`` / ``.getlist("profile")`` / ``["profile"]``."""
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {"get", "getlist"}:
+        target, key = node.func.value, node.args[0] if node.args else None
+    elif isinstance(node, ast.Subscript):
+        target, key = node.value, node.slice
+    else:
+        return False
+    return (isinstance(target, ast.Attribute) and target.attr == "query_params"
+            and isinstance(key, ast.Constant) and key.value == "profile")
+
+
+def test_a_profile_parameter_carries_nothing_but_a_profile_name():
+    """Hermes takes a ``profile`` path or query parameter as the profile the request runs
+    in and refuses anything that is no live profile name (contract/test_dashboard_api_mount.py),
+    so a route must not read another value, such as ``*``, from it. A ``?profile=`` read
+    may only feed ``named_profile=``, which takes a profile name and nothing else
+    (tests/test_operations.py); no route handler takes a parameter named ``profile``."""
+    tree = ast.parse((DASHBOARD / "api.py").read_text(encoding="utf-8"))
+    parents = _parents(tree)
+    reads = [node for node in ast.walk(tree) if _reads_the_profile_query(node)]
+    handlers = [node for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef) and node.decorator_list]
+
+    assert reads, "GET /attention/prefs still accepts ?profile=<name>"
+    for node in reads:
+        keyword = parents[node]
+        assert isinstance(keyword, ast.keyword) and keyword.arg == "named_profile", ast.unparse(parents[node])
+    for handler in handlers:
+        assert "profile" not in {arg.arg for arg in handler.args.args + handler.args.kwonlyargs}, handler.name

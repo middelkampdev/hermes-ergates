@@ -59,7 +59,7 @@ export function createErgatesApi(http: HttpClient, ready: () => Promise<unknown>
     rejectProposal: async id => (await call('POST', proposal(id, '/reject'))).proposal as T.ProposalReceipt,
     recordProposalStep: async (id, step, status) => (await call('POST', proposal(id, '/steps'), { step, status })).proposal as T.ProposalReceipt,
     enablePlugin: async profile => (await call('POST', `/profiles/${encodeURIComponent(profile)}/plugin`)) as { profile: string; enabled: boolean },
-    attentionPrefs: async profile => (await call('GET', `/attention/prefs?${new URLSearchParams({ profile }).toString()}`)).prefs as T.AttentionPrefs,
+    attentionPrefs: async scope => (await call('GET', `/attention/prefs?${new URLSearchParams({ scope }).toString()}`)).prefs as T.AttentionPrefs,
     setAttentionPrefs: async prefs => (await call('PUT', '/attention/prefs', prefs)).prefs as T.AttentionPrefs
   }
 }

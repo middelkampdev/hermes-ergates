@@ -180,10 +180,14 @@ async def enable_plugin(name: str) -> JSONResponse:
     return await _answer(lambda ops: ops.enable_plugin(name))
 
 
+# ``?scope=<name or *>``. Hermes refuses ``?profile=*`` before this route runs
+# (``*`` is no profile name), so ``?profile=`` names one agent only.
 @router.get("/attention/prefs")
 async def get_prefs(request: Request) -> JSONResponse:
-    profile = request.query_params.get("profile")
-    return await _answer(lambda ops: ops.get_prefs(profile))
+    scope = request.query_params.get("scope")
+    return await _answer(
+        lambda ops: ops.get_prefs(scope, named_profile=request.query_params.get("profile"))
+    )
 
 
 @router.put("/attention/prefs")

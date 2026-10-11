@@ -225,13 +225,15 @@ describe('ErgatesApi over the real gateway', () => {
     const prefs = { profile: '*', muted: false, quiet_start: '22:00', quiet_end: '07:00' }
     const answers: Record<string, [number, unknown]> = {
       'POST /api/plugins/ergates/profiles/pim/plugin': [200, { profile: 'pim', enabled: true }],
-      'GET /api/plugins/ergates/attention/prefs?profile=*': [200, { prefs }],
+      'GET /api/plugins/ergates/attention/prefs?scope=*': [200, { prefs }],
+      'GET /api/plugins/ergates/attention/prefs?scope=pim': [200, { prefs: { ...prefs, profile: 'pim' } }],
       'PUT /api/plugins/ergates/attention/prefs': [200, { prefs }]
     }
     const { api, seen } = await connected(req => answers[`${req.method} ${req.path}`] ?? [404, { detail: 'Not Found' }])
 
     await expect(api.enablePlugin('pim')).resolves.toEqual({ profile: 'pim', enabled: true })
     await expect(api.attentionPrefs('*')).resolves.toEqual(prefs)
+    await expect(api.attentionPrefs('pim')).resolves.toEqual({ ...prefs, profile: 'pim' })
     await expect(api.setAttentionPrefs(prefs)).resolves.toEqual(prefs)
     expect(seen.at(-1)!.body).toEqual(prefs)
   })

@@ -138,7 +138,8 @@ export interface ErgatesApi {
   rejectProposal(proposalId: string): Promise<T.ProposalReceipt>
   recordProposalStep(proposalId: string, step: T.ProvisionStep, status: T.StepStatus): Promise<T.ProposalReceipt>
   enablePlugin(profile: string): Promise<{ profile: string; enabled: boolean }>
-  attentionPrefs(profile: string): Promise<T.AttentionPrefs>
+  /** `scope` is a profile name, or `*` for every agent. */
+  attentionPrefs(scope: string): Promise<T.AttentionPrefs>
   setAttentionPrefs(prefs: T.AttentionPrefs): Promise<T.AttentionPrefs>
 }
 

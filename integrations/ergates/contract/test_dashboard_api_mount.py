@@ -98,7 +98,7 @@ def test_every_plugin_route_runs_in_the_profile_scope_of_its_profile_parameter(h
     answered by Hermes (400, or 404 when no live profile has it), before the route runs, in
     FastAPI's ``{"detail": ...}`` shape. So ``dashboard/api.py`` names no path parameter
     ``profile`` (``tests/test_dashboard_files.py``), and ``GET /attention/prefs?profile=*``
-    is refused here: ``*`` is no profile name."""
+    is refused here: ``*`` is no profile name, so that route takes ``?scope=*``."""
     # hermes_cli/web_server_dashboard.py:806 and 815-817
     assert hermes.lines(DASHBOARD, 806, 806) == "async def _plugin_route_secret_scope(profile: Optional[str] = None):"
     assert hermes.lines(DASHBOARD, 815, 817) == (
