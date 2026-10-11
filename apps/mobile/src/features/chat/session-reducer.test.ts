@@ -23,6 +23,10 @@ const liveReceipt = liveReceiptParse.receipts[0]!
 
 /** What v0.21.6 sends in `status.update {kind: "process"}` for a completion (session_notifications.py:546-552). */
 const TITLE = 'Background Process Finished: /opt/data/hermes/hermes-agent/venv/bin/python /opt/data/hermes/hermes-agent/tools/bot_mo...'
+/** What v0.21.6 sends there for a finished subagent (tools/process_registry_notifications.py:320-321; session_notifications.py:546-552). */
+const SUBAGENT_TITLE = 'Subagent Task Completed: Review the release notes'
+/** The row Hermes v0.21.6 closes a failed turn with (agent/turn_failure_copy.py:39-41, :48; agent/conversation_loop.py:1848-1850). */
+const FAILED_TURN_NOTICE = 'Your request was not processed. Send it again if you still want me to carry it out.'
 
 const LIVE = 'live0001'
 const STORED = '20260913_170000_fixture'
@@ -406,6 +410,26 @@ describe('agent traffic rows', () => {
     expect(items.filter(i => i.kind === 'user')).toHaveLength(0)
   })
 
+  it('projects a v0.21.6 failed_turn row into an assistant item that keeps its display kind', () => {
+    // Hermes writes it as an assistant row (gateway/run_turn.py:1719-1721); Desktop draws it as a
+    // system row (apps/desktop/src/lib/chat-messages/hydration.ts:163-171, :452).
+    const items = historyToItems([{ role: 'assistant', text: FAILED_TURN_NOTICE, row_id: 204, display_kind: 'failed_turn' }])
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ kind: 'assistant', id: 'h-assistant-204', rowId: 204, text: FAILED_TURN_NOTICE, displayKind: 'failed_turn' })
+    expect(items[0]).not.toHaveProperty('errorCard')
+  })
+
+  it('marks a failed_turn row whose error surface Desktop draws an error card from, as an object or as JSON text', () => {
+    // agent/conversation_loop.py:1772-1788 stores it; hydration.ts:179-208 and error-surface.ts:100-122 read it.
+    const surface = { error: 'HTTP 529: overloaded', error_surface: { layer: 'provider', code: 'overloaded', retryable: true } }
+    const row = (displayMetadata: unknown): HistoryMessage => ({ role: 'assistant', text: FAILED_TURN_NOTICE, row_id: 205, display_kind: 'failed_turn', display_metadata: displayMetadata })
+    expect(historyToItems([row(surface)])[0]).toMatchObject({ displayKind: 'failed_turn', errorCard: true })
+    expect(historyToItems([row(JSON.stringify(surface))])[0]).toMatchObject({ errorCard: true })
+    for (const noCard of [{ error: 'boom' }, { error_surface: { layer: 'weather', code: 'x' } }, { error_surface: 'provider' }, '{not json', null]) {
+      expect(historyToItems([row(noCard)])[0]).not.toHaveProperty('errorCard')
+    }
+  })
+
   it('gives a receipt item a positional id, never "undefined", when the row has no row_id', () => {
     const items = historyToItems([{ role: 'user', text: liveJson.text }])
     const receipt = items.find(i => i.kind === 'receipt')
@@ -449,15 +473,33 @@ describe('ownership, revisions, receipts', () => {
     expect(fresh.items.filter(i => i.kind === 'assistant' && i.text === 'new answer')).toHaveLength(2)
   })
 
-  it('turns a process status.update into a live receipt, never into the working line, and asks for the tail', () => {
-    const s = run(bound(), [ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text: liveJson.text } })])
-    expect(s.live.statusLine).toBeNull()
-    expect(s.items.at(-1)).toMatchObject({ kind: 'receipt', live: true })
-    expect(s.tailWanted).toBe(1)
-    const again = sessionReducer(s, ev({ type: 'status.update', seq: 2, payload: { kind: 'process', text: liveJson.text } }))
-    expect(again.items.filter(i => i.kind === 'receipt')).toHaveLength(1)
-    const other = sessionReducer(s, ev({ type: 'status.update', seq: 3, payload: { kind: 'status', text: 'Thinking' } }))
+  it('adds nothing for any process status.update, as Desktop, never touches the working line, and asks for the tail', () => {
+    // Desktop only re-reads its process list for kind "process" (gateway-event/status.ts:116-119).
+    for (const text of [SUBAGENT_TITLE, liveJson.text, receiptWatchMatch.text]) {
+      const s = run(bound(), [ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text } })])
+      expect(s.items).toEqual([])
+      expect(s.live.statusLine).toBeNull()
+      expect(s.tailWanted).toBe(1)
+    }
+    const other = sessionReducer(bound(), ev({ type: 'status.update', seq: 3, payload: { kind: 'status', text: 'Thinking' } }))
     expect(other.live.statusLine).toBe('Thinking')
+  })
+
+  it('keeps the process id a receipt text names, for the anchor of the turn that runs on it (rules g and h)', () => {
+    const s = run(bound(), [ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text: liveJson.text } })])
+    expect(s.pendingReceiptProcessId).toBe(liveReceipt.headline.processId)
+    expect(run(bound(), [ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text: SUBAGENT_TITLE } })]).pendingReceiptProcessId).toBeNull()
+  })
+
+  it('a subagent title never lingers after a refresh: its durable twin is the async_delegation_complete row', () => {
+    const s = run(bound(), [ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text: SUBAGENT_TITLE } })])
+    const fresh: HistoryMessage[] = [
+      { role: 'user', text: 'review the release notes in the background', row_id: 1 },
+      { role: 'assistant', text: 'Started.', row_id: 2 },
+      { role: 'user', text: '[ASYNC DELEGATION COMPLETE]', row_id: 3, display_kind: 'async_delegation_complete', display_metadata: { display_text: SUBAGENT_TITLE } }
+    ]
+    const merged = sessionReducer(s, { type: 'history/loaded', messages: fresh, revision: s.revision })
+    expect(merged.items.map(i => i.kind)).toEqual(['user', 'assistant', 'event'])
   })
 
   it('adds nothing for the v0.21.6 process title and asks for the REST tail', () => {
@@ -502,10 +544,8 @@ describe('the recorded send-and-reply turn (events-sender fixture)', () => {
     expect((afterLocalTurn.items.find(i => i.kind === 'user') as { localId?: string }).localId).toBeUndefined()
     expect(afterLocalTurn.replay.needsHistoryRefetch).toBe(false)
 
-    const receipts = s.items.filter((i): i is Extract<ChatItem, { kind: 'receipt' }> => i.kind === 'receipt')
-    expect(receipts).toHaveLength(1)
-    expect(receipts[0]).toMatchObject({ live: true })
-    expect(receipts[0]?.receipt.headline.processId).toBe('proc_782bd84d7f2a')
+    // The process notification adds no item, as on Desktop; the REST tail brings the receipt row.
+    expect(s.items.some(i => i.kind === 'receipt' || i.kind === 'notice')).toBe(false)
 
     // The second turn was started by the delivery notification, not by this
     // device: only the durable transcript can say what it wrote.
@@ -513,6 +553,8 @@ describe('the recorded send-and-reply turn (events-sender fixture)', () => {
     // The local completion, the `message_agent` result and the process notification.
     expect(s.tailWanted).toBe(3)
     expect(s.items.filter(i => i.kind === 'assistant')).toHaveLength(2)
+    // Rule (g): the notification turn still anchors on the receipt's process id.
+    expect(s.items.at(-1)).toMatchObject({ kind: 'assistant', liveAnchor: { processId: 'proc_782bd84d7f2a' } })
     expect(s.live.streaming).toBe(false)
   })
 })
@@ -859,6 +901,37 @@ describe('turn anchor and outcome (spec 12.3)', () => {
     ]
     const merged = sessionReducer(withProcess, { type: 'history/loaded', messages: fresh, revision: withProcess.revision })
     expect(merged.items.find(i => i.kind === 'assistant' && i.rowId === 62)).toMatchObject({ turnOutcome: 'completed' })
+    expect(merged.items.some(i => i.kind === 'assistant' && i.rowId === undefined)).toBe(false)
+  })
+
+  it('rules (d) and (g) on v0.21.6 rows: the failed_turn row takes the failed outcome, the notification turn after it its own', () => {
+    // Durable rows: 61 an inbound row whose turn failed, 62 the failed_turn row Hermes closed it with
+    // (agent/conversation_loop.py:1848-1850), 63 the process_complete row for P
+    // (tui_gateway/session_notifications.py:598-602), 64 the answer of the turn that ran on it. The
+    // timeline draws 61 to 64 as one turn, as Desktop does; reconciliation still pairs by Hermes's turns.
+    const processId = liveReceipt.headline.processId
+    const loaded = run(bound(), [{ type: 'history/loaded', messages: [durable(59, 'user', 'hi'), durable(60, 'assistant', 'hello')] }])
+    const afterB = run(loaded, [
+      ev({ type: 'message.start', seq: 1 }),
+      ev({ type: 'message.delta', seq: 2, payload: { text: 'checking' } }),
+      ev({ type: 'message.complete', seq: 3, payload: { status: 'error', error: 'boom' } }),
+      ev({ type: 'status.update', seq: 4, payload: { kind: 'process', text: liveJson.text } }),
+      ev({ type: 'message.start', seq: 5 }),
+      ev({ type: 'message.delta', seq: 6, payload: { text: 'yes' } }),
+      ev({ type: 'message.complete', seq: 7, payload: { text: 'yes', status: 'ok' } })
+    ])
+    expect(afterB.items.at(-1)).toMatchObject({ kind: 'assistant', text: 'yes', liveAnchor: { afterRowId: 60, processId } })
+
+    const fresh: HistoryMessage[] = [
+      durable(59, 'user', 'hi'), durable(60, 'assistant', 'hello'),
+      inbound(61, 'is the build green?'),
+      { role: 'assistant', text: FAILED_TURN_NOTICE, row_id: 62, timestamp: 62, display_kind: 'failed_turn' },
+      { role: 'user', text: liveJson.text, row_id: 63, timestamp: 63, display_kind: 'process_complete' },
+      durable(64, 'assistant', 'yes')
+    ]
+    const merged = sessionReducer(afterB, { type: 'history/loaded', messages: fresh, revision: afterB.revision })
+    expect(merged.items.find(i => i.kind === 'assistant' && i.rowId === 62)).toMatchObject({ turnOutcome: 'failed', displayKind: 'failed_turn' })
+    expect(merged.items.find(i => i.kind === 'assistant' && i.rowId === 64)).toMatchObject({ turnOutcome: 'completed' })
     expect(merged.items.some(i => i.kind === 'assistant' && i.rowId === undefined)).toBe(false)
   })
 
