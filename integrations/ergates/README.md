@@ -42,12 +42,22 @@ integrations/ergates/
     tool.py            # ctx.register_tool / ctx.register_hook wiring
     flush.py           # `python -m ergates.flush`: due pushes, expiry, retention
     install.py         # `python -m ergates.install`: templates, the plugin in every profile
+```
+
+This folder is what a user installs, so it holds only the plugin's runtime
+files. The tests are a separate project next to it:
+
+```
+integrations/ergates-tests/
+  pyproject.toml       # installs this plugin as an editable dependency
   tests/               # pytest suite, no Hermes needed; test_hermes_boundary.py
                        # fails when a module other than ergates/hermes_adapter.py
                        # or dashboard/api.py imports Hermes
-  contract/            # facts read from the pinned Hermes source as text
+  contract/            # facts read from the pinned Hermes source as text, and
+                       # Hermes's install scan of this folder
     live/              # the adapter, the routes and the gate run against the
                        # pinned Hermes itself; `scripts/ci-local.sh contract`
+                       # runs both suites
 ```
 
 ## Install
@@ -391,16 +401,18 @@ sweep schedules the retries by the root's.
 Requires [`uv`](https://docs.astral.sh/uv/) and Python 3.11. Standard
 library only at runtime (`sqlite3`, `json`, `hashlib`, `urllib`, `zoneinfo`,
 `threading` and friends); `dashboard/api.py` uses the FastAPI that Hermes
-ships. `pytest`, `pytest-cov` and `pyyaml` are test dependencies only --
-`ergates.settings` imports `yaml` lazily, from the Hermes runtime that ships
-it.
+ships. `pytest`, `pytest-cov` and `pyyaml` are test dependencies only, listed
+in `integrations/ergates-tests/pyproject.toml`; `ergates.settings` imports
+`yaml` lazily, from the Hermes runtime that ships it. That test project
+installs this folder as an editable dependency, so the tests always run
+against the code here.
 
 ```bash
-cd integrations/ergates
-uv run --python 3.11 --with pytest --with pytest-cov --with pyyaml pytest
+cd integrations/ergates-tests
+uv run --python 3.11 pytest
 
 # the CI gate: the same run with branch coverage of ergates/, at least 90%
-uv run --python 3.11 --with pytest --with pytest-cov --with pyyaml pytest --cov --cov-fail-under=90
+uv run --python 3.11 pytest --cov --cov-fail-under=90
 ```
 
 The contract tests need a checkout of the Hermes source at the pin. From the
@@ -416,3 +428,10 @@ hot-mount test installs the plugin through Hermes's install route, which on
 a source checkout first prepares Hermes's own dependency runtime (about
 560 MB in the temporary root, downloads included): it needs the network and
 takes about a minute.
+
+Hermes scans every plugin install (`tools/plugin_guard.py`). A `safe`
+verdict installs; `caution` needs a confirmation the app's one-tap setup
+cannot show; `dangerous` blocks the install even with `force`. Both contract
+suites scan the files git tracks in this folder and fail unless the verdict
+is `safe`, and the live hot-mount install runs with the scan on. Keep test
+code and its fixtures in `integrations/ergates-tests`.

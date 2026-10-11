@@ -8,7 +8,7 @@ A clean React Native messaging app for a team of Hermes Agent assistants on your
 | Part | Path | Status |
 |---|---|---|
 | Mobile app (Expo SDK 57) | [apps/mobile](apps/mobile/README.md) | Runs on the iOS simulator against a local `hermes serve`; see the app README |
-| Integration package (Hermes plugin, Python) | [integrations/ergates](integrations/ergates/README.md) | Unit-tested and run against the pinned Hermes in the contract tests; not yet installed on a live gateway |
+| Integration package (Hermes plugin, Python) | [integrations/ergates](integrations/ergates/README.md) | Unit-tested (the tests are in `integrations/ergates-tests`) and run against the pinned Hermes in the contract tests; not yet installed on a live gateway |
 | Deployment (Compose, profile and role templates, runbook) | [deploy](deploy/README.md) | Checked by CI; not yet run on a VPS; the live checks are [deploy/VERIFY.md](deploy/VERIFY.md) |
 | Design documents | [docs](docs/README.md) | Authoritative specification for vision, architecture, security, data model, API contract and mobile design |
 
@@ -44,18 +44,18 @@ every profile.
 | `lint` | the workflow files (actionlint) and the runner script |
 | `mobile` | `npm run typecheck`, ESLint (`npm run lint`, no warnings allowed), Vitest with the coverage gate (including a guard against planning ids in comments and test titles), the ADR-029 dependency rules |
 | `integration` | the Python suite with a 90% branch-coverage gate, including the Hermes boundary guard and a guard against planning ids in comments, docstrings, test names and docs |
-| `contract` | facts about the pinned Hermes source the integration relies on, and the integration running inside the pinned Hermes (its adapter, routes, tool gate and installer) |
+| `contract` | facts about the pinned Hermes source the integration relies on, the integration running inside the pinned Hermes (its adapter, routes, tool gate and installer), and Hermes's install scan, which must rate the plugin folder `safe` |
 | `deploy` | `docker compose config` and static checks of `deploy/`: published ports, the internal network and the egress proxy, image digests, mounts, profiles, templates and the live checklist |
 
 Run one job with `scripts/ci-local.sh mobile`, several with `scripts/ci-local.sh integration contract`. The quick loops:
 
 - `cd apps/mobile && npm test && npm run typecheck`
-- `cd integrations/ergates && uv run --python 3.11 --with pytest --with pytest-cov --with pyyaml pytest`
+- `cd integrations/ergates-tests && uv run --python 3.11 pytest`
 - Live backend smoke: `ERGATES_LIVE=1 ERGATES_TOKEN=… npx vitest run test/live` (from `apps/mobile`)
 
 Hermes pin: `818c13be1dc4fd28987e1e881a9408224afd4535` (v0.21.6). The vendored gateway client and theme sources come from that commit (`apps/mobile/vendor/hermes/PIN.md`). Re-verify the vendored client against [06 - Client contract](docs/06-hermes-api-contract.md) on every upgrade; `scripts/ci-local.sh contract` checks the pinned integration automatically.
 
-A weekly workflow, `.github/workflows/contract-latest.yml`, runs the live contract tests (`contract/live`) against the newest stable Hermes release, so a break shows up before the pin moves. The text contract tests pin exact Hermes line numbers, so they run against the pin only. The workflow also runs on manual dispatch and never on a pull request.
+A weekly workflow, `.github/workflows/contract-latest.yml`, runs the live contract tests (`integrations/ergates-tests/contract/live`) against the newest stable Hermes release, so a break shows up before the pin moves. They include the install scan of the plugin folder. The text contract tests pin exact Hermes line numbers, so they run against the pin only. The workflow also runs on manual dispatch and never on a pull request.
 
 ## Contributing
 
