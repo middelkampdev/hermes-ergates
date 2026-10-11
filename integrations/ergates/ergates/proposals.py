@@ -388,6 +388,24 @@ class ProposalService:
             ).fetchone()
         return found is None
 
+    def provisioned(self, profile: str) -> bool:
+        """True when Ergates provisioned ``profile``: an accepted or complete proposal reserves it
+        and its ``configured`` step was reported (done, uncertain or failed).
+
+        From then on the app has configured the profile from a template, so
+        the tool gate's toolset rule applies to it (ADR-034). Never true for
+        the default profile, which no proposal may name.
+        """
+        if profile == "default":
+            return False
+        with self._store.read() as conn:
+            found = conn.execute(
+                "SELECT 1 FROM proposal_receipts r JOIN proposal_steps s ON s.proposal_id = r.id "
+                "WHERE r.reserved_profile_name = ? AND r.state IN (?, ?) AND s.step = ?",
+                (profile, ACCEPTED, COMPLETE, "configured"),
+            ).fetchone()
+        return found is not None
+
     def prune(self, now: float) -> int:
         """Drop unaccepted (proposed or rejected) receipts 24 h past ``expires_at``.
 

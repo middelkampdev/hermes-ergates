@@ -27,7 +27,7 @@ from ergates.attention import AttentionService
 from ergates.delivery import DeliveryWorker, NtfySettings
 from ergates.paths import store_path
 from ergates.policy import BLOCK_RAW_CRON, BLOCK_REVOKED, BLOCK_SETUP, BLOCK_UNVERIFIED
-from ergates.proposals import ProposalService, payload_hash, validate_proposal
+from ergates.proposals import PROVISION_STEPS, ProposalService, payload_hash, validate_proposal
 from ergates.reminders import ReminderService
 from ergates.store import ControlStore, StoreError
 from ergates.tool import (
@@ -596,10 +596,30 @@ def test_a_gate_whose_check_raises_blocks_the_tool(profile_process, monkeypatch)
     assert _gate(_ProfilelessCtx())(tool_name="terminal", args={}) == {"action": "block", "message": BLOCK_UNVERIFIED}
 
 
-def test_the_gate_asks_for_the_grant_of_the_calling_profile_at_every_call(profile_process, monkeypatch):
+def _provision(root, name):
+    """A completed Ergates proposal for ``name``: every step, ``configured`` included, is done."""
+    proposals = ProposalService(ControlStore(store_path(root)))
+    proposal = validate_proposal(_valid_args(name=name))
+    proposals.record(proposal)
+    proposals.accept(proposal["proposal_id"], proposal, profile_exists=lambda profile: False)
+    for step in PROVISION_STEPS:
+        proposals.record_step(proposal["proposal_id"], step, "done")
+    proposals.complete(proposal["proposal_id"], profile_exists=lambda profile: True,
+                       plugin_enabled=lambda profile: True)
+
+
+@pytest.fixture
+def provisioned_thijs(tmp_path, profile_process):
+    """``thijs`` is a profile Ergates provisioned, so rule 3 of the gate applies to it."""
+    _provision(tmp_path, "thijs")
+    return profile_process
+
+
+def test_the_gate_asks_for_the_grant_of_the_calling_profile_at_every_call(tmp_path, provisioned_thijs, monkeypatch):
     """Rule 3 reads the profile's grant and the tool's toolset at the moment of the
     call: a toolset taken out of the pin is blocked without a new session, and
     a multiplexed gateway asks for each call's own profile."""
+    _provision(tmp_path, "nora")
     grants = {"thijs": frozenset({"web"}), "nora": None}
     monkeypatch.setattr(hermes_adapter, "granted_toolsets", grants.__getitem__)
     monkeypatch.setattr(hermes_adapter, "toolset_for_tool", {"terminal": "terminal", "web_search": "web"}.get)
@@ -610,7 +630,28 @@ def test_the_gate_asks_for_the_grant_of_the_calling_profile_at_every_call(profil
     assert gate(tool_name="terminal", args={}) is None  # nora pins no toolsets
 
 
-def test_a_grant_that_cannot_be_read_blocks_the_call(profile_process, monkeypatch):
+def test_the_toolset_rule_applies_only_to_profiles_ergates_provisioned(provisioned_thijs, monkeypatch):
+    """ADR-034's scope: a toolset list that ``hermes tools``, a setup or the Desktop editor
+    wrote for the default profile or another profile Ergates did not provision narrows
+    nothing. The grant of such a profile is not even read."""
+    read = []
+
+    def grant(profile):
+        read.append(profile)
+        return frozenset({"web"})
+
+    monkeypatch.setattr(hermes_adapter, "granted_toolsets", grant)
+    monkeypatch.setattr(hermes_adapter, "toolset_for_tool", {"terminal": "terminal"}.get)
+    monkeypatch.setattr(hermes_adapter, "_hermes_names_the_default_profile", lambda: True)
+    gate = _gate(_MultiplexedCtx("thijs", "nora", "default"))
+
+    assert gate(tool_name="terminal", args={}) == {"action": "block", "message": BLOCK_REVOKED}
+    assert gate(tool_name="terminal", args={}) is None  # nora: no Ergates receipt
+    assert gate(tool_name="terminal", args={}) is None  # the default profile
+    assert read == ["thijs"]
+
+
+def test_a_grant_that_cannot_be_read_blocks_the_call(provisioned_thijs, monkeypatch):
     def unreadable(profile):
         raise OSError("the profile config cannot be read")
 
@@ -665,7 +706,7 @@ def _stub_hermes_grant_modules(monkeypatch, config, *, drop_mcp_reader=False):
 
 
 def test_a_hermes_symbol_the_grant_needs_going_missing_blocks_instead_of_disarming_the_gate(
-        profile_process, monkeypatch):
+        provisioned_thijs, monkeypatch):
     """Only "Hermes is not here" (``hermes_cli.config`` unimportable) may read as
     "no toolsets pinned". A Hermes present but missing a private symbol the
     grant also reads, the way an upgrade renaming it would look, must not be
@@ -680,7 +721,7 @@ def test_a_hermes_symbol_the_grant_needs_going_missing_blocks_instead_of_disarmi
     {"platform_toolsets": {"cli": "web"}},
     {"platform_toolsets": "cli: [web]"},
 ], ids=["legacy-pin-a-string", "app-pin-a-string", "platform-lists-not-a-mapping"])
-def test_a_toolset_pin_that_is_not_a_list_blocks_instead_of_granting_nothing(profile_process, monkeypatch, config):
+def test_a_toolset_pin_that_is_not_a_list_blocks_instead_of_granting_nothing(provisioned_thijs, monkeypatch, config):
     """A hand-edited ``enabled_toolsets: web`` (a string, not a list) must not
     read as "no toolsets pinned", which would let Hermes decide every tool:
     the pre_tool_call hook blocks until it is fixed."""

@@ -326,6 +326,11 @@ def plugin_enabled(profile: str) -> bool:
 def granted_toolsets(profile: str) -> frozenset[str] | None:
     """The toolsets ``profile``'s configuration grants now, or ``None`` when it pins none.
 
+    The tool gate asks only for a profile Ergates provisioned
+    (``ProposalService.provisioned``, ADR-034): a toolset list that
+    ``hermes tools``, a setup or the Desktop editor wrote for any other
+    profile narrows nothing.
+
     The grant is the toolset pin that ``profiles.configure`` writes, which is
     how the app configures a new agent from its template. Since v0.21.6 that
     is ``platform_toolsets.cli`` in the profile's ``config.yaml``, the list

@@ -25,7 +25,10 @@ Rules, in order:
    when the running session still lists it. ``tool.register`` reads both
    inputs from Hermes at every call
    (:func:`~ergates.hermes_adapter.granted_toolsets`,
-   :func:`~ergates.hermes_adapter.toolset_for_tool`).
+   :func:`~ergates.hermes_adapter.toolset_for_tool`), and asks for the grant
+   only of a profile Ergates provisioned
+   (:meth:`~ergates.proposals.ProposalService.provisioned`); every other
+   profile, the default one included, has ``None``.
 4. Otherwise ``None``: the tool runs.
 """
 
