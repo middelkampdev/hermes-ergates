@@ -33,7 +33,7 @@ def without_hermes(monkeypatch):
     """Every Hermes import fails, as it does outside a Hermes runtime."""
     for name in ("hermes_constants", "hermes_cli", "hermes_cli.profiles", "hermes_cli.config",
                  "hermes_cli.plugins_discovery", "tools", "tools.cronjob_tools", "tools.cronjob_prompt_scan",
-                 "tools.mcp_tool_registration", "cron", "cron.jobs", "cron.lifecycle_guard", "model_tools",
+                 "tools.mcp_tool_common", "cron", "cron.jobs", "cron.lifecycle_guard", "model_tools",
                  "toolsets", "utils"):
         monkeypatch.setitem(sys.modules, name, None)
 

@@ -325,8 +325,11 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
     makes a template's toolsets binding. A pinned name whose tools Hermes
     registers under other toolsets (``browser`` bundles ``browser-cdp``)
     grants those toolsets too. Every MCP server the profile's config enables
-    adds its toolset, ``mcp-<server>``: enabled for Hermes (``enabled``, true
-    unless set) and not switched off by ``profiles.configure`` (``disabled``).
+    adds its toolset, ``mcp-<server>``: enabled for Hermes
+    (``tools.mcp_tool_common.mcp_server_enabled``: ``enabled``, true unless
+    set) and not switched off with the legacy ``disabled`` key, which
+    ``profiles.configure`` wrote before v0.21.6 and Hermes's own MCP runtime
+    never read.
 
     ``None`` means the profile pins no toolsets, so Hermes alone decides its
     tools and Ergates cannot tell a narrower grant; outside a Hermes runtime
@@ -346,7 +349,7 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
     except ImportError:
         return None
     from model_tools import get_toolset_for_tool
-    from tools.mcp_tool_registration import _server_enabled
+    from tools.mcp_tool_common import mcp_server_enabled
     from toolsets import resolve_toolset
     from utils import is_truthy_value
 
@@ -366,7 +369,7 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
         if isinstance(servers, dict):
             granted.update(
                 f"mcp-{server}" for server, entry in servers.items()
-                if isinstance(entry, dict) and _server_enabled(entry)
+                if isinstance(entry, dict) and mcp_server_enabled(entry)
                 and not is_truthy_value(entry.get("disabled", False))
             )
     return frozenset(granted)

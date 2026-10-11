@@ -623,11 +623,12 @@ def _fake_profile_home(profile):
     yield Path("/hermes/profiles") / profile
 
 
-def _stub_hermes_grant_modules(monkeypatch, config, *, drop_server_enabled=False):
+def _stub_hermes_grant_modules(monkeypatch, config, *, drop_mcp_reader=False):
     """Fake the Hermes modules ``granted_toolsets`` imports, so its real import
-    and config-reading logic runs without a Hermes install. ``drop_server_enabled``
-    leaves ``tools.mcp_tool_registration`` without the private symbol the grant
-    reads, the way a Hermes upgrade that renames or removes it would."""
+    and config-reading logic runs without a Hermes install. ``drop_mcp_reader``
+    leaves ``tools.mcp_tool_common`` without the symbol the grant reads, the
+    way a Hermes upgrade that renames or removes it would (v0.21.6 removed the
+    one read before, ``tools.mcp_tool_registration._server_enabled``)."""
     monkeypatch.setattr(hermes_adapter, "_profile_home", _fake_profile_home)
     hermes_config = types.ModuleType("hermes_cli.config")
     hermes_config.load_config_readonly = lambda: config
@@ -643,10 +644,10 @@ def _stub_hermes_grant_modules(monkeypatch, config, *, drop_server_enabled=False
     utils_module.is_truthy_value = lambda value, default=False: bool(value)
     monkeypatch.setitem(sys.modules, "utils", utils_module)
     monkeypatch.setitem(sys.modules, "tools", types.ModuleType("tools"))
-    mcp_registration = types.ModuleType("tools.mcp_tool_registration")
-    if not drop_server_enabled:
-        mcp_registration._server_enabled = lambda entry: True
-    monkeypatch.setitem(sys.modules, "tools.mcp_tool_registration", mcp_registration)
+    mcp_common = types.ModuleType("tools.mcp_tool_common")
+    if not drop_mcp_reader:
+        mcp_common.mcp_server_enabled = lambda entry: entry.get("enabled", True) is not False
+    monkeypatch.setitem(sys.modules, "tools.mcp_tool_common", mcp_common)
 
 
 def test_a_hermes_symbol_the_grant_needs_going_missing_blocks_instead_of_disarming_the_gate(
@@ -655,7 +656,7 @@ def test_a_hermes_symbol_the_grant_needs_going_missing_blocks_instead_of_disarmi
     "no toolsets pinned". A Hermes present but missing a private symbol the
     grant also reads, the way an upgrade renaming it would look, must not be
     swallowed the same way: the pre_tool_call hook blocks."""
-    _stub_hermes_grant_modules(monkeypatch, {"tools": {"enabled_toolsets": ["web"]}}, drop_server_enabled=True)
+    _stub_hermes_grant_modules(monkeypatch, {"tools": {"enabled_toolsets": ["web"]}}, drop_mcp_reader=True)
 
     assert _gate(_RecordingCtx())(tool_name="terminal", args={}) == {"action": "block", "message": BLOCK_UNVERIFIED}
 

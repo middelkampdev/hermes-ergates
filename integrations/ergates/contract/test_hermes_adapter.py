@@ -290,6 +290,8 @@ PROFILES_RPC = "tui_gateway/methods_profiles.py"
 MODEL_TOOLS = "model_tools.py"
 TOOLSETS = "toolsets.py"
 MCP_REGISTRATION = "tools/mcp_tool_registration.py"
+MCP_COMMON = "tools/mcp_tool_common.py"
+MIGRATIONS = "hermes_cli/config_migrations.py"
 UTILS = "utils.py"
 TUI_SERVER = "tui_gateway/server.py"
 GATEWAY_TURN = "gateway/run_turn.py"
@@ -341,26 +343,43 @@ def test_the_registry_names_the_toolset_of_a_tool(hermes: PinnedSource) -> None:
 
 
 def test_an_mcp_servers_tools_are_the_toolset_mcp_server_name(hermes: PinnedSource) -> None:
-    # tools/mcp_tool_registration.py:315
-    assert hermes.lines(MCP_REGISTRATION, 315, 315) == '    toolset_name = f"mcp-{name}"'
-    # tools/mcp_tool_registration.py:398-399: Hermes connects a server unless `enabled` says no.
-    assert hermes.lines(MCP_REGISTRATION, 398, 399) == (
-        "def _server_enabled(config: dict) -> bool:\n"
-        '    return _parse_boolish(config.get("enabled", True), default=True)'
+    # tools/mcp_tool_registration.py:334 (in _register_candidates)
+    assert hermes.lines(MCP_REGISTRATION, 334, 334) == '    toolset_name = f"mcp-{name}"'
+    # tools/mcp_tool_common.py:140-144: the one reader of `enabled` (v0.21.6 removed the
+    # registration module's private `_server_enabled`, which the adapter read before).
+    assert _arguments(hermes.function(MCP_COMMON, "mcp_server_enabled")) == ["cfg"]
+    assert hermes.lines(MCP_COMMON, 144, 144) == '    return _parse_boolish(cfg.get("enabled", True), default=True)'
+    # tools/mcp_tool_registration.py:551-553: Hermes connects a server unless `enabled` says no.
+    assert hermes.lines(MCP_REGISTRATION, 551, 553) == (
+        "    for name, config in servers.items():\n"
+        "        if not mcp_server_enabled(config):\n"
+        "            continue"
     )
 
 
-def test_profiles_configure_turns_an_mcp_server_off_with_disabled(hermes: PinnedSource) -> None:
-    """profiles.configure writes `disabled`, a key Hermes's MCP runtime does not read,
-    so granted_toolsets checks both keys."""
-    # tui_gateway/methods_profiles.py:526-530
-    assert hermes.lines(PROFILES_RPC, 526, 530) == (
-        "        if isinstance(mcp_cfg.get(srv), dict):\n"
-        '            mcp_cfg[srv].pop("disabled", None)\n'
+def test_profiles_configure_turns_an_mcp_server_off_with_enabled_false(hermes: PinnedSource) -> None:
+    """Since v0.21.6 profiles.configure writes `enabled`, the key the MCP runtime reads, and
+    drops `disabled`; config migration 46 turns a legacy `disabled: true` into `enabled: false`.
+    Until that migration runs on a config the previous pin wrote, `disabled: true` is still
+    there and the runtime ignores it, so granted_toolsets keeps checking both keys (the
+    `disabled` check is redundant once migrated)."""
+    # tui_gateway/methods_profiles.py:702-705
+    assert hermes.lines(PROFILES_RPC, 702, 705) == (
         "    for srv, entry in mcp_cfg.items():\n"
-        "        if srv not in wanted and isinstance(entry, dict):\n"
-        '            entry["disabled"] = True'
+        "        if isinstance(entry, dict):\n"
+        '            entry["enabled"] = srv in wanted\n'
+        '            entry.pop("disabled", None)'
     )
+    # hermes_cli/config_migrations.py:620 and 624-626, registered as version 46 at 820.
+    assert hermes.lines(MIGRATIONS, 620, 620) == (
+        '    legacy = {n: e for n, e in servers.items() if isinstance(e, dict) and "disabled" in e}'
+    )
+    assert hermes.lines(MIGRATIONS, 624, 626) == (
+        "    for name in turned_off:\n"
+        '        del legacy[name]["disabled"]\n'
+        '        legacy[name]["enabled"] = False'
+    )
+    assert hermes.lines(MIGRATIONS, 820, 820) == "    (46, _migrate_to_46),"
     assert _arguments(hermes.function(UTILS, "is_truthy_value")) == ["value", "default"]
 
 
