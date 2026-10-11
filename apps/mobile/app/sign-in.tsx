@@ -103,6 +103,8 @@ function SignIn({ connection }: { connection: Connection }) {
               {error}
             </Text>
           ) : null}
+          {/* Home always sends a connection without a sign-in here, so this is the way to Sign out or the gateway details when signing in cannot work. */}
+          <Button label="Settings" variant="secondary" onPress={() => router.push('/settings')} />
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
