@@ -1,5 +1,7 @@
-# The live contract tests (`contract/live`) against the newest stable Hermes
-# release instead of the pin, so a break shows up before the pin moves. The
+# The live contract tests (`integrations/ergates-tests/contract/live`) against
+# the newest stable Hermes release instead of the pin, so a break shows up
+# before the pin moves. They include Hermes's install scan of the plugin
+# folder, so a newer scanner that no longer rates it `safe` fails here. The
 # text tests of ci.yml's `contract` job pin exact Hermes line numbers, which
 # move in nearly every release, so they run against the pin only. It lives in
 # its own file so the schedule does not run the other CI jobs and its

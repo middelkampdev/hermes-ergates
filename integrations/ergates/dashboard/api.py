@@ -20,7 +20,8 @@ mounting.
 
 Hermes imports this file under its own module name, outside any package, so
 the plugin folder is added to ``sys.path`` to import the ``ergates`` package.
-The Hermes boundary (``tests/test_hermes_boundary.py``) allows Hermes
+The Hermes boundary
+(``integrations/ergates-tests/tests/test_hermes_boundary.py``) allows Hermes
 imports here; this file needs none, because every Hermes call goes through
 ``ergates.hermes_adapter``.
 """
@@ -172,9 +173,9 @@ async def record_step(proposal_id: str, request: Request) -> JSONResponse:
 # Hermes runs every route of this router in the profile scope of a parameter
 # named ``profile`` (a path parameter of that name, else the query) and answers
 # a name it refuses itself, before the route runs, in its own error shape
-# (``contract/test_dashboard_api_mount.py``). The path parameter is ``name`` so
-# this route still answers an unknown profile: 404 ``unknown_profile``, which
-# the app reads as "the profile was deleted".
+# (``integrations/ergates-tests/contract/test_dashboard_api_mount.py``). The
+# path parameter is ``name`` so this route still answers an unknown profile:
+# 404 ``unknown_profile``, which the app reads as "the profile was deleted".
 @router.post("/profiles/{name}/plugin")
 async def enable_plugin(name: str) -> JSONResponse:
     return await _answer(lambda ops: ops.enable_plugin(name))

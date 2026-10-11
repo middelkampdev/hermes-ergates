@@ -1,4 +1,4 @@
-"""Comments, docstrings, test names and docs of this package give the reason, not a planning id.
+"""Comments, docstrings, test names and docs of the plugin and its tests give the reason, not a planning id.
 
 A reader of the code has no upgrade plan or review ledger at hand, so a bug,
 decision, ruling or review finding number from one tells them nothing. ADR
@@ -15,7 +15,9 @@ import re
 import tokenize
 from pathlib import Path
 
-PACKAGE = Path(__file__).resolve().parents[1]
+INTEGRATIONS = Path(__file__).resolve().parents[2]
+# The plugin, and this test project next to it.
+SCANNED = (INTEGRATIONS / "ergates", INTEGRATIONS / "ergates-tests")
 SKIPPED_PARTS = {"__pycache__", "node_modules"}
 PLAN_ID = re.compile(
     r"(?i:\broadmap\b|\breview focus\b|\.superpowers\b|\bimplementer-rules\b"
@@ -33,7 +35,7 @@ PLAN_ID_IN_NAME = re.compile(
 
 def _skipped(path: Path) -> bool:
     """Caches, virtual environments and build output: not written by hand."""
-    parts = path.relative_to(PACKAGE).parts[:-1]
+    parts = path.relative_to(INTEGRATIONS).parts[:-1]
     return any(part in SKIPPED_PARTS or part.startswith(".") or part.endswith(".egg-info") for part in parts)
 
 
@@ -61,11 +63,12 @@ def _names(path: Path):
 
 
 def _files():
-    for path in sorted(PACKAGE.rglob("*")):
-        if not path.is_file() or _skipped(path) or path == Path(__file__):
-            continue
-        if path.suffix in {".py", ".md", ".yaml", ".json", ".js"}:
-            yield path
+    for root in SCANNED:
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or _skipped(path) or path == Path(__file__):
+                continue
+            if path.suffix in {".py", ".md", ".yaml", ".json", ".js"}:
+                yield path
 
 
 def test_no_comment_docstring_or_doc_names_a_planning_id():
@@ -77,13 +80,13 @@ def test_no_comment_docstring_or_doc_names_a_planning_id():
             texts = enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         for line, text in texts:
             for match in PLAN_ID.finditer(text):
-                found.append(f"{path.relative_to(PACKAGE)}:{line}: {match.group(0)!r} in {text.strip()[:80]!r}")
+                found.append(f"{path.relative_to(INTEGRATIONS)}:{line}: {match.group(0)!r} in {text.strip()[:80]!r}")
     assert found == []
 
 
 def test_no_function_or_class_name_carries_a_planning_id():
     found = [
-        f"{path.relative_to(PACKAGE)}:{line}: {name}"
+        f"{path.relative_to(INTEGRATIONS)}:{line}: {name}"
         for path in _files()
         if path.suffix == ".py"
         for line, name in _names(path)

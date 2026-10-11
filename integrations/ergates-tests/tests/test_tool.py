@@ -40,6 +40,7 @@ from ergates.tool import (
     propose_handler,
 )
 
+PLUGIN_DIR = Path(__file__).resolve().parents[2] / "ergates"
 _THREAD_TIMEOUT = 5.0
 SETTINGS = NtfySettings(server="https://ntfy.example.internal", topic="hermes-alerts", token="tok",
                         connection_id="conn-1")
@@ -501,7 +502,7 @@ def test_register_wires_the_tool_and_every_hook_end_to_end(tmp_path, profile_pro
 
 def test_plugin_yaml_declares_exactly_what_register_registers(profile_process):
     """`hermes plugins doctor` fails on an undeclared hook; this is the same check in the suite."""
-    manifest = yaml.safe_load((Path(__file__).resolve().parents[1] / "plugin.yaml").read_text(encoding="utf-8"))
+    manifest = yaml.safe_load((PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8"))
     ctx = _RecordingCtx()
 
     tool.register(ctx)

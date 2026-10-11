@@ -2,10 +2,12 @@
 
 Every other module reaches Hermes through the functions here, so a Hermes
 upgrade has one file to check in this package (plus ``dashboard/api.py``).
-``tests/test_hermes_boundary.py`` fails the build when any other module
-imports Hermes. ``contract/test_hermes_adapter.py`` pins each Hermes fact used
-here in the pinned source, and ``contract/live/`` runs these functions
-against the pinned Hermes itself.
+``integrations/ergates-tests/tests/test_hermes_boundary.py`` fails the build
+when any other module imports Hermes.
+``integrations/ergates-tests/contract/test_hermes_adapter.py`` pins each
+Hermes fact used here in the pinned source, and
+``integrations/ergates-tests/contract/live/`` runs these functions against
+the pinned Hermes itself.
 
 Imports happen inside each function, so importing this module never needs
 Hermes: the test suite and ``python -m ergates.flush`` run without it.
@@ -50,8 +52,10 @@ def default_hermes_root() -> Path | None:
     """``hermes_constants.get_default_hermes_root()``, or ``None`` outside a Hermes runtime.
 
     Hermes maps a profile home (``<root>/profiles/<name>``) back to the root
-    that every profile shares. ``contract/test_hermes_root.py`` pins that
-    rule and ``contract/test_hermes_adapter.py`` pins the call.
+    that every profile shares.
+    ``integrations/ergates-tests/contract/test_hermes_root.py`` pins that rule
+    and ``integrations/ergates-tests/contract/test_hermes_adapter.py`` pins
+    the call.
     """
     try:
         from hermes_constants import get_default_hermes_root
@@ -65,8 +69,9 @@ def configured_timezone() -> tzinfo | None:
 
     That is ``HERMES_TIMEZONE``, else ``timezone`` in the active profile's
     ``config.yaml``. ``None`` when neither is set (Hermes then uses server
-    local time) and outside a Hermes runtime. ``contract/test_hermes_adapter.py``
-    pins the call and that cron evaluates its schedules in this zone.
+    local time) and outside a Hermes runtime.
+    ``integrations/ergates-tests/contract/test_hermes_adapter.py`` pins the
+    call and that cron evaluates its schedules in this zone.
     """
     try:
         from hermes_time import get_timezone
@@ -88,11 +93,11 @@ def current_profile(ctx: object) -> str:
 
     ``profile_name`` answers ``"default"`` for the default profile, and also
     when its own lookup, ``hermes_cli.profiles.get_active_profile_name()``,
-    raises (``contract/test_hermes_adapter.py`` pins both). The default
-    profile is always admitted, so the fallback would let a profile that is
-    still being set up run every tool. A ``"default"`` therefore stands only
-    when that lookup, asked again here, names the default profile; otherwise
-    this raises and the tool gate blocks.
+    raises (``integrations/ergates-tests/contract/test_hermes_adapter.py``
+    pins both). The default profile is always admitted, so the fallback would
+    let a profile that is still being set up run every tool. A ``"default"``
+    therefore stands only when that lookup, asked again here, names the
+    default profile; otherwise this raises and the tool gate blocks.
     """
     name = getattr(ctx, "profile_name")
     if not isinstance(name, str) or not name.strip():
@@ -176,7 +181,8 @@ def check_prompt(prompt: str) -> None:
     prompt on every try, so ``POST /reminders`` and the reminder tool ask
     here first: a refused prompt is a 400, never an uncertain create the app
     would keep retrying. The error is fixed text, never Hermes's reason,
-    which names what matched. ``contract/test_hermes_adapter.py`` pins the
+    which names what matched.
+    ``integrations/ergates-tests/contract/test_hermes_adapter.py`` pins the
     scan and its call in the create.
     """
     from tools.cronjob_prompt_scan import _scan_cron_prompt
@@ -201,7 +207,8 @@ def check_gateway_lifecycle(profile: str, prompt: str) -> None:
     ``POST /reminders`` and the reminder tool ask here right after
     :func:`check_prompt`: a refused prompt is a 400, never an uncertain
     create the app would keep retrying. The error is fixed text.
-    ``contract/test_hermes_adapter.py`` pins the guard and its call in the create.
+    ``integrations/ergates-tests/contract/test_hermes_adapter.py`` pins the
+    guard and its call in the create.
     """
     from cron.lifecycle_guard import check_gateway_lifecycle as run_hermes_guard
 
@@ -230,7 +237,8 @@ class HermesCron:
     at the pin), and the built-in scheduler's ``register_job`` does nothing.
     A create therefore ends well inside ``reminders.IN_FLIGHT_SECONDS``
     (60 s), after which a second request may take over the claim.
-    ``contract/test_hermes_adapter.py`` pins both facts.
+    ``integrations/ergates-tests/contract/test_hermes_adapter.py`` pins both
+    facts.
 
     Outside a Hermes runtime every call raises ``CronUnavailable``, the
     signal the reminder service already treats as "could not tell".
@@ -250,7 +258,8 @@ class HermesCron:
 
         ``completed`` is True for a job Hermes retired after its last run: a
         one-shot that ran stays in ``jobs.json`` with ``state: "completed"``
-        for 7 days by default (``contract/test_hermes_adapter.py`` pins both).
+        for 7 days by default (both pinned by
+        ``integrations/ergates-tests/contract/test_hermes_adapter.py``).
         """
         try:
             from cron.jobs import get_job

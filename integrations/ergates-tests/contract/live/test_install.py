@@ -21,9 +21,9 @@ from ergates.reminders import ReminderService
 from ergates.store import SCHEMA_VERSION as CURRENT_SCHEMA_VERSION
 from ergates.store import ControlStore
 from ergates.templates import load_template
+from plugin_tree import PLUGIN_DIR
 
-SHIPPED = Path(__file__).resolve().parents[4] / "deploy" / "templates"
-PLUGIN_DIR = Path(__file__).resolve().parents[2]
+SHIPPED = PLUGIN_DIR.parents[1] / "deploy" / "templates"
 API = "/api/plugins/ergates"
 # DEFAULT_CONFIG["_config_version"] at the previous pin, Hermes d76856cc (v0.21.6 has 50). Hermes's
 # save_config always writes it, so every config.yaml the installer saved there carries it.

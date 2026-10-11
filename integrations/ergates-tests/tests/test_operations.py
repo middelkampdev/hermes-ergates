@@ -19,7 +19,7 @@ from ergates.operations import LABEL_MAX_LEN, Operations, internal_error
 from ergates.paths import templates_dir
 from ergates.proposals import PROPOSAL_EXPIRY, ProposalService, validate_proposal
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+PLUGIN_DIR = Path(__file__).resolve().parents[2] / "ergates"
 TEMPLATE = {"template_id": "bookkeeper", "soul": "You keep the books.",
             "enabled_toolsets": ["file"], "enabled_mcp_servers": []}
 RECEIPT_KEYS = {"id", "request_id", "profile", "state", "job_id", "timezone_advisory", "payload_hash"}
@@ -157,9 +157,9 @@ def test_internal_error_is_the_error_body_with_a_fixed_message():
 
 def test_the_plugin_version_is_the_same_everywhere():
     """.gflow/set-version.sh writes one X.Y.Z into every file that carries it."""
-    manifest = yaml.safe_load((PACKAGE_ROOT / "plugin.yaml").read_text(encoding="utf-8"))
-    project = tomllib.loads((PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    lock = tomllib.loads((PACKAGE_ROOT / "uv.lock").read_text(encoding="utf-8"))
+    manifest = yaml.safe_load((PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8"))
+    project = tomllib.loads((PLUGIN_DIR / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = tomllib.loads((PLUGIN_DIR / "uv.lock").read_text(encoding="utf-8"))
     locked = next(package for package in lock["package"] if package["name"] == "ergates")
 
     assert re.fullmatch(r"\d+\.\d+\.\d+", ergates.__version__)

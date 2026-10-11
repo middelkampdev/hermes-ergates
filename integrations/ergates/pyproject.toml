@@ -3,14 +3,9 @@ name = "ergates"
 version = "0.2.0"
 description = "Ergates integration package for Hermes Agent: agent proposals, reminders, and attention/push notifications."
 requires-python = ">=3.11"
+# Standard library only at runtime. The tests and their dependencies are a
+# separate project, integrations/ergates-tests in the repository.
 dependencies = []
-
-[project.optional-dependencies]
-# Runtime stays standard-library only (see dependencies = [] above). PyYAML is a
-# *test* dependency: `python -m ergates.flush` parses the profile's config.yaml
-# so no credential ever reaches a command line, and it imports yaml lazily from
-# the Hermes runtime, which ships it.
-test = ["pytest>=7.4", "pyyaml>=6.0"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -18,14 +13,3 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["ergates*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-
-[tool.coverage.run]
-source = ["ergates"]
-branch = true
-
-[tool.coverage.report]
-show_missing = true
-skip_covered = true
