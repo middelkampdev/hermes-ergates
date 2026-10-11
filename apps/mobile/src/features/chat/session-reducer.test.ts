@@ -15,7 +15,7 @@ import turnPong from '@test/fixtures/turn-pong.json'
 
 import { parseReceiptRow } from './agent-traffic/receipt'
 import { historyToItems, mergeHistory, type ChatItem } from './history'
-import { initialSessionState, localTurnPending, sessionReducer, type SessionAction, type SessionState } from './session-reducer'
+import { initialSessionState, localTurnPending, pendingRequestIds, sessionReducer, type SessionAction, type SessionState } from './session-reducer'
 
 const liveReceiptParse = parseReceiptRow(liveJson.text)
 if (liveReceiptParse.kind !== 'receipts') throw new Error('receipt-live-json fixture did not parse as a receipt')
@@ -180,9 +180,21 @@ describe('requests', () => {
   it('expires only the cancelled card, and every pending card session.activate no longer lists', () => {
     const s = run(bound(), [clarify('srq-00000000000a'), clarify('srq-00000000000b'), clarify('srq-00000000000c'),
       ev({ type: 'request.cancel', seq: 1, payload: { id: 'srq-00000000000a', method: 'clarify', reason: 'timeout' } }),
-      { type: 'session/activated', result: activateResult({ open_requests: [{ id: 'srq-00000000000b', method: 'clarify', params: { session_id: LIVE } }] }) }])
+      { type: 'session/activated', result: activateResult({ open_requests: [{ id: 'srq-00000000000b', method: 'clarify', params: { session_id: LIVE } }] }), pendingWhenSent: ['srq-00000000000b', 'srq-00000000000c'] }])
     const cards = s.items.filter(i => i.kind === 'clarify')
     expect(cards).toMatchObject([{ state: 'expired' }, { state: 'pending', questions: [{ qid: 'q0', choices: [], multi_select: false }] }, { state: 'expired' }])
+  })
+
+  it('expires only the cards that were pending when activate went out', () => {
+    const before = run(bound(), [clarify('srq-000000000012')])
+    const pendingWhenSent = pendingRequestIds(before)
+    // A live request reaches the phone just before the answer to an activate whose
+    // snapshot Hermes took before it raised that request: the snapshot cannot list it.
+    const s = run(before, [req('srq-000000000013', 'approval', APPROVAL), { type: 'session/activated', result: activateResult(), pendingWhenSent }])
+    expect(s.items.filter(i => i.kind === 'clarify' || i.kind === 'approval')).toMatchObject([
+      { requestId: 'srq-000000000012', state: 'expired' },
+      { requestId: 'srq-000000000013', state: 'pending' }
+    ])
   })
 
   it('expires every pending card a resume payload no longer lists', () => {
@@ -200,20 +212,20 @@ describe('requests', () => {
 describe('reconnect snapshot (session.activate)', () => {
   it('restores the partial answer from a running turn', () => {
     const s = run(bound(), [ev({ type: 'message.start', seq: 1 }), ev({ type: 'message.delta', seq: 2, payload: { text: 'half' } })])
-    const activated = sessionReducer(s, { type: 'session/activated', result: activateResult({ running: true, status: 'streaming', inflight: { user: 'q', assistant: 'half an answer', streaming: true } }), at: 5 })
+    const activated = sessionReducer(s, { type: 'session/activated', result: activateResult({ running: true, status: 'streaming', inflight: { user: 'q', assistant: 'half an answer', streaming: true } }), at: 5, pendingWhenSent: [] })
     expect(activated.live).toMatchObject({ streaming: true, assistantText: 'half an answer' })
     expect(activated.replay.needsHistoryRefetch).toBe(false)
   })
 
   it('asks for history when the turn ended while the socket was down', () => {
     const s = run(bound(), [ev({ type: 'message.start', seq: 1 }), ev({ type: 'message.delta', seq: 2, payload: { text: 'half' } })])
-    const activated = sessionReducer(s, { type: 'session/activated', result: activateResult(), at: 5 })
+    const activated = sessionReducer(s, { type: 'session/activated', result: activateResult(), at: 5, pendingWhenSent: [] })
     expect(activated.live).toMatchObject({ streaming: false, assistantText: '' })
     expect(activated.replay.needsHistoryRefetch).toBe(true)
   })
 
   it('leaves an idle session alone', () => {
-    const activated = sessionReducer(bound(), { type: 'session/activated', result: activateResult(), at: 5 })
+    const activated = sessionReducer(bound(), { type: 'session/activated', result: activateResult(), at: 5, pendingWhenSent: [] })
     expect(activated.replay.needsHistoryRefetch).toBe(false)
     expect(activated.live.streaming).toBe(false)
   })
@@ -797,7 +809,8 @@ describe('turn anchor and outcome (spec 12.3)', () => {
     const activated: SessionAction = {
       type: 'session/activated',
       result: { session_id: LIVE, session_key: STORED, status: 'streaming', running: true, message_count: 0, messages: [], messages_omitted: true, info: {} },
-      at: 10
+      at: 10,
+      pendingWhenSent: []
     }
     const result = sessionReducer(withPending, activated)
     expect(result.pendingReceiptProcessId).toBeNull()
@@ -810,7 +823,8 @@ describe('turn anchor and outcome (spec 12.3)', () => {
     const activated: SessionAction = {
       type: 'session/activated',
       result: { session_id: LIVE, session_key: STORED, status: 'idle', running: false, message_count: 0, messages: [], messages_omitted: true, info: {} },
-      at: 10
+      at: 10,
+      pendingWhenSent: []
     }
     const result = sessionReducer(withPending, activated)
     expect(result.pendingReceiptProcessId).toBeNull()
@@ -874,7 +888,7 @@ describe('turn anchor and outcome (spec 12.3)', () => {
 
 describe('idle snapshot (spec 12.3)', () => {
   const resumed = (over: Partial<import('./session-reducer').ResumeSnapshot> = {}): SessionAction => ({ type: 'session/resumed', snapshot: { status: 'idle', running: false, inflight: null, ...over } })
-  const activate = (over: Partial<ActivateResult> = {}): SessionAction => ({ type: 'session/activated', result: { session_id: LIVE, session_key: STORED, status: 'idle', running: false, message_count: 0, messages: [], messages_omitted: true, info: {}, ...over }, at: 5 })
+  const activate = (over: Partial<ActivateResult> = {}): SessionAction => ({ type: 'session/activated', result: { session_id: LIVE, session_key: STORED, status: 'idle', running: false, message_count: 0, messages: [], messages_omitted: true, info: {}, ...over }, at: 5, pendingWhenSent: [] })
 
   it('is confirmed by an idle resume payload and not by resuming, waiting, starting or a running turn', () => {
     expect(sessionReducer(bound(), resumed()).idleSnapshot).toEqual({ confirmed: true, hydrating: false, autoContinue: false })

@@ -22,7 +22,7 @@ import type { ApprovalChoice, GatewayEventFrame, ProfileSummary, ServerRequestFr
 
 import { openCanonicalChat } from './canonical-chat'
 import { SendQueue, type OutboxStore } from './send-queue'
-import { initialSessionState, localTurnPending, sessionReducer, type SessionAction, type SessionState } from './session-reducer'
+import { initialSessionState, localTurnPending, pendingRequestIds, sessionReducer, type SessionAction, type SessionState } from './session-reducer'
 import { HISTORY_STALE_ROUNDS, historyRetryDelayMs, resyncSession } from './session-sync'
 
 export type { OutboxStore } from './send-queue'
@@ -391,6 +391,7 @@ export function createSessionController(options: SessionControllerOptions): Sess
         connection: current,
         liveSessionId: live,
         lastSeq: () => state.replay.lastSeq,
+        pendingRequestIds: () => pendingRequestIds(state),
         dispatch,
         sleep: options.sleep,
         now

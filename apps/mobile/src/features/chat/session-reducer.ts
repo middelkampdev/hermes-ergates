@@ -97,7 +97,12 @@ export interface SessionState {
 
 export type SessionAction =
   | { type: 'session/bound'; liveSessionId: string; storedSessionId: string; epoch?: string | null }
-  | { type: 'session/activated'; result: ActivateResult; at?: number }
+  /**
+   * `pendingWhenSent`: the request ids of the cards that were pending when this activate went
+   * out. Only those can expire because the snapshot leaves them out: a request raised after
+   * Hermes took the snapshot can reach the phone before the answer.
+   */
+  | { type: 'session/activated'; result: ActivateResult; at?: number; pendingWhenSent: readonly string[] }
   /** The `session.resume` payload the chat opened with: the only carrier of hydration and auto-continue. */
   | { type: 'session/resumed'; snapshot: ResumeSnapshot }
   /** `revision` is the one captured before the fetch; a mismatch means the snapshot is stale. */
@@ -196,7 +201,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         replay: { ...state.replay, epoch: action.epoch ?? state.replay.epoch }
       }
     case 'session/activated':
-      return expireUnlisted(applyActivate(state, action.result, action.at), action.result.open_requests)
+      return expireUnlisted(applyActivate(state, action.result, action.at), action.result.open_requests, action.pendingWhenSent)
     case 'session/resumed':
       return {
         ...expireUnlisted(state, action.snapshot.open_requests),
@@ -359,16 +364,23 @@ function receiveRequest(state: SessionState, request: ServerRequestFrame): Sessi
   return invalidateIdle({ ...state, items, live: { ...state.live, statusLine: null } })
 }
 
+/** The request ids of the approval and clarify cards still waiting for the user's answer. */
+export function pendingRequestIds(state: SessionState): string[] {
+  return state.items.flatMap(i => ((i.kind === 'approval' || i.kind === 'clarify') && i.state === 'pending' ? [i.requestId] : []))
+}
+
 /**
  * A reconnect or resume payload lists every server request Hermes still waits on (`open_requests`,
  * left out when empty). A pending card it does not list is over, even when its `request.cancel` was
- * lost to a truncated replay or a restart.
+ * lost to a truncated replay or a restart. `candidates` narrows that to the cards that were pending
+ * when the call went out; without it every pending card counts.
  */
-function expireUnlisted(state: SessionState, open: OpenServerRequest[] | undefined): SessionState {
+function expireUnlisted(state: SessionState, open: OpenServerRequest[] | undefined, candidates?: readonly string[]): SessionState {
   const listed = new Set((open ?? []).map(r => r.id))
+  const eligible = candidates === undefined ? null : new Set(candidates)
   let changed = false
   const items = state.items.map(i => {
-    if ((i.kind === 'approval' || i.kind === 'clarify') && i.state === 'pending' && !listed.has(i.requestId)) {
+    if ((i.kind === 'approval' || i.kind === 'clarify') && i.state === 'pending' && !listed.has(i.requestId) && (eligible === null || eligible.has(i.requestId))) {
       changed = true
       return { ...i, state: 'expired' as const }
     }

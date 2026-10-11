@@ -62,17 +62,26 @@ function isStale(err: unknown): boolean {
 
 /**
  * `session.activate`, retried once after a short delay when the gateway is still
- * settling a client-gone interrupt.
+ * settling a client-gone interrupt. `onSend` runs right before each call goes out.
  */
-export async function activateSession(port: GatewayPort, liveSessionId: string, sleep: (ms: number) => Promise<void> = sleepDefault): Promise<ActivateResult> {
+export async function activateSession(
+  port: GatewayPort,
+  liveSessionId: string,
+  sleep: (ms: number) => Promise<void> = sleepDefault,
+  onSend: () => void = () => undefined
+): Promise<ActivateResult> {
+  const send = (): Promise<ActivateResult> => {
+    onSend()
+    return port.sessions.activate(liveSessionId, { omit_messages: true })
+  }
   try {
-    return await port.sessions.activate(liveSessionId, { omit_messages: true })
+    return await send()
   } catch (err) {
     if (!isSettling(err)) {
       throw err
     }
     await sleep(SETTLING_RETRY_MS)
-    return port.sessions.activate(liveSessionId, { omit_messages: true })
+    return send()
   }
 }
 
@@ -82,6 +91,11 @@ export interface ResyncOptions {
   liveSessionId: string
   /** Read at call time: the watermark may have advanced while activate was in flight. */
   lastSeq: () => number
+  /**
+   * The request ids of the cards still pending, read right before activate goes out. Only
+   * those may expire when its snapshot leaves them out (`session/activated`).
+   */
+  pendingRequestIds: () => readonly string[]
   dispatch: (action: SessionAction) => void
   sleep?: (ms: number) => Promise<void>
   now?: () => number
@@ -106,9 +120,12 @@ export async function resyncSession(options: ResyncOptions): Promise<ResyncResul
   const result: ResyncResult = { activated: false, replayed: false, stale: false }
 
   try {
-    const activated = await activateSession(port, liveSessionId, options.sleep)
+    let pendingWhenSent: readonly string[] = []
+    const activated = await activateSession(port, liveSessionId, options.sleep, () => {
+      pendingWhenSent = options.pendingRequestIds()
+    })
     result.activated = true
-    dispatch({ type: 'session/activated', result: activated, at })
+    dispatch({ type: 'session/activated', result: activated, at, pendingWhenSent })
   } catch (err) {
     result.stale = isStale(err)
     result.error = userMessage(err)

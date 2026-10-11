@@ -98,7 +98,7 @@ describe('resyncSession', () => {
           open_requests: open
         })
     })
-    const result = await resyncSession({ port: h.port, connection: h.connection, liveSessionId: LIVE, lastSeq: () => 3, dispatch: h.dispatch })
+    const result = await resyncSession({ port: h.port, connection: h.connection, liveSessionId: LIVE, lastSeq: () => 3, pendingRequestIds: () => [], dispatch: h.dispatch })
 
     // `session.events.since` reads an in-process ring and needs no transport;
     // only activate/resume/prompt.submit rebind it. Replaying first leaves the
@@ -112,13 +112,46 @@ describe('resyncSession', () => {
     expect(h.actions[0]).toMatchObject({ type: 'session/activated', result: { open_requests: open } })
   })
 
+  it('hands the reducer the cards that were pending when activate went out', async () => {
+    const pending = ['srq-0000000000a1']
+    const h = harness({
+      activate: async () => {
+        // A request frame that reaches the phone while the call is on the wire.
+        pending.push('srq-0000000000a2')
+        return activateResult()
+      }
+    })
+    await resyncSession({ port: h.port, connection: h.connection, liveSessionId: LIVE, lastSeq: () => 0, pendingRequestIds: () => [...pending], dispatch: h.dispatch })
+    expect(h.actions[0]).toMatchObject({ type: 'session/activated', pendingWhenSent: ['srq-0000000000a1'] })
+  })
+
+  it('reads the pending cards again when a settling activate is retried', async () => {
+    const pending = ['srq-0000000000a1']
+    let calls = 0
+    const h = harness({
+      activate: async () => {
+        calls += 1
+        if (calls === 1) {
+          throw new GatewayError('busy', 'session disconnect interrupt settling', { code: 4009 })
+        }
+        return activateResult()
+      }
+    })
+    const sleep = async () => {
+      pending.push('srq-0000000000a3')
+    }
+    await resyncSession({ port: h.port, connection: h.connection, liveSessionId: LIVE, lastSeq: () => 0, pendingRequestIds: () => [...pending], dispatch: h.dispatch, sleep })
+    // The snapshot comes from the retry, sent after the card arrived.
+    expect(h.actions[0]).toMatchObject({ type: 'session/activated', pendingWhenSent: ['srq-0000000000a1', 'srq-0000000000a3'] })
+  })
+
   it('reports a stale session id instead of replaying into a chat that is gone', async () => {
     const h = harness({
       activate: async () => {
         throw new GatewayError('not_found', 'session not found', { code: 4007 })
       }
     })
-    const result = await resyncSession({ port: h.port, connection: h.connection, liveSessionId: LIVE, lastSeq: () => 0, dispatch: h.dispatch, sleep: async () => undefined })
+    const result = await resyncSession({ port: h.port, connection: h.connection, liveSessionId: LIVE, lastSeq: () => 0, pendingRequestIds: () => [], dispatch: h.dispatch, sleep: async () => undefined })
     expect(result.stale).toBe(true)
     expect(result.activated).toBe(false)
     expect(result.error).toBeTruthy()
@@ -131,7 +164,7 @@ describe('resyncSession', () => {
         throw mapRpcError(jsonRpcErrorFromFrame({ code: 4001, message: 'session not found' }))
       }
     })
-    const result = await resyncSession({ port: h.port, connection: h.connection, liveSessionId: LIVE, lastSeq: () => 0, dispatch: h.dispatch, sleep: async () => undefined })
+    const result = await resyncSession({ port: h.port, connection: h.connection, liveSessionId: LIVE, lastSeq: () => 0, pendingRequestIds: () => [], dispatch: h.dispatch, sleep: async () => undefined })
     expect(result).toMatchObject({ activated: false, stale: true })
   })
 
@@ -141,7 +174,7 @@ describe('resyncSession', () => {
         throw new GatewayError('rpc', 'transient', { code: 5000 })
       }
     })
-    const result = await resyncSession({ port: h.port, connection: h.connection, liveSessionId: LIVE, lastSeq: () => 0, dispatch: h.dispatch, sleep: async () => undefined })
+    const result = await resyncSession({ port: h.port, connection: h.connection, liveSessionId: LIVE, lastSeq: () => 0, pendingRequestIds: () => [], dispatch: h.dispatch, sleep: async () => undefined })
     expect(result).toMatchObject({ activated: false, replayed: true, stale: false })
     expect(h.actions.map(a => a.type)).toEqual(['replay/result'])
   })
