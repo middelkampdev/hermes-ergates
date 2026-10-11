@@ -321,6 +321,15 @@ describe('agent setup runs (docs/11 section 4.1)', () => {
     expect(store.getState().provisioning).toEqual([])
   })
 
+  it('reads a blob from before the root notice as not having shown it', async () => {
+    const storage = createMemoryStorageJson<PersistedDeviceState>()
+    const { rootedNoticeSeen: _omitted, ...oldPrefs } = defaultPrefs
+    await storage.setItem('ergates-device-v1', { state: { connections: [conn1], organization: {}, prefs: oldPrefs, drafts: {}, outbox: [] } as never, version: 1 })
+    const store = createDeviceStore(storage, new MemorySecretStore())
+    await waitForHydration(store)
+    expect(store.getState().prefs.rootedNoticeSeen).toBe(false)
+  })
+
   it('drops a connection agent setups with the connection', async () => {
     const store = newStore()
     store.getState().addConnection(conn1)

@@ -21,7 +21,7 @@ import { organize, syncWithHermes } from './org-sync'
 import { emptyOrganization, orgActions, type BotRow, type Organization } from './organization'
 import { expired, recoverAfterRestart, type OutboxItem } from './outbox'
 import type { ProvisioningRun } from './provisioning'
-import { createDeviceBlobStorage, DEVICE_STORAGE_KEY, secretKey, secureSecretStore } from './persistence'
+import { authSecretStore, createDeviceBlobStorage, DEVICE_STORAGE_KEY, secretKey } from './persistence'
 
 export interface Connection {
   id: string
@@ -39,6 +39,8 @@ export interface Prefs {
   haptics: boolean
   locale: string
   keepRecentOffline: boolean
+  /** Set once the rooted or jailbroken phone notice was dismissed, so it shows one time. */
+  rootedNoticeSeen: boolean
 }
 
 export const defaultPrefs: Prefs = {
@@ -46,7 +48,8 @@ export const defaultPrefs: Prefs = {
   themeName: 'default',
   haptics: true,
   locale: 'en-US',
-  keepRecentOffline: false
+  keepRecentOffline: false,
+  rootedNoticeSeen: false
 }
 
 /** Persisted schema version (also encoded in `DEVICE_STORAGE_KEY`). */
@@ -302,4 +305,4 @@ export function waitForHydration(store: PersistCapable): Promise<void> {
  * app's real runtime entry point, then `waitForHydration(useDeviceStore)` if you need
  * to know when it's done.
  */
-export const useDeviceStore = createDeviceStore(createDeviceBlobStorage<PersistedDeviceState>(), secureSecretStore, { skipHydration: true })
+export const useDeviceStore = createDeviceStore(createDeviceBlobStorage<PersistedDeviceState>(), authSecretStore, { skipHydration: true })

@@ -10,10 +10,13 @@
  *   key, in expo-secure-store. Callers build keys with `secretKey`, matching the
  *   `ergates.<connectionId>.<token|cookie|mode>` names `RealGateway` already uses
  *   (src/gateway/real/real-gateway.ts).
+ * - `clearPlatformCookieJar` empties the platform cookie jar, where older builds
+ *   left Hermes cookies.
  *
- * `expo-secure-store` and `expo-crypto` are loaded lazily (dynamic import inside
- * each method) rather than imported at module scope: they pull in react-native,
- * which a plain Node/vitest run cannot parse. Loading them only when a method
+ * `expo-secure-store`, `expo-crypto` and `@react-native-cookies/cookies` are
+ * loaded lazily (dynamic import inside each method) rather than imported at
+ * module scope: they pull in react-native, which a plain Node/vitest run cannot
+ * parse. Loading them only when a method
  * actually runs keeps this module, and anything that imports it like
  * device-store.ts, safe to import in Node tests. AsyncStorage has no such issue
  * and is imported normally.
@@ -22,7 +25,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { AESEncryptionKey } from 'expo-crypto'
 import { createJSONStorage, type PersistStorage, type StateStorage } from 'zustand/middleware'
 
-import type { SecretStore } from '@/gateway/secrets'
+import { createAuthSecretStore, type AuthSecretStore, type SecretStore } from '@/gateway/secrets'
 
 import { createSealedStateStorage, type BlobCipher } from './sealed-storage'
 
@@ -131,6 +134,33 @@ export const secureSecretStore: SecretStore = {
     const SecureStore = await import('expo-secure-store')
     await SecureStore.deleteItemAsync(key)
   }
+}
+
+/**
+ * The sign-in store the app uses: SecureStore, unless `useMemoryOnly()` was called
+ * at start-up (rooted or jailbroken phone). Shared so the gateway and the device
+ * store switch together.
+ */
+export const authSecretStore: AuthSecretStore = createAuthSecretStore(secureSecretStore)
+
+/** The slice of `@react-native-cookies/cookies` the start-up clear uses. */
+interface PlatformCookieJar {
+  clearAll(useWebKit?: boolean): Promise<boolean>
+  flush?(): Promise<void>
+}
+
+/**
+ * Empties the platform cookie jar. Older builds let it keep the Hermes session
+ * cookies; Ergates no longer reads it (`credentials: 'omit'` in
+ * src/gateway/real/http.ts), so on a rooted or jailbroken phone it all goes.
+ * Rejects when the native module is missing; the caller treats that as done.
+ */
+export async function clearPlatformCookieJar(): Promise<void> {
+  const imported = (await import('@react-native-cookies/cookies')) as unknown as { default?: PlatformCookieJar } & Partial<PlatformCookieJar>
+  const jar = (imported.default ?? imported) as PlatformCookieJar
+  await jar.clearAll()
+  // Writes the empty jar to disk on Android; does nothing on iOS.
+  await jar.flush?.()
 }
 
 /** In-memory `StateStorage` for tests; never touches AsyncStorage. */

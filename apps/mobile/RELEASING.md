@@ -191,6 +191,12 @@ This runbook stops at testing tracks. A public release also needs:
 - A privacy policy URL, a store listing with screenshots, and the data-safety and content-rating forms. The privacy policy is https://middelkamp.dev/ergates/privacy/ and the support URL is https://middelkamp.dev/ergates/support/.
 - A way for Apple's reviewers to use the app. Ergates needs a Hermes server, so reviewers need a demo server and login.
 - On a Google **personal** account created after 13 November 2023: a closed test with at least 12 testers, opted in for 14 days in a row, before production access. Internal testing does not count ([Google](https://support.google.com/googleplay/android-developer/answer/14151465)).
+- Two Play Console protections against tampered devices and copies (ADR-041). Both are set by hand in Play Console; nothing in the pipeline sets them:
+  - [ ] Store listing visibility: turn on "Device integrity checks".
+  - [ ] Automatic protection: turn on the "installer check". It needs Play App Signing and app bundles, which the pipeline already uses.
+  - [ ] Check them on one internal testing track build: it installs from Play on a stock phone; a sideloaded copy of the same build prompts the user to get the app on Google Play; the crash rate in Play vitals stays flat for a week. Use the testing track, not internal app sharing: the installer check is not applied to internal app sharing uploads.
+
+  "Device integrity checks" hides the app from phones that fail Google's device integrity check. That includes GrapheneOS and other custom systems. The app's own check stays on either way: it detects a rooted or jailbroken phone and keeps no sign-in on it (`src/state/device-trust.ts`).
 
 Then submit the TestFlight build for review in App Store Connect, and promote the internal release to production in Play Console.
 
@@ -203,7 +209,7 @@ When the version is live in both stores:
 1. **Store links:** the App Store and Google Play links on `/ergates/` point to the live listings. Before the first release the page says "Coming to the App Store and Google Play".
 2. **Screenshots:** still match the app. New ones come from the simulator; `public/assets/ergates/` holds them at 300 and 600 pixels wide.
 3. **Privacy policy:** still true for this version. Check it whenever a release adds a permission, a push or notification service, analytics or crash reporting, or a new server the app talks to. If the text changes, update the date at the top of `/ergates/privacy/`.
-4. **Support page:** still matches the connect and sign-out flow.
+4. **Support page:** still matches the connect and sign-out flow. It also says that rooted and jailbroken phones need a sign-in each time the app starts, and why (other apps with root access can read a stored sign-in), and that iOS may offer to save the password in its own Passwords app, which is the user's choice.
 5. **Publish:** run `~/Projects/mdev/website/deploy.sh` (VPN on, Bitwarden unlocked), check https://middelkamp.dev/ergates/, and close the issue.
 
 The website deploys over SSH from the owner's VPN address only, so GitHub Actions cannot publish it; the issue is the reminder.

@@ -148,10 +148,10 @@ export interface GatewayPort {
   me(): Promise<T.AuthIdentity | null>
   logout(): Promise<void>
   /**
-   * Clears the platform cookie jar for this gateway's origin. On device the
-   * native jar (NSURLSession / OkHttp), not the explicit `Cookie` header, is
-   * what authenticates requests, so sign-out and connection removal must clear
-   * it even when `POST /auth/logout` failed (docs/04 section 6, ADR-028).
+   * Clears leftover platform cookie jars for this gateway's origin. Requests no
+   * longer use the native jar, but jars that older app versions filled still
+   * hold the sign-in, so sign-out and connection removal clear them even when
+   * `POST /auth/logout` failed (docs/04 section 6, ADR-028).
    */
   clearCookies(): Promise<void>
   /** Opens (or reuses) the socket for one profile. */
@@ -168,7 +168,10 @@ export interface GatewayPort {
 
 /**
  * What the registry hands to screens and features: the port, plus `restore()`,
- * which reloads the saved credential before the first call after a cold start.
+ * which reloads the saved credential before the first call after a cold start
+ * and says which one it found. `'none'` means this phone holds no sign-in for
+ * the connection (on a rooted phone, after every restart), so Home sends the
+ * owner to sign in again.
  * Nothing outside `src/gateway` sees the adapter class (ADR-029 rule 1).
  */
-export type ConnectedGateway = GatewayPort & { restore(): Promise<unknown> }
+export type ConnectedGateway = GatewayPort & { restore(): Promise<'none' | 'token' | 'password'> }

@@ -15,8 +15,8 @@ describe('ConnectedGateway', () => {
     expectTypeOf<ReturnType<typeof useGateway>>().toEqualTypeOf<ConnectedGateway>()
   })
 
-  it('is the port plus restore()', () => {
+  it('is the port plus restore(), which names the sign-in it found', () => {
     expectTypeOf<ConnectedGateway>().toExtend<GatewayPort>()
-    expectTypeOf<ConnectedGateway['restore']>().toEqualTypeOf<() => Promise<unknown>>()
+    expectTypeOf<ConnectedGateway['restore']>().toEqualTypeOf<() => Promise<'none' | 'token' | 'password'>>()
   })
 })
