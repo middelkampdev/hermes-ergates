@@ -116,6 +116,24 @@ describe('createSessionController', () => {
     expect(connectSpy).toHaveBeenCalledTimes(1)
   })
 
+  it('leaves the resync to the next open when a foreground reconnect finds the socket not open', async () => {
+    const gateway = new FakeGateway()
+    const controller = controllerFor(gateway)
+    await controller.open()
+    const conn = gateway.connectionFor('thijs')
+    conn.simulateOffline()
+    const before = gateway.calls.activate
+
+    // An activate sent before the socket reports open could go out ahead of
+    // client.capabilities on the new socket.
+    await controller.reconnect()
+    expect(gateway.calls.activate).toBe(before)
+
+    conn.simulateOnline()
+    await flush(20)
+    expect(gateway.calls.activate).toBe(before + 1)
+  })
+
   it('offers a new sign-in when the socket closes for good', async () => {
     const gateway = new FakeGateway()
     const controller = controllerFor(gateway)

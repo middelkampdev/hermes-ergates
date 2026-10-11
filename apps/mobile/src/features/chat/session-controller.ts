@@ -381,7 +381,10 @@ export function createSessionController(options: SessionControllerOptions): Sess
         return
       }
     }
-    if (run.cancelled) {
+    // A socket still dialing reports `open` once gateway.ready arrived, and that
+    // transition runs this again. Resyncing now could put session.activate on
+    // the new socket ahead of client.capabilities (SocketSession.dialOnce).
+    if (run.cancelled || current.state !== 'open') {
       return
     }
     resyncing = true
