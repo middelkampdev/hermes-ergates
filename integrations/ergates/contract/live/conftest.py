@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -131,10 +132,15 @@ class PluginRepo:
 
 @pytest.fixture(scope="session")
 def plugin_git_repo(tmp_path_factory) -> PluginRepo:
-    """Commits a copy of ``integrations/ergates`` (every file git tracks or would track) to a new repository."""
+    """Commits a copy of ``integrations/ergates`` (every file git tracks) to a new repository.
+
+    Untracked files stay out, so a stray local file cannot change the install
+    scan's verdict, and no git hook of this machine runs.
+    """
     path = tmp_path_factory.mktemp("plugin-repo")
+    no_hooks = ["-c", "core.hooksPath=/dev/null"]
     listed = subprocess.run(
-        ["git", "-C", str(PLUGIN_DIR), "ls-files", "-z", "--cached", "--others", "--exclude-standard", "."],
+        ["git", *no_hooks, "-C", str(PLUGIN_DIR), "ls-files", "-z", "--cached", "."],
         capture_output=True, check=True,
     ).stdout.decode("utf-8").split("\0")
     for relative in filter(None, listed):
@@ -142,7 +148,7 @@ def plugin_git_repo(tmp_path_factory) -> PluginRepo:
         if source.is_file():  # a tracked file deleted in the working tree is listed too
             (path / relative).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, path / relative)
-    git = ["git", "-C", str(path), "-c", "user.name=Ergates contract", "-c", "user.email=contract@ergates.invalid",
+    git = ["git", *no_hooks, "-C", str(path), "-c", "user.name=Ergates contract", "-c", "user.email=contract@ergates.invalid",
            "-c", "commit.gpgsign=false"]
     subprocess.run([*git, "init", "-q", "-b", "main"], check=True)
     subprocess.run([*git, "add", "-A"], check=True)
@@ -157,22 +163,26 @@ def serve_hermes():
     """``serve_hermes(root)`` starts ``hermes_serve.py`` on Hermes root ``root`` and returns an HTTP client for it.
 
     The child gets its own empty HOME next to ``root`` and the same session
-    token as ``web``, so ``token_headers`` works for it; its stderr goes to
-    ``hermes-serve.log`` next to ``root``. When the test ends, every server is
+    token as ``web``, so ``token_headers`` works for it; its stderr, and its
+    stdout after the port line, go to ``hermes-serve.log`` next to ``root``
+    (a thread drains stdout, so a chatty child never blocks on a full pipe).
+    When the test ends, every server is
     stopped and its root removed: a first plugin install leaves Hermes's own
     dependency runtime there, about half a gigabyte.
     """
     import httpx
 
-    started: list[tuple[Path, subprocess.Popen, httpx.Client]] = []
+    started: list[tuple[Path, subprocess.Popen, threading.Thread, httpx.Client]] = []
 
     def start(root: Path) -> httpx.Client:
         home = root.parent / "home"
         home.mkdir(exist_ok=True)
         log = root.parent / "hermes-serve.log"
+        log.write_text("", encoding="utf-8")
         env = {**os.environ, "HOME": str(home), "HERMES_HOME": str(root),
                "HERMES_DASHBOARD_SESSION_TOKEN": SESSION_TOKEN, "PYTHONDONTWRITEBYTECODE": "1"}
-        with log.open("w", encoding="utf-8") as stderr:
+        # Append mode for the child and the drain thread alike, so neither overwrites the other.
+        with log.open("a", encoding="utf-8") as stderr:
             process = subprocess.Popen([sys.executable, "-I", "-B", str(SERVE_SCRIPT)], cwd=root.parent, env=env,
                                        stdout=subprocess.PIPE, stderr=stderr, text=True)
         ready, _, _ = select.select([process.stdout], [], [], 120)
@@ -180,22 +190,35 @@ def serve_hermes():
         if not line.strip().isdigit():
             _stop(process)
             pytest.fail(f"hermes_serve.py did not start:\n{log.read_text(encoding='utf-8')[-4000:]}")
+        drain = threading.Thread(target=_drain, args=(process.stdout, log), daemon=True)
+        drain.start()
         client = httpx.Client(base_url=f"http://127.0.0.1:{int(line)}", timeout=SERVER_TIMEOUT_SECONDS)
-        started.append((root, process, client))
+        started.append((root, process, drain, client))
         return client
 
     yield start
-    for root, process, client in started:
+    for root, process, drain, client in started:
         client.close()
-        _stop(process)
+        _stop(process, drain)
         shutil.rmtree(root, ignore_errors=True)
 
 
-def _stop(process: subprocess.Popen) -> None:
+def _drain(stream, log: Path) -> None:
+    """Appends what the child writes to ``stream`` to ``log`` until the child closes it."""
+    with log.open("a", encoding="utf-8") as out:
+        for line in stream:
+            out.write(line)
+            out.flush()
+
+
+def _stop(process: subprocess.Popen, drain: threading.Thread | None = None) -> None:
     process.terminate()
     try:
         process.wait(timeout=10)
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
+    if drain is not None:
+        # The child is gone, so the thread reads to the end of the pipe and stops.
+        drain.join(timeout=10)
     process.stdout.close()
