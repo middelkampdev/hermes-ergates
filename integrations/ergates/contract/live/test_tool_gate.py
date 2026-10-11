@@ -8,13 +8,16 @@ home during the call, as it is in that profile's process.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
+import yaml
 
 from ergates.hermes_adapter import _profile_home, enable_plugin, plugin_enabled, profile_exists
-from ergates.paths import store_path
+from ergates.paths import store_path, templates_dir
 from ergates.policy import BLOCK_RAW_CRON, BLOCK_REVOKED, BLOCK_SETUP, BLOCK_UNVERIFIED
 from ergates.proposals import PROVISION_STEPS, ProposalService, validate_proposal
 from ergates.store import ControlStore
@@ -24,12 +27,13 @@ from ergates.store import ControlStore
 def gate(make_profile):
     """``gate(profile, tool_name, args)``: what Hermes's dispatcher collects from pre_tool_call in that profile."""
     from hermes_cli.plugins import PluginManager
+    from hermes_cli.profiles import get_profile_dir
 
     managers = {}
 
     def ask(profile: str, tool_name: str, args: dict) -> list:
         if profile not in managers:
-            home = make_profile(profile)
+            home = Path(get_profile_dir(profile)) if profile_exists(profile) else make_profile(profile)
             enable_plugin(profile)
             managers[profile] = PluginManager(scope_key=str(home))
             managers[profile].discover_and_load()
@@ -65,8 +69,9 @@ def test_a_profile_is_blocked_while_it_is_provisioned_and_free_once_complete(gat
 
 
 def test_hermes_gets_a_block_when_the_gate_check_raises(gate, monkeypatch):
-    """Hermes skips a callback that raises and runs the tool (fail open). The
-    Ergates callback never raises: a failed check reaches Hermes as a block."""
+    """Since v0.21.6 Hermes blocks when a callback raises, with the exception's
+    text as the message, which can carry tool arguments. The Ergates callback
+    never raises: a failed check reaches Hermes as a block with fixed text."""
     gate("ivo", "terminal", {})  # loads the plugin into this profile's manager
 
     def broken(*args, **kwargs):
@@ -147,6 +152,11 @@ def test_a_push_thread_keeps_the_hermes_home_the_gateway_routed_to(make_profile)
 
 
 # --- rule 3: the profile's toolset grant ----------------------------------------------
+#
+# Rule 3 covers only a profile Ergates provisioned (ProposalService.provisioned, ADR-034), so
+# these tests provision their profiles the way the app does, through the plugin's routes.
+
+API = "/api/plugins/ergates"
 
 
 @pytest.fixture
@@ -161,10 +171,55 @@ def configure():
     return call
 
 
-def test_rule_3_a_toolset_taken_out_of_the_grant_is_blocked_at_the_next_call(gate, configure):
+@pytest.fixture
+def provision(web, token_headers, root, make_profile, configure):
+    """``provision(profile, enabled_toolsets)``: the app's provisioning of an agent it proposed, until complete.
+
+    The agent's proposal is recorded (what ``ergates_propose_agent`` does) for a
+    template with those toolsets. The app accepts it, creates the profile
+    (Hermes's ``create_profile``, behind the ``profiles.create`` RPC), enables
+    the plugin, configures the profile from the template the accept answered
+    with Hermes's ``profiles.configure``, and reports each step; the last one
+    completes the proposal.
+    """
+
+    def run(profile: str, enabled_toolsets: list[str]) -> None:
+        template = {"template_id": f"gate-{profile}", "soul": "You help.", "enabled_toolsets": enabled_toolsets,
+                    "enabled_mcp_servers": []}
+        directory = templates_dir(root)
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"{template['template_id']}.json").write_text(json.dumps(template), encoding="utf-8")
+        proposal = validate_proposal({"name": profile, "title": profile.title(), "role": "Helper",
+                                      "template_id": template["template_id"], "provider": "p", "model": "m",
+                                      "briefing": "Seed facts."})
+        ProposalService(ControlStore(store_path(root))).record(proposal)
+        base = f"{API}/proposals/{proposal['proposal_id']}"
+
+        def report(step: str) -> dict:
+            reply = web.post(f"{base}/steps", json={"step": step, "status": "done"}, headers=token_headers)
+            assert reply.status_code == 200, reply.text
+            return reply.json()["proposal"]
+
+        accepted = web.post(f"{base}/accept", json={"proposal": proposal}, headers=token_headers)
+        assert accepted.status_code == 200, accepted.text
+        served = accepted.json()["proposal"]["template"]
+        make_profile(profile)
+        report("profile_created")
+        enabled = web.post(f"{API}/profiles/{profile}/plugin", headers=token_headers)
+        assert (enabled.status_code, enabled.json()) == (200, {"profile": profile, "enabled": True})
+        report("plugin_enabled")
+        configure(profile, soul=served["soul"], enabled_toolsets=served["enabled_toolsets"],
+                  enabled_mcp_servers=served["enabled_mcp_servers"])
+        report("configured")
+        report("bot_chat")
+        assert report("briefing")["state"] == "complete"
+
+    return run
+
+
+def test_rule_3_a_toolset_taken_out_of_the_grant_is_blocked_at_the_next_call(gate, provision, configure):
     """docs/04 section 3: a revoked connector must not stay usable in a running session."""
-    assert gate("lena", "terminal", {}) == []  # no toolset pin yet: Hermes alone decides
-    configure("lena", enabled_toolsets=["web", "terminal"])
+    provision("lena", ["web", "terminal"])
     assert gate("lena", "terminal", {}) == []
 
     configure("lena", enabled_toolsets=["web"])
@@ -175,24 +230,20 @@ def test_rule_3_a_toolset_taken_out_of_the_grant_is_blocked_at_the_next_call(gat
     assert gate("lena", "no_such_tool", {}) == []
 
 
-def test_rule_3_a_pinned_name_grants_the_toolsets_its_tools_are_registered_under(gate, configure):
+def test_rule_3_a_pinned_name_grants_the_toolsets_its_tools_are_registered_under(gate, provision):
     """`browser` bundles `browser_cdp`, which Hermes registers under the toolset `browser-cdp`."""
-    gate("wim", "terminal", {})
-    configure("wim", enabled_toolsets=["browser"])
+    provision("wim", ["browser"])
 
     assert gate("wim", "browser_cdp", {}) == []
     assert gate("wim", "browser_navigate", {}) == []
     assert gate("wim", "terminal", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
 
 
-def test_rule_3_an_mcp_server_the_profile_turned_off_is_blocked(gate, configure):
+def test_rule_3_an_mcp_server_the_profile_turned_off_is_blocked(gate, provision, configure):
     from hermes_cli.config import load_config, save_config
     from tools.registry import registry
 
-    from ergates.hermes_adapter import _profile_home
-
-    gate("mira", "terminal", {})
-    configure("mira", enabled_toolsets=["web"])
+    provision("mira", ["web"])
     with _profile_home("mira"):
         config = load_config()
         config["mcp_servers"] = {"notes": {"url": "https://notes.invalid/mcp"}}
@@ -203,8 +254,30 @@ def test_rule_3_an_mcp_server_the_profile_turned_off_is_blocked(gate, configure)
     try:
         assert gate("mira", "mcp_notes_search", {}) == []
 
-        configure("mira", enabled_mcp_servers=[])  # Hermes writes `disabled: true` for the server
+        configure("mira", enabled_mcp_servers=[])  # Hermes writes `enabled: false` for the server
 
         assert gate("mira", "mcp_notes_search", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
     finally:
         registry.deregister("mcp_notes_search")
+
+
+def test_rule_3_a_grant_hermes_cannot_read_blocks_the_call(gate, provision, root):
+    """A hand-edited pin Hermes's own parser cannot read as a list is no grant of every tool."""
+    provision("rosa", ["web"])
+    assert gate("rosa", "web_search", {}) == []
+    path = root / "profiles" / "rosa" / "config.yaml"
+    config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    config["platform_toolsets"]["cli"] = "[web"
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    assert gate("rosa", "web_search", {}) == [{"action": "block", "message": BLOCK_UNVERIFIED}]
+
+
+def test_rule_3_leaves_a_profile_ergates_did_not_provision_alone(gate, configure, root):
+    """A toolset list that `hermes tools`, a setup or the Desktop editor wrote narrows nothing (ADR-034)."""
+    gate("nils", "terminal", {})
+    configure("nils", enabled_toolsets=["web"])
+    pinned = yaml.safe_load((root / "profiles" / "nils" / "config.yaml").read_text(encoding="utf-8"))
+    assert pinned["platform_toolsets"]["cli"] == ["web"]
+
+    assert gate("nils", "terminal", {}) == []
