@@ -473,14 +473,31 @@ def test_a_create_refuses_a_prompt_the_gateway_lifecycle_guard_blocks(hermes: Pi
 
 def test_the_gateway_lifecycle_guard_refuses_prose_and_depends_on_the_active_profile(hermes: PinnedSource) -> None:
     """Why the check runs before a create, and inside the profile's home."""
-    # cron/lifecycle_guard.py:59: "Remind me to kill time before the Hermes gateway meeting" matches.
-    assert hermes.lines(LIFECYCLE_GUARD, 59, 59) == '    r"|(?:\\bp?kill\\b[^\\n]*\\bhermes\\b[^\\n]*\\bgateway)"'
-    # cron/lifecycle_guard.py:217-219: `hermes -p <name> gateway restart` is refused only for the
-    # profile the guard runs as, which it reads from the active Hermes home.
-    assert hermes.lines(LIFECYCLE_GUARD, 217, 219) == (
-        "        from hermes_cli.profiles import get_active_profile_name\n"
+    # cron/lifecycle_guard.py:65: "Remind me to kill time before the Hermes gateway meeting" matches.
+    assert hermes.lines(LIFECYCLE_GUARD, 65, 65) == (
+        '    r"|(?:\\b(?:p?kill|taskkill|stop-process)\\b[^\\n]*\\bhermes\\b[^\\n]*\\bgateway)"'
+    )
+    # cron/lifecycle_guard.py:372-376: `hermes -p <name> gateway restart` is refused only for the
+    # profile the guard runs as ...
+    assert hermes.lines(LIFECYCLE_GUARD, 372, 376) == (
+        "def _current_profile_name() -> Optional[str]:\n"
+        '    """Profile running the guard (``hermes_cli.profiles.current_profile_name``); ``None`` if none."""\n'
+        "    from hermes_cli.profiles import current_profile_name\n"
         "\n"
-        "        return get_active_profile_name() or None"
+        "    return current_profile_name()"
+    )
+    # ... which, under a context-local home override (the adapter's profile scope), is the name
+    # of the active Hermes home: the HERMES_PROFILE_NAME / HERMES_PROFILE env pins count only
+    # without an override (hermes_cli/profiles.py:2124-2131).
+    assert hermes.lines(PROFILES, 2124, 2131) == (
+        "    from hermes_constants import get_hermes_home_override\n"
+        "    if get_hermes_home_override() is None:\n"
+        '        for env_name in ("HERMES_PROFILE_NAME", "HERMES_PROFILE"):\n'
+        '            value = (os.environ.get(env_name) or "").strip()\n'
+        "            if value:\n"
+        "                return value\n"
+        "    try:\n"
+        "        return get_active_profile_name() or default"
     )
 
 
