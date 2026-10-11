@@ -335,9 +335,12 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
     how the app configures a new agent from its template. Since v0.21.6 that
     is ``platform_toolsets.cli`` in the profile's ``config.yaml``, the list
     Hermes builds an app session's tools from. Hermes builds a gateway turn's
-    and a cron run's tools from their own platform's list, and a running
-    session keeps the tools it was built with, so the tool gate is what makes
-    a template's toolsets binding on every platform and at the next call.
+    and a cron run's tools from their own platform's list, and most running
+    sessions keep the tools they were built with (only a Bot Chat session is
+    rebuilt, at the start of its next turn, when its capability fingerprint
+    changed: ``tui_gateway/model_switch.py`` ``_sync_bot_capabilities``). So
+    the tool gate is what makes a template's toolsets binding on every
+    platform and at the next call.
     Before v0.21.6 ``profiles.configure`` wrote ``tools.enabled_toolsets``,
     which no Hermes surface reads any more; a profile configured then still
     has that pin, so it counts while the profile has no

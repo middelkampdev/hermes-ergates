@@ -29,6 +29,7 @@ CRONJOB = "tools/cronjob_tools.py"
 PROVIDER = "cron/scheduler_provider.py"
 RPC = "tui_gateway/methods_tools.py"
 MODEL_SWITCH = "tui_gateway/model_switch.py"
+PROMPT_TURN = "tui_gateway/prompt_turn.py"
 PROMPT_SCAN = "tools/cronjob_prompt_scan.py"
 
 
@@ -376,7 +377,8 @@ def test_hermes_builds_app_sessions_from_the_pin_and_other_platforms_from_their_
     """Hermes now applies the pin itself, to app sessions when it builds them (the gate's
     grant is redundant there). The gate still enforces it on gateway turns and cron runs,
     which Hermes builds from their own platform's list, and at the next call of a running
-    session, which ``profiles.configure`` does not rebuild."""
+    session: ``profiles.configure`` rebuilds none, and only a Bot Chat session is rebuilt,
+    at the start of its next turn, when its capability fingerprint changed."""
     # tui_gateway/server.py:2087 (in _load_enabled_toolsets, which _build_agent calls at 2695).
     assert hermes.lines(TUI_SERVER, 2087, 2087) == '        enabled = _get_platform_tools(cfg, "cli", include_default_mcp_servers=True)'
     assert hermes.lines(TUI_SERVER, 2695, 2695) == "        enabled_toolsets=_load_enabled_toolsets(platform),"
@@ -390,6 +392,13 @@ def test_hermes_builds_app_sessions_from_the_pin_and_other_platforms_from_their_
     )
     # profiles.configure rebuilds no running session.
     assert "_refresh_live_sessions" not in hermes.text(PROFILES_RPC)
+    # tui_gateway/prompt_turn.py:690 and model_switch.py:412, 425-426: at turn start Hermes
+    # rebuilds a session's agent only when it is a Bot Chat whose capabilities changed.
+    assert hermes.lines(PROMPT_TURN, 690, 690) == (
+        "    _sync_bot_capabilities(sid, session)  # Bot Chat: adopt Settings->Capabilities edits"
+    )
+    assert hermes.lines(MODEL_SWITCH, 412, 412) == "def _sync_bot_capabilities(sid: str, session: dict) -> None:"
+    assert hermes.lines(MODEL_SWITCH, 425, 426) == '        if title != "Bot Chat":\n            return'
 
 
 def test_the_app_grant_is_hermes_s_own_resolution_of_the_cli_list(hermes: PinnedSource) -> None:
