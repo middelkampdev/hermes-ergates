@@ -16,9 +16,9 @@ PUBLIC = "hermes_cli/dashboard_auth/public_paths.py"
 
 
 def test_a_plugin_declares_its_api_file_in_dashboard_manifest_json(hermes: PinnedSource) -> None:
-    # hermes_cli/web_server_dashboard.py:548 and 510-511
-    assert hermes.lines(DASHBOARD, 548, 548) == '            manifest_file = child / "dashboard" / "manifest.json"'
-    assert hermes.lines(DASHBOARD, 510, 511) == (
+    # hermes_cli/web_server_dashboard.py:573 and 531-532
+    assert hermes.lines(DASHBOARD, 573, 573) == '            manifest_file = child / "dashboard" / "manifest.json"'
+    assert hermes.lines(DASHBOARD, 531, 532) == (
         '    raw_api = data.get("api")\n' "    safe_api = _safe_plugin_api_relpath(raw_api, dashboard_dir=dashboard_dir)"
     )
 
@@ -38,8 +38,8 @@ def test_the_router_is_mounted_under_api_plugins_name(hermes: PinnedSource) -> N
 
 
 def test_a_user_plugin_api_mounts_only_when_enabled(hermes: PinnedSource) -> None:
-    # hermes_cli/web_server_dashboard.py:755-756
-    assert hermes.lines(DASHBOARD, 755, 756) == (
+    # hermes_cli/web_server_dashboard.py:796-797
+    assert hermes.lines(DASHBOARD, 796, 797) == (
         '    if source == "user" and plugin_name not in enabled_set:\n' '        return "not in plugins.enabled"'
     )
 
@@ -48,8 +48,8 @@ def test_plugin_routes_sit_behind_the_dashboard_auth(hermes: PinnedSource) -> No
     public = hermes.assigned(PUBLIC, "PUBLIC_API_PATHS")
     assert "/api/status" in public
     assert not any(path.startswith("/api/plugins") for path in public)
-    # hermes_cli/web_server.py:645-654: every other /api/ path needs the session token ...
-    assert hermes.lines(WEB, 645, 654) == (
+    # hermes_cli/web_server.py:710-719: every other /api/ path needs the session token ...
+    assert hermes.lines(WEB, 710, 719) == (
         "    if (\n"
         '        not getattr(request.state, "token_authenticated", False)\n'
         '        and not getattr(request.app.state, "auth_required", False)\n'
@@ -61,8 +61,8 @@ def test_plugin_routes_sit_behind_the_dashboard_auth(hermes: PinnedSource) -> No
         "    ):\n"
         '        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})'
     )
-    # ... and, when the gate is on, the cookie auth decides (hermes_cli/web_server.py:632-633).
-    assert hermes.lines(WEB, 632, 633) == (
+    # ... and, when the gate is on, the cookie auth decides (hermes_cli/web_server.py:697-698).
+    assert hermes.lines(WEB, 697, 698) == (
         "    from hermes_cli.dashboard_auth.middleware import gated_auth_middleware\n"
         "    return await gated_auth_middleware(request, call_next)"
     )

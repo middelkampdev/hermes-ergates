@@ -37,19 +37,27 @@ def _arguments(function: ast.FunctionDef) -> list[str]:
 
 
 def test_get_default_hermes_root_takes_no_arguments_and_returns_a_path(hermes: PinnedSource) -> None:
+    """The adapter calls it with no arguments. At v0.21.6 it also takes an optional
+    keyword-only ``home``; without it the function reads ``HERMES_HOME`` from the process
+    environment, never the context-local override a profile scope sets."""
     function = hermes.function(CONSTANTS, "get_default_hermes_root")
     arguments = function.args
     assert arguments.posonlyargs == []
     assert arguments.args == []
     assert arguments.vararg is None
-    assert arguments.kwonlyargs == []
+    assert [a.arg for a in arguments.kwonlyargs] == ["home"]
+    assert [ast.unparse(d) for d in arguments.kw_defaults] == ["None"]
     assert arguments.kwarg is None
     assert ast.unparse(function.returns) == "Path"
+    # hermes_constants.py:220
+    assert hermes.lines(CONSTANTS, 220, 220) == (
+        '    env_home = str(home).strip() if home is not None else os.environ.get("HERMES_HOME", "").strip()'
+    )
 
 
 def test_get_timezone_takes_no_arguments_and_returns_a_zone_or_none(hermes: PinnedSource) -> None:
     function = hermes.function(HERMES_TIME, "get_timezone")
-    assert function.lineno == 95
+    assert function.lineno == 129
     arguments = function.args
     assert arguments.posonlyargs == []
     assert arguments.args == []
@@ -57,8 +65,8 @@ def test_get_timezone_takes_no_arguments_and_returns_a_zone_or_none(hermes: Pinn
     assert arguments.kwonlyargs == []
     assert arguments.kwarg is None
     assert ast.unparse(function.returns) == "Optional[ZoneInfo]"
-    # hermes_time.py:95-97
-    assert hermes.lines(HERMES_TIME, 95, 97) == (
+    # hermes_time.py:129-131
+    assert hermes.lines(HERMES_TIME, 129, 131) == (
         "def get_timezone() -> Optional[ZoneInfo]:\n"
         '    """Return the active profile\'s configured ZoneInfo, or None (server-local)."""\n'
         "    return _timezone_entry()[1]"
@@ -66,8 +74,8 @@ def test_get_timezone_takes_no_arguments_and_returns_a_zone_or_none(hermes: Pinn
 
 
 def test_hermes_time_now_is_in_the_configured_zone(hermes: PinnedSource) -> None:
-    # hermes_time.py:112-115
-    assert hermes.lines(HERMES_TIME, 112, 115) == (
+    # hermes_time.py:146-149
+    assert hermes.lines(HERMES_TIME, 146, 149) == (
         "def now() -> datetime:\n"
         '    """Current time as a tz-aware datetime: configured zone, else server-local."""\n'
         "    tz = get_timezone()\n"
@@ -76,18 +84,27 @@ def test_hermes_time_now_is_in_the_configured_zone(hermes: PinnedSource) -> None
 
 
 def test_cron_computes_the_next_run_from_hermes_time_now(hermes: PinnedSource) -> None:
-    # cron/jobs.py:36
-    assert hermes.lines(CRON_JOBS, 36, 36) == "from hermes_time import now as _hermes_now"
-    assert hermes.function(CRON_JOBS, "compute_next_run").lineno == 1097
-    # cron/jobs.py:1099, and the cron branch at 1123 counts from it (base_time is now without a last run)
-    assert hermes.lines(CRON_JOBS, 1099, 1099) == "    now = _hermes_now()"
-    assert hermes.lines(CRON_JOBS, 1106, 1106) == "    base_time = (_parse_aware(last_run_at) if last_run_at else None) or now"
-    assert hermes.lines(CRON_JOBS, 1123, 1123) == "        return croniter(expr, base_time).get_next(datetime).isoformat()"
+    # cron/jobs.py:40-41
+    assert hermes.lines(CRON_JOBS, 40, 41) == "from hermes_time import now as _hermes_now\nfrom hermes_time import get_timezone"
+    assert hermes.function(CRON_JOBS, "compute_next_run").lineno == 1178
+    # cron/jobs.py:1180 and 1187: base_time is now without a last run
+    assert hermes.lines(CRON_JOBS, 1180, 1180) == "    now = _hermes_now()"
+    assert hermes.lines(CRON_JOBS, 1187, 1187) == "    base_time = (_parse_aware(last_run_at) if last_run_at else None) or now"
+    # cron/jobs.py:1218-1220: the cron branch matches the expression against the wall clock of
+    # get_timezone()'s zone (the base's own zone only when none is configured).
+    assert hermes.lines(CRON_JOBS, 1218, 1220) == (
+        "        zone = get_timezone() or base_time.tzinfo\n"
+        "        base_wall = base_time.astimezone(zone).replace(tzinfo=None)\n"
+        "        it = croniter(expr, base_wall)"
+    )
 
 
 def test_the_adapter_accepts_exactly_the_profile_names_hermes_accepts(hermes: PinnedSource) -> None:
-    # hermes_cli/profiles.py:24
-    assert hermes.lines(PROFILES, 24, 24) == '_PROFILE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")'
+    # hermes_cli/profiles.py:29 aliases the canonical pattern, hermes_constants.py:320.
+    assert hermes.lines(PROFILES, 29, 29) == (
+        "_PROFILE_ID_RE = PROFILE_ID_RE  # legacy alias; hermes_constants.PROFILE_ID_RE is canonical"
+    )
+    assert hermes.lines(CONSTANTS, 320, 320) == 'PROFILE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")'
     assert hermes_adapter._PROFILE_RE.pattern == "^[a-z0-9][a-z0-9_-]{0,63}$"
 
 
@@ -119,9 +136,9 @@ def test_a_profile_scope_is_the_context_local_home_override(hermes: PinnedSource
 
 
 def test_profile_name_is_derived_from_the_active_home_at_every_read(hermes: PinnedSource) -> None:
-    # hermes_cli/plugins.py:397-406: a property, evaluated per access. When the
+    # hermes_cli/plugins.py:393-402: a property, evaluated per access. When the
     # lookup raises it answers "default", the same text as the default profile's own name.
-    assert hermes.lines(PLUGINS, 397, 406) == (
+    assert hermes.lines(PLUGINS, 393, 402) == (
         "    @property\n"
         "    def profile_name(self) -> str:\n"
         '        """Active profile name (``"default"``, the ``~/.hermes/profiles/<name>`` id, or ``"custom"``),\n'
@@ -138,8 +155,8 @@ def test_profile_name_is_derived_from_the_active_home_at_every_read(hermes: Pinn
 def test_the_lookup_behind_profile_name_answers_default_only_for_the_root_home(hermes: PinnedSource) -> None:
     """``current_profile`` accepts a "default" only when this lookup, asked again, names the default profile."""
     assert _arguments(hermes.function(PROFILES, "get_active_profile_name")) == []
-    # hermes_cli/profiles.py:1347-1353
-    assert hermes.lines(PROFILES, 1347, 1353) == (
+    # hermes_cli/profiles.py:2098-2104
+    assert hermes.lines(PROFILES, 2098, 2104) == (
         "def get_active_profile_name() -> str:\n"
         '    """Profile name inferred from HERMES_HOME: ``"default"`` when unset or ``~/.hermes``, the\n'
         '    name under ``~/.hermes/profiles/<name>``, ``"custom"`` for any other path."""\n'
@@ -165,8 +182,8 @@ def test_plugin_discovery_can_be_asked_without_loading_anything(hermes: PinnedSo
 
 def test_cron_create_is_the_cronjob_function_behind_the_cron_manage_rpc(hermes: PinnedSource) -> None:
     assert {"action", "name", "schedule", "prompt"} <= set(_arguments(hermes.function(CRONJOB, "cronjob")))
-    # tools/cronjob_tools.py:591: a successful create reports the new job's id.
-    assert hermes.lines(CRONJOB, 591, 591) == (
+    # tools/cronjob_tools.py:712: a successful create reports the new job's id.
+    assert hermes.lines(CRONJOB, 712, 712) == (
         '        "success": True, "job_id": job["id"], "name": job["name"], "skill": job.get("skill"),'
     )
 
@@ -186,13 +203,13 @@ def test_a_create_refuses_what_the_private_prompt_scan_reports(hermes: PinnedSou
     )
     # tools/cronjob_prompt_scan.py:29: one of the phrases it refuses.
     assert hermes.lines(PROMPT_SCAN, 29, 29) == """    (r'do\\s+not\\s+tell\\s+the\\s+user', "deception_hide"),"""
-    # tools/cronjob_tools.py:46, 545-546 and 558-559: the create scans the prompt first and
+    # tools/cronjob_tools.py:48, 661-662 and 674-675: the create scans the prompt first and
     # answers the scan's error instead of creating a job.
-    assert hermes.lines(CRONJOB, 46, 46) == "from tools.cronjob_prompt_scan import _scan_cron_prompt"
-    assert hermes.function(CRONJOB, "_action_create").lineno == 526
-    assert hermes.lines(CRONJOB, 545, 546) == "    error = (\n        (prompt and _scan_cron_prompt(prompt))"
-    assert hermes.lines(CRONJOB, 558, 559) == "    if error:\n        return tool_error(error, success=False)"
-    assert hermes.lines(CRONJOB, 827, 827) == '_JOBLESS_ACTIONS = {"create": _action_create, "list": _action_list}'
+    assert hermes.lines(CRONJOB, 48, 48) == "from tools.cronjob_prompt_scan import _scan_cron_prompt"
+    assert hermes.function(CRONJOB, "_action_create").lineno == 642
+    assert hermes.lines(CRONJOB, 661, 662) == "    error = (\n        (prompt and _scan_cron_prompt(prompt))"
+    assert hermes.lines(CRONJOB, 674, 675) == "    if error:\n        return tool_error(error, success=False)"
+    assert hermes.lines(CRONJOB, 957, 957) == '_JOBLESS_ACTIONS = {"create": _action_create, "list": _action_list}'
 
 
 def test_cron_lookups_and_schedule_checks(hermes: PinnedSource) -> None:
@@ -200,8 +217,8 @@ def test_cron_lookups_and_schedule_checks(hermes: PinnedSource) -> None:
     assert _arguments(hermes.function(JOBS, "list_jobs")) == ["include_disabled"]
     assert _arguments(hermes.function(JOBS, "parse_schedule")) == ["schedule"]
     assert _arguments(hermes.function(JOBS, "compute_next_run")) == ["schedule", "last_run_at"]
-    # cron/jobs.py:1757: a given name is stored as given, so an exact-name match finds it.
-    assert hermes.lines(JOBS, 1757, 1757) == "    name = name or label_source[:50].strip()"
+    # cron/jobs.py:1893: a given name is stored as given, so an exact-name match finds it.
+    assert hermes.lines(JOBS, 1893, 1893) == "    name = name or label_source[:50].strip()"
 
 
 def test_a_one_shot_that_ran_is_kept_as_a_completed_job_for_seven_days(hermes: PinnedSource) -> None:
@@ -209,37 +226,37 @@ def test_a_one_shot_that_ran_is_kept_as_a_completed_job_for_seven_days(hermes: P
     reminder service counts a completed job as gone for a receipt keyed by its
     payload (the agent tool's path): the same request after the run is a new
     reminder, not a 7-day-old record."""
-    # cron/jobs.py:1729-1731: a one-shot runs once.
-    assert hermes.lines(JOBS, 1730, 1731) == (
+    # cron/jobs.py:1866-1867: a one-shot runs once.
+    assert hermes.lines(JOBS, 1866, 1867) == (
         '    if parsed_schedule["kind"] == "once" and repeat is None:\n'
         "        repeat = 1"
     )
-    # cron/jobs.py:2267-2271 and 2289-2290: after its run the job is retired in place, not removed.
-    assert hermes.lines(JOBS, 2267, 2271) == (
+    # cron/jobs.py:2429-2433 and 2451-2452: after its run the job is retired in place, not removed.
+    assert hermes.lines(JOBS, 2429, 2433) == (
         "        if finite and completed >= times:\n"
         "            # Limit reached: retain a terminal record instead of popping it, so the status just\n"
         "            # written stays inspectable in `cronjob list`; the retention sweep prunes it later.\n"
         "            _complete_job_record(job)\n"
         "            return"
     )
-    assert hermes.lines(JOBS, 2289, 2290) == "    else:\n        _complete_job_record(job)  # one-shot: terminal completion"
-    # cron/jobs.py:1464-1466
-    assert hermes.lines(JOBS, 1464, 1466) == (
+    assert hermes.lines(JOBS, 2451, 2452) == "    else:\n        _complete_job_record(job)  # one-shot: terminal completion"
+    # cron/jobs.py:1632-1634
+    assert hermes.lines(JOBS, 1632, 1634) == (
         "def _complete_job_record(job: Dict[str, Any]) -> None:\n"
         '    """Retire *job* in place as a terminal completion (record kept for `cronjob list`)."""\n'
         '    job.update(enabled=False, state="completed", next_run_at=None)'
     )
-    # cron/jobs.py:2610-2612: the retention sweep removes it only after 7 days.
+    # cron/jobs.py:2822-2824: the retention sweep removes it only after 7 days.
     assert hermes.assigned(JOBS, "COMPLETED_ONESHOT_RETENTION_DAYS") == 7
-    # cron/jobs.py:1815-1818, 474 and 492-494: get_job returns the record with "completed" kept.
-    assert hermes.lines(JOBS, 1815, 1818) == (
+    # cron/jobs.py:1951-1954, 527 and 545-547: get_job returns the record with "completed" kept.
+    assert hermes.lines(JOBS, 1951, 1954) == (
         "def get_job(job_id: str) -> Optional[Dict[str, Any]]:\n"
         '    """Get a job by ID."""\n'
         '    job = next((j for j in load_jobs() if j["id"] == job_id), None)\n'
         "    return _normalize_job_record(job) if job is not None else None"
     )
-    assert hermes.lines(JOBS, 474, 474) == '    normalized["state"] = effective_job_state(normalized)'
-    assert hermes.lines(JOBS, 492, 494) == (
+    assert hermes.lines(JOBS, 527, 527) == '    normalized["state"] = effective_job_state(normalized)'
+    assert hermes.lines(JOBS, 545, 547) == (
         '    stored = _coerce_job_text(job.get("state")).strip()\n'
         '    if stored in {"completed", "error"}:\n'
         "        return stored"
@@ -260,8 +277,8 @@ def test_a_create_ends_well_inside_the_reminder_in_flight_window(hermes: PinnedS
         if isinstance(node, ast.ClassDef) and node.name == "InProcessCronScheduler"
     )
     assert "register_job" not in {node.name for node in in_process.body if isinstance(node, ast.FunctionDef)}
-    # cron/scheduler_provider.py:339-340: no configured provider means the built-in one.
-    assert hermes.lines(PROVIDER, 339, 340) == (
+    # cron/scheduler_provider.py:397-398: no configured provider means the built-in one.
+    assert hermes.lines(PROVIDER, 397, 398) == (
         '    if not name or name in ("builtin", "in-process", "inprocess"):\n'
         "        return InProcessCronScheduler()"
     )
@@ -315,8 +332,8 @@ def test_config_is_read_without_a_copy_for_every_tool_call(hermes: PinnedSource)
 
 
 def test_the_registry_names_the_toolset_of_a_tool(hermes: PinnedSource) -> None:
-    # model_tools.py:959-960
-    assert hermes.lines(MODEL_TOOLS, 959, 960) == (
+    # model_tools.py:976-977
+    assert hermes.lines(MODEL_TOOLS, 976, 977) == (
         "def get_toolset_for_tool(tool_name: str) -> Optional[str]:\n"
         "    return registry.get_toolset_for_tool(tool_name)"
     )
@@ -356,8 +373,8 @@ def test_a_create_refuses_a_prompt_the_gateway_lifecycle_guard_blocks(hermes: Pi
     """``check_gateway_lifecycle`` asks the guard ``create_job`` runs, on the same
     stripped prompt and in the profile's home, so ``POST /reminders`` and the
     reminder tool answer 400 for a prompt the create would refuse on every try."""
-    # cron/jobs.py:1744-1749: the create strips the prompt and runs the guard without a script.
-    assert hermes.lines(JOBS, 1744, 1749) == (
+    # cron/jobs.py:1880-1885: the create strips the prompt and runs the guard without a script.
+    assert hermes.lines(JOBS, 1880, 1885) == (
         "    prompt_text = _coerce_job_text(prompt).strip()\n"
         "    if not prompt_text and not f[\"script\"] and not normalized_skills:\n"
         "        raise ValueError(EMPTY_PAYLOAD_ERROR)\n"
@@ -366,10 +383,10 @@ def test_a_create_refuses_a_prompt_the_gateway_lifecycle_guard_blocks(hermes: Pi
         "    check_gateway_lifecycle(prompt_text, f[\"script\"])"
     )
     assert _arguments(hermes.function(LIFECYCLE_GUARD, "check_gateway_lifecycle")) == ["prompt", "script"]
-    # cron/lifecycle_guard.py:23: a refusal is a ValueError.
-    assert hermes.lines(LIFECYCLE_GUARD, 23, 23) == "class GatewayLifecycleBlocked(ValueError):"
-    # tools/cronjob_tools.py:905-906: cronjob() turns the refusal into an error answer, never a job.
-    assert hermes.lines(CRONJOB, 905, 906) == "    except Exception as e:\n        return tool_error(str(e), success=False)"
+    # cron/lifecycle_guard.py:24: a refusal is a ValueError.
+    assert hermes.lines(LIFECYCLE_GUARD, 24, 24) == "class GatewayLifecycleBlocked(ValueError):"
+    # tools/cronjob_tools.py:1037-1038: cronjob() turns the refusal into an error answer, never a job.
+    assert hermes.lines(CRONJOB, 1037, 1038) == "    except Exception as e:\n        return tool_error(str(e), success=False)"
 
 
 def test_the_gateway_lifecycle_guard_refuses_prose_and_depends_on_the_active_profile(hermes: PinnedSource) -> None:

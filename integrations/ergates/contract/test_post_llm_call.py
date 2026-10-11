@@ -25,7 +25,7 @@ def _keywords(call: ast.Call) -> dict[str, str]:
 
 def test_post_llm_call_receives_the_session_id_and_the_platform(hermes: PinnedSource) -> None:
     function = hermes.function(FINALIZER, "_apply_output_hooks")
-    assert function.lineno == 401
+    assert function.lineno == 450
     call = next(
         node for node in ast.walk(function)
         if isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant)
@@ -34,8 +34,8 @@ def test_post_llm_call_receives_the_session_id_and_the_platform(hermes: PinnedSo
     keywords = _keywords(call)
     assert keywords["session_id"] == "agent.session_id"
     assert keywords["platform"] == "platform"
-    # agent/turn_finalizer.py:421-431
-    assert hermes.lines(FINALIZER, 421, 431) == (
+    # agent/turn_finalizer.py:466-476
+    assert hermes.lines(FINALIZER, 466, 476) == (
         "        _invoke_hook_safely(\n"
         '            "post_llm_call", logger,\n'
         "            session_id=agent.session_id,\n"
@@ -51,9 +51,9 @@ def test_post_llm_call_receives_the_session_id_and_the_platform(hermes: PinnedSo
 
 
 def test_the_platform_passed_to_the_hook_is_the_agents_own(hermes: PinnedSource) -> None:
-    # agent/turn_finalizer.py:505 and 509-510
-    assert hermes.lines(FINALIZER, 505, 505) == '    _platform = getattr(agent, "platform", None) or ""'
-    assert hermes.lines(FINALIZER, 509, 510) == (
+    # agent/turn_finalizer.py:651 and 655-656
+    assert hermes.lines(FINALIZER, 651, 651) == '    _platform = getattr(agent, "platform", None) or ""'
+    assert hermes.lines(FINALIZER, 655, 656) == (
         "        final_response, _response_transformed, _pre_transform_response = _apply_output_hooks(\n"
         "            agent, final_response, logger, platform=_platform, effective_task_id=effective_task_id,"
     )
@@ -61,8 +61,8 @@ def test_the_platform_passed_to_the_hook_is_the_agents_own(hermes: PinnedSource)
 
 def test_the_agent_keeps_its_platform_argument_as_is(hermes: PinnedSource) -> None:
     assert "platform" in hermes.assigned(AGENT_INIT, "_PASSTHROUGH_PARAMS")
-    # agent/agent_init.py:2224-2225
-    assert hermes.lines(AGENT_INIT, 2224, 2225) == (
+    # agent/agent_init.py:2402-2403
+    assert hermes.lines(AGENT_INIT, 2402, 2403) == (
         "    for _name in _PASSTHROUGH_PARAMS:\n"
         "        setattr(agent, _name, _params[_name])"
     )
@@ -70,11 +70,11 @@ def test_the_agent_keeps_its_platform_argument_as_is(hermes: PinnedSource) -> No
 
 def test_cron_runs_its_turns_with_platform_cron(hermes: PinnedSource) -> None:
     function = hermes.function(SCHEDULER, "_construct_cron_agent")
-    assert function.lineno == 2152
+    assert function.lineno == 2465
     call = next(
         node for node in ast.walk(function)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "AIAgent"
     )
     assert _keywords(call)["platform"] == "'cron'"
-    # cron/scheduler.py:2183
-    assert hermes.lines(SCHEDULER, 2183, 2183) == '        platform="cron",'
+    # cron/scheduler.py:2496
+    assert hermes.lines(SCHEDULER, 2496, 2496) == '        platform="cron",'
