@@ -404,7 +404,9 @@ def test_hermes_builds_app_sessions_from_the_pin_and_other_platforms_from_their_
 def test_the_app_grant_is_hermes_s_own_resolution_of_the_cli_list(hermes: PinnedSource) -> None:
     """granted_toolsets calls this for ``platform_toolsets.cli``, the call an app session is built
     with (tui_gateway/server.py:2087): it expands the legacy alias ``hermes`` and adds the toolsets
-    Hermes turns on beyond the list, so the gate refuses nothing Hermes enables there."""
+    Hermes turns on beyond the list. The client-surface toolsets tui_gateway adds to a session after
+    this call (``project``, and ``desktop_ui`` and ``catalog`` on Desktop: ``_with_session_toolsets``,
+    server.py:1980-2000, 2091) are not in it, so the gate refuses their tools unless the pin lists them."""
     function = hermes.function(TOOLS_CONFIG, "_get_platform_tools")
     assert [a.arg for a in function.args.args] == ["config", "platform"]
     assert [a.arg for a in function.args.kwonlyargs] == ["include_default_mcp_servers"]
