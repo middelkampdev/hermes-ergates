@@ -2,15 +2,19 @@
 
 Since v0.21.6 a plugin enabled after the server started gets its routes on the
 first request to ``/api/plugins/<name>/`` (``hermes_cli/web_server_dashboard.py``
-``_PluginApiHotMount``), so the app needs no restart after the install. Each
-test starts its own server (``serve_hermes``) on a Hermes root without the
-plugin, and installs ``plugin_git_repo``: one commit holding a copy of this
-plugin, the way a user's server would clone it.
+``_PluginApiHotMount``), so the app needs no restart after the install. The
+hot-mount test starts its own server (``serve_hermes``) on a Hermes root
+without the plugin, and installs ``plugin_git_repo``: one commit holding the
+files git tracks in ``integrations/ergates``, the way a user's server would
+clone it.
 
-Hermes scans every install (``tools/plugin_guard.py``). It blocks this
-plugin's tree today, so the hot-mount test turns ``plugins.scan_on_install``
-off in its own root, and the scan's verdict is recorded on its own below. The
-install never passes ``force``.
+Hermes scans every install (``tools/plugin_guard.py``): ``safe`` installs,
+``caution`` needs confirmation, and ``dangerous`` is blocked even with
+``force``. The hot-mount root keeps Hermes's default settings, so its install
+passes through that scan, and it never passes ``force``. The plugin's tests
+live in ``integrations/ergates-tests`` so the installed tree holds only
+runtime code; ``contract/test_install_scan.py`` runs the same scanner on the
+same files without the live suite.
 """
 
 from __future__ import annotations
@@ -25,22 +29,15 @@ API = "/api/plugins/ergates"
 INSTALL = "/api/dashboard/agent-plugins/install"
 
 
-def _root_without_plugin(base: Path, *, scan_on_install: bool) -> Path:
-    """A new Hermes root with no plugin in it; ``scan_on_install`` true is Hermes's default."""
-    root = base / "hermes"
-    root.mkdir()
-    # Same reason as conftest.py: no lazy `uv pip install` of optional provider stacks.
-    config: dict = {"security": {"allow_lazy_installs": False}}
-    if not scan_on_install:
-        config["plugins"] = {"scan_on_install": False}
-    (root / "config.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
-    return root
-
-
 @pytest.fixture
 def root_without_plugin(tmp_path) -> Path:
-    """A root for the hot-mount test: no plugin, and the install scan off (see the module docstring)."""
-    return _root_without_plugin(tmp_path, scan_on_install=False)
+    """A new Hermes root with no plugin in it and Hermes's default install scan."""
+    root = tmp_path / "hermes"
+    root.mkdir()
+    # Same reason as conftest.py: no lazy `uv pip install` of optional provider stacks.
+    (root / "config.yaml").write_text(yaml.safe_dump({"security": {"allow_lazy_installs": False}}),
+                                      encoding="utf-8")
+    return root
 
 
 @pytest.fixture
@@ -55,6 +52,22 @@ def install_through_dashboard(web, headers: dict, *, identifier: str, ref: str, 
                      headers=headers)
     print(f"POST {INSTALL} -> {reply.status_code}\n{json.dumps(reply.json(), indent=2)}")
     return reply.json()
+
+
+def scan(tree: Path):
+    """Hermes's install scan of ``tree``: its verdict, and every finding that would stop an install.
+
+    A ``high`` finding makes the verdict ``caution``, which needs confirmation;
+    a ``critical`` one makes it ``dangerous`` (``tools/skills_guard.py``
+    ``_determine_verdict``).
+    """
+    from tools.plugin_guard import format_scan_report, scan_plugin
+
+    result = scan_plugin(tree)
+    print(format_scan_report(result))
+    blocking = sorted((finding.severity, finding.pattern_id, finding.file) for finding in result.findings
+                      if finding.severity in {"high", "critical"})
+    return result, blocking
 
 
 def test_plugin_installed_after_start_serves_health_without_restart(web_without_plugin, root_without_plugin,
@@ -73,41 +86,19 @@ def test_plugin_installed_after_start_serves_health_without_restart(web_without_
     assert web.get(f"{API}/attention/prefs", params={"scope": "*"}, headers=token_headers).status_code == 200
     installed = root_without_plugin / "plugins" / "ergates"
     assert installed.is_dir() and not installed.is_symlink()
+    scanned, blocking = scan(installed)
+    assert (scanned.verdict, blocking) == ("safe", [])
 
 
-def test_the_install_route_refuses_this_plugin_while_the_install_scan_is_on(serve_hermes, tmp_path, token_headers,
-                                                                            plugin_git_repo):
-    """The answer a dashboard client gets today from a Hermes with its default settings: Hermes's
-    ``{"detail"}`` error with the scan report as text."""
-    root = _root_without_plugin(tmp_path, scan_on_install=True)
-    web = serve_hermes(root)
+def test_the_install_scan_finds_this_plugin_safe(plugin_git_repo):
+    """The verdict Hermes's install scan gives the tree a user installs, before any server runs.
 
-    reply = web.post(INSTALL, json={"identifier": plugin_git_repo.url, "ref": plugin_git_repo.sha, "enable": True,
-                                    "force": False}, headers=token_headers)
-
-    print(f"POST {INSTALL} -> {reply.status_code}\n{reply.json()['detail']}")
-    assert reply.status_code == 400
-    assert list(reply.json()) == ["detail"]
-    assert reply.json()["detail"].startswith("Security scan blocked plugin install: Blocked (dangerous verdict")
-    assert not (root / "plugins" / "ergates").exists()
-    assert web.get(f"{API}/health", headers=token_headers).status_code == 404
-
-
-def test_the_install_scan_finds_this_plugin_dangerous_and_force_cannot_override_it(plugin_git_repo):
-    """The verdict Hermes's install scan gives this plugin's tree today, and why.
-
-    A ``dangerous`` verdict blocks every install, ``force`` included; ``caution``
-    would install with ``force``. The one critical finding is the live suite's
-    own session token in ``contract/live/conftest.py``: the scanner steps a
-    finding down one severity only in a test tree (a top-level ``tests/`` and
-    the like) or a ``test_*`` file, and that file is neither.
+    ``safe`` installs without ``force`` and without a confirmation prompt,
+    which the app's one-tap setup cannot show.
     """
-    from tools.plugin_guard import format_scan_report, scan_plugin, should_allow_plugin_install
+    from tools.plugin_guard import should_allow_plugin_install
 
-    result = scan_plugin(plugin_git_repo.path, source=plugin_git_repo.url)
+    result, blocking = scan(plugin_git_repo.path)
 
-    print(format_scan_report(result))
-    critical = sorted((finding.pattern_id, finding.file) for finding in result.findings
-                      if finding.severity == "critical")
-    assert (result.verdict, critical) == ("dangerous", [("hardcoded_secret", "contract/live/conftest.py")])
-    assert should_allow_plugin_install(result, force=True)[0] is False
+    assert (result.verdict, blocking) == ("safe", [])
+    assert should_allow_plugin_install(result, force=False)[0] is True

@@ -116,8 +116,10 @@ prepare_hermes_source() {
   export HERMES_SOURCE="$cache"
 }
 
-# Two pytest runs. `contract/` reads the pinned source as text and needs no
-# Hermes dependency. `contract/live/` imports the pinned Hermes itself, so it
+# Two pytest runs. `contract/` reads the pinned source as text and runs the
+# pinned install scanner (standard library only) on the plugin folder, which
+# must rate it `safe`; it needs no Hermes dependency. `contract/live/`
+# imports the pinned Hermes itself and installs the plugin through it, so it
 # runs with Hermes's locked runtime dependencies, exported from the pin's own
 # uv.lock into .cache/ (the export writes nothing in the Hermes checkout).
 job_contract() {

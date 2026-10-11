@@ -1,7 +1,8 @@
 """Contract tests: facts about the pinned Hermes source that Ergates depends on.
 
 The tests in this folder read the Hermes checkout named by HERMES_SOURCE as
-text and never import it; the tests in `live/` import it (see
+text and never import it (`test_install_scan.py` runs Hermes's install
+scanner in a child process); the tests in `live/` import it (see
 `live/conftest.py`). The checkout must be at `expected_ref()` (HERMES_PIN, or
 HERMES_EXPECTED_REF when set) with no local edits; `scripts/ci-local.sh
 contract` and the CI `contract` and `contract-latest` jobs prepare it. When a
