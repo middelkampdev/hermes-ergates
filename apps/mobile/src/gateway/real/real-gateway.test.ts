@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FakeWebSocket, fakeSocketFactory, flush, installFakeWebSocket } from '@test/fake-gateway/fake-websocket'
 
 import { isGatewayError } from '../errors'
+import { createAuthSecretStore } from '../secrets'
 import { RealGateway } from './real-gateway'
-import { MemorySecretStore } from './secrets'
+import { MemorySecretStore, type SecretStore } from './secrets'
 
 const originalWebSocket = (globalThis as { WebSocket?: unknown }).WebSocket
 
@@ -98,6 +99,37 @@ describe('password login', () => {
     const me = await gateway.login({ mode: 'password', provider: 'basic', username: 'u', password: 'p' })
     expect(me?.user_id).toBe('u1')
     expect(await storedKeys(secrets)).toEqual(['ergates.c1.mode', 'ergates.c1.cookie'])
+  })
+})
+
+describe('password sign-in on a rooted or jailbroken phone', () => {
+  it('never writes the sign-in or a refreshed cookie to the phone, and a restart finds none', async () => {
+    const disk = new MemorySecretStore()
+    const recordingPersistent: SecretStore = {
+      get: key => disk.get(key),
+      set: vi.fn((key: string, value: string) => disk.set(key, value)),
+      remove: key => disk.remove(key)
+    }
+    const secrets = createAuthSecretStore(recordingPersistent)
+    secrets.useMemoryOnly()
+    const { impl } = routes({
+      '/auth/password-login': { status: 200, body: { ok: true }, headers: { 'set-cookie': 'hermes_session_at=first; Path=/' } },
+      '/api/auth/me': { status: 200, body: { user_id: 'u1' } },
+      // A mid-session refresh: any answer may carry a new session cookie.
+      '/api/profiles': { status: 200, body: { profiles: [] }, headers: { 'set-cookie': 'hermes_session_at=refreshed; Path=/' } }
+    })
+    const gateway = new RealGateway({ connectionId: 'c1', baseUrl: 'http://gw.local', secrets, fetchImpl: impl })
+
+    await gateway.login({ mode: 'password', provider: 'basic', username: 'u', password: 'p' })
+    await gateway.http.get('/api/profiles')
+    await flush()
+
+    // The refresh reached the in-memory sign-in, so the path through `onSetCookie` ran.
+    expect(await secrets.get('ergates.c1.cookie')).toBe('hermes_session_at=refreshed')
+    expect(recordingPersistent.set).not.toHaveBeenCalled()
+
+    const afterRestart = new RealGateway({ connectionId: 'c1', baseUrl: 'http://gw.local', secrets: createAuthSecretStore(recordingPersistent), fetchImpl: impl })
+    await expect(afterRestart.restore()).resolves.toBe('none')
   })
 })
 
