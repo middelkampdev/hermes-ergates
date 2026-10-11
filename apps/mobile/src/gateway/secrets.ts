@@ -21,3 +21,45 @@ export class MemorySecretStore implements SecretStore {
     this.map.delete(key)
   }
 }
+
+/**
+ * The sign-in storage the app hands to the gateway and the device store. It
+ * starts as a pass-through to the persistent store. `useMemoryOnly()` switches
+ * it, for the rest of the process, to keep the sign-in out of the phone's
+ * storage (used on rooted and jailbroken phones, where other apps may read it).
+ */
+export interface AuthSecretStore extends SecretStore {
+  readonly memoryOnly: boolean
+  useMemoryOnly(): void
+}
+
+export function createAuthSecretStore(persistent: SecretStore): AuthSecretStore {
+  const memory = new MemorySecretStore()
+  let memoryOnly = false
+  return {
+    get memoryOnly() {
+      return memoryOnly
+    },
+    useMemoryOnly() {
+      memoryOnly = true
+    },
+    async get(key) {
+      return memoryOnly ? memory.get(key) : persistent.get(key)
+    },
+    async set(key, value) {
+      if (!memoryOnly) {
+        return persistent.set(key, value)
+      }
+      await memory.set(key, value)
+      // A copy stored before the switch would outlive this write: drop it so a refreshed cookie never leaves the old one on disk.
+      await persistent.remove(key)
+    },
+    async remove(key) {
+      if (!memoryOnly) {
+        return persistent.remove(key)
+      }
+      await memory.remove(key)
+      await persistent.remove(key)
+    }
+  }
+}

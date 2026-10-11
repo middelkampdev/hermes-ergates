@@ -7,7 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 import { GatewayRegistryProvider } from '@/gateway/registry'
-import { secureSecretStore } from '@/state/persistence'
+import { authSecretStore } from '@/state/persistence'
 import { useDeviceStore, waitForHydration } from '@/state/device-store'
 import { ThemeProvider, useTheme } from '@/theme/provider'
 import { useSkinStore } from '@/theme/skin-store'
@@ -158,7 +158,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
-          <GatewayRegistryProvider secrets={secureSecretStore}>
+          <GatewayRegistryProvider secrets={authSecretStore}>
             <ThemeProvider appearance={appearance} themeName={themeName} backendThemes={backendThemes}>
               <SkinApplier />
               <DevInitialRoute />

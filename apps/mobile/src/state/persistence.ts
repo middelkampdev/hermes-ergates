@@ -22,7 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { AESEncryptionKey } from 'expo-crypto'
 import { createJSONStorage, type PersistStorage, type StateStorage } from 'zustand/middleware'
 
-import type { SecretStore } from '@/gateway/secrets'
+import { createAuthSecretStore, type AuthSecretStore, type SecretStore } from '@/gateway/secrets'
 
 import { createSealedStateStorage, type BlobCipher } from './sealed-storage'
 
@@ -132,6 +132,13 @@ export const secureSecretStore: SecretStore = {
     await SecureStore.deleteItemAsync(key)
   }
 }
+
+/**
+ * The sign-in store the app uses: SecureStore, unless `useMemoryOnly()` was called
+ * at start-up (rooted or jailbroken phone). Shared so the gateway and the device
+ * store switch together.
+ */
+export const authSecretStore: AuthSecretStore = createAuthSecretStore(secureSecretStore)
 
 /** In-memory `StateStorage` for tests; never touches AsyncStorage. */
 export function createMemoryStateStorage(): StateStorage {
