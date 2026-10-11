@@ -2,8 +2,9 @@
 
 The tests in this folder read the Hermes checkout named by HERMES_SOURCE as
 text and never import it; the tests in `live/` import it (see
-`live/conftest.py`). The checkout must be at HERMES_PIN with no local edits;
-`scripts/ci-local.sh contract` and the CI `contract` job prepare it. When a
+`live/conftest.py`). The checkout must be at `expected_ref()` (HERMES_PIN, or
+HERMES_EXPECTED_REF when set) with no local edits; `scripts/ci-local.sh
+contract` and the CI `contract` and `contract-latest` jobs prepare it. When a
 test here fails after a pin bump, re-check the design decision it pins
 before changing the test.
 """
@@ -15,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from pinned import HERMES_PIN, PinnedSource, check_pin
+from pinned import PinnedSource, check_pin, expected_ref
 
 # `live/` imports the pinned Hermes and needs its dependencies, so the runner
 # starts it as its own pytest run (scripts/ci-local.sh contract). A plain
@@ -27,9 +28,9 @@ collect_ignore = ["live"]
 def hermes() -> PinnedSource:
     raw = os.environ.get("HERMES_SOURCE", "").strip()
     if not raw:
-        pytest.fail(f"HERMES_SOURCE is not set; point it at a Hermes checkout at {HERMES_PIN}")
+        pytest.fail(f"HERMES_SOURCE is not set; point it at a Hermes checkout at {expected_ref()}")
     root = Path(raw).expanduser().resolve()
-    failure = check_pin(root, HERMES_PIN)
+    failure = check_pin(root, expected_ref())
     if failure is not None:
         pytest.fail(failure)
     return PinnedSource(root)

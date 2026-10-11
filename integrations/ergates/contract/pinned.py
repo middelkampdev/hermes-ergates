@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import ast
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 # Same pin in scripts/ci-local.sh (HERMES_PIN) and .github/workflows/ci.yml (contract job `ref`).
 HERMES_PIN = "818c13be1dc4fd28987e1e881a9408224afd4535"
+
+
+def expected_ref() -> str:
+    """The commit the Hermes checkout must be at: HERMES_EXPECTED_REF when set
+    and not empty, else HERMES_PIN. The CI job `contract-latest` sets it to the
+    commit of the newest stable Hermes release; scripts/ci-local.sh reads the
+    same variable.
+    """
+    return os.environ.get("HERMES_EXPECTED_REF") or HERMES_PIN
 
 
 def check_pin(root: Path, pin: str) -> str | None:

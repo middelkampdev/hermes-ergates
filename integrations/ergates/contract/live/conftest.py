@@ -33,7 +33,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from pinned import HERMES_PIN, check_pin
+from pinned import check_pin, expected_ref
 
 PLUGIN_DIR = Path(__file__).resolve().parents[2]
 # The dashboard session token `hermes serve` expects (hermes_cli/web_server.py reads the variable at import).
@@ -48,9 +48,9 @@ _temporary: list[Path] = []
 def pytest_configure(config: pytest.Config) -> None:
     raw = os.environ.get("HERMES_SOURCE", "").strip()
     if not raw:
-        pytest.exit(f"HERMES_SOURCE is not set; point it at a Hermes checkout at {HERMES_PIN}", returncode=4)
+        pytest.exit(f"HERMES_SOURCE is not set; point it at a Hermes checkout at {expected_ref()}", returncode=4)
     source = Path(raw).expanduser().resolve()
-    failure = check_pin(source, HERMES_PIN)
+    failure = check_pin(source, expected_ref())
     if failure is not None:
         pytest.exit(failure, returncode=4)
     base = Path(tempfile.mkdtemp(prefix="ergates-live-")).resolve()

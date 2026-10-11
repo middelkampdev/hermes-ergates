@@ -55,6 +55,8 @@ Run one job with `scripts/ci-local.sh mobile`, several with `scripts/ci-local.sh
 
 Hermes pin: `818c13be1dc4fd28987e1e881a9408224afd4535` (v0.21.6). The vendored gateway client and theme sources come from that commit (`apps/mobile/vendor/hermes/PIN.md`). Re-verify the vendored client against [06 - Client contract](docs/06-hermes-api-contract.md) on every upgrade; `scripts/ci-local.sh contract` checks the pinned integration automatically.
 
+A weekly CI job, `contract-latest`, runs the same contract tests against the newest stable Hermes release, so a break shows up before the pin moves. It also runs on manual dispatch and never on a pull request.
+
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for branches, setup, and the checks a change needs to pass. Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md), and security issues should be reported privately, per the [security policy](SECURITY.md).
