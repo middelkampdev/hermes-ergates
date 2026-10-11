@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter, Redirect } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, BackHandler, StyleSheet, Text } from 'react-native'
+import { Alert, BackHandler, Pressable, StyleSheet, Text } from 'react-native'
 
 import {
   NO_SELECTION,
@@ -10,6 +10,7 @@ import {
   editBarLabels,
   hideEach,
   hideFailureMessage,
+  homeErrorLine,
   liveSelection,
   membershipChanged,
   membershipSnapshot,
@@ -252,6 +253,8 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
   }
 
   const empty = !home.loading && !home.error && home.bots.length === 0
+  const errorLine = home.error ? homeErrorLine(home.error) : null
+  const errorStyle = [styles.line, { color: theme.colors.destructive, paddingHorizontal: gutter }]
 
   return (
     <Screen>
@@ -290,9 +293,14 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
         bottomPadding={editing && selection.size > 0 ? editBarHeight(barBottomInset) + SPACE.giant : listBottomInset}
         bottomCover={editing && selection.size > 0 ? editBarHeight(barBottomInset) : 0}
         header={
-          home.error ? (
-            <Text style={[styles.line, { color: theme.colors.destructive, paddingHorizontal: gutter }]} accessibilityRole="alert">
-              Could not load your assistants. Pull to retry.
+          errorLine?.signIn ? (
+            // The session ended mid-use: a tap, never a redirect, opens the Sign-in screen.
+            <Pressable onPress={() => router.push({ pathname: '/sign-in', params: { connection: connectionId } })} accessibilityRole="button" accessibilityLabel="Sign in again">
+              <Text style={errorStyle}>{errorLine.text}</Text>
+            </Pressable>
+          ) : errorLine ? (
+            <Text style={errorStyle} accessibilityRole="alert">
+              {errorLine.text}
             </Text>
           ) : null
         }

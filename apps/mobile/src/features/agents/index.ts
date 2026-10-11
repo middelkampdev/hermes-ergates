@@ -86,5 +86,6 @@ export { provisionAgent, provisionDeps, provisionOnce, type OpenBotChat, type Pr
 export { AVATAR_MAX_BYTES, botsMeta, instructionsSummary, modelSummary, type SaveOutcome, type SaveSection } from './editor'
 export { EditBotProvider, useEditBotContext } from './editor-context'
 export { rosterKey, searchBots, useAvatar, useDescribe, useModelOptions, useRoster, useSetHidden, type Bot } from './roster'
+export { homeErrorLine, type HomeErrorLine } from './home-error'
 export { useHome, useOrganizer } from './use-home'
 export { useOrgSync } from './use-org-sync'
