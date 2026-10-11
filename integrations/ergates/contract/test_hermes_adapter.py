@@ -109,17 +109,31 @@ def test_the_adapter_accepts_exactly_the_profile_names_hermes_accepts(hermes: Pi
 
 
 def test_profile_lookups_take_a_name(hermes: PinnedSource) -> None:
+    """``profile_exists`` delegates to this, so the adapter follows Hermes's own idea of a live
+    profile. Since v0.21.6 a named profile folder is live only with an identity marker in it
+    (``config.yaml``, ``.env``, ``SOUL.md``, ``profile.yaml``, ``auth.json`` or ``state.db``):
+    an empty folder under ``profiles/`` no longer exists for Hermes."""
     assert _arguments(hermes.function(PROFILES, "profile_exists")) == ["name"]
     assert _arguments(hermes.function(PROFILES, "get_profile_dir")) == ["name"]
-    # hermes_cli/profiles.py:240-246: `default` always exists; a named profile is a live folder.
-    assert hermes.lines(PROFILES, 240, 246) == (
+    # hermes_cli/profiles.py:441-450: `default` always exists; a named profile is a live folder.
+    assert hermes.lines(PROFILES, 441, 450) == (
         "def profile_exists(name: str) -> bool:\n"
         '    """Check whether a live (non-tombstoned) profile directory exists."""\n'
-        "    canon = normalize_profile_name(name)\n"
+        "    try:\n"
+        "        canon = normalize_profile_name(name)\n"
+        "        profile_dir = get_profile_dir(canon)\n"
+        "    except ValueError:\n"
+        "        return False\n"
         '    if canon == "default":\n'
         "        return True\n"
-        "    profile_dir = get_profile_dir(canon)\n"
-        "    return profile_dir.is_dir() and not named_profile_is_deleted(profile_dir)"
+        "    return named_profile_is_live(profile_dir)"
+    )
+    # hermes_constants.py:352-357 and 318: live = a folder with an identity marker, not deleted.
+    assert hermes.lines(CONSTANTS, 357, 357) == (
+        "    return home.is_dir() and named_profile_has_identity(home) and not named_profile_is_deleted(home)"
+    )
+    assert hermes.assigned(CONSTANTS, "_PROFILE_IDENTITY_MARKERS") == (
+        "config.yaml", ".env", "SOUL.md", "profile.yaml", "auth.json", "state.db"
     )
 
 
