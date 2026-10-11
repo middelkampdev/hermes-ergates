@@ -12,23 +12,36 @@ goes first on `sys.path`, and the temporary Hermes root holds this plugin the
 way an install does (`plugins/ergates` links to this repository's
 `integrations/ergates`, and `config.yaml` enables it). Nothing here reads or
 writes the real `~/.hermes`.
+
+Hermes mounts plugin routes per process, so a test that needs a dashboard on
+another Hermes root (one without the plugin, or one an old version left)
+starts its own server in a child process with ``serve_hermes``
+(``hermes_serve.py``).
 """
 
 from __future__ import annotations
 
 import os
+import select
 import shutil
+import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+import yaml
 
 from pinned import HERMES_PIN, check_pin
 
 PLUGIN_DIR = Path(__file__).resolve().parents[2]
 # The dashboard session token `hermes serve` expects (hermes_cli/web_server.py reads the variable at import).
 SESSION_TOKEN = "ergates-contract-live-token"
+SERVE_SCRIPT = Path(__file__).with_name("hermes_serve.py")
+# A first plugin install on a Hermes that runs from a source checkout prepares Hermes's own
+# dependency runtime first (downloads included), which takes about a minute.
+SERVER_TIMEOUT_SECONDS = 600
 _temporary: list[Path] = []
 
 
@@ -104,3 +117,85 @@ def web():
 @pytest.fixture(scope="session")
 def token_headers() -> dict[str, str]:
     return {"X-Hermes-Session-Token": SESSION_TOKEN}
+
+
+@dataclass(frozen=True)
+class PluginRepo:
+    """A git repository whose one commit holds this plugin, the way a user installs it from a URL."""
+
+    path: Path
+    url: str
+    sha: str
+    version: str
+
+
+@pytest.fixture(scope="session")
+def plugin_git_repo(tmp_path_factory) -> PluginRepo:
+    """Commits a copy of ``integrations/ergates`` (every file git tracks or would track) to a new repository."""
+    path = tmp_path_factory.mktemp("plugin-repo")
+    listed = subprocess.run(
+        ["git", "-C", str(PLUGIN_DIR), "ls-files", "-z", "--cached", "--others", "--exclude-standard", "."],
+        capture_output=True, check=True,
+    ).stdout.decode("utf-8").split("\0")
+    for relative in filter(None, listed):
+        source = PLUGIN_DIR / relative
+        if source.is_file():  # a tracked file deleted in the working tree is listed too
+            (path / relative).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, path / relative)
+    git = ["git", "-C", str(path), "-c", "user.name=Ergates contract", "-c", "user.email=contract@ergates.invalid",
+           "-c", "commit.gpgsign=false"]
+    subprocess.run([*git, "init", "-q", "-b", "main"], check=True)
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "Ergates plugin"], check=True)
+    sha = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    version = yaml.safe_load((path / "plugin.yaml").read_text(encoding="utf-8"))["version"]
+    return PluginRepo(path=path, url=path.as_uri(), sha=sha, version=version)
+
+
+@pytest.fixture
+def serve_hermes():
+    """``serve_hermes(root)`` starts ``hermes_serve.py`` on Hermes root ``root`` and returns an HTTP client for it.
+
+    The child gets its own empty HOME next to ``root`` and the same session
+    token as ``web``, so ``token_headers`` works for it; its stderr goes to
+    ``hermes-serve.log`` next to ``root``. When the test ends, every server is
+    stopped and its root removed: a first plugin install leaves Hermes's own
+    dependency runtime there, about half a gigabyte.
+    """
+    import httpx
+
+    started: list[tuple[Path, subprocess.Popen, httpx.Client]] = []
+
+    def start(root: Path) -> httpx.Client:
+        home = root.parent / "home"
+        home.mkdir(exist_ok=True)
+        log = root.parent / "hermes-serve.log"
+        env = {**os.environ, "HOME": str(home), "HERMES_HOME": str(root),
+               "HERMES_DASHBOARD_SESSION_TOKEN": SESSION_TOKEN, "PYTHONDONTWRITEBYTECODE": "1"}
+        with log.open("w", encoding="utf-8") as stderr:
+            process = subprocess.Popen([sys.executable, "-I", "-B", str(SERVE_SCRIPT)], cwd=root.parent, env=env,
+                                       stdout=subprocess.PIPE, stderr=stderr, text=True)
+        ready, _, _ = select.select([process.stdout], [], [], 120)
+        line = process.stdout.readline() if ready else ""
+        if not line.strip().isdigit():
+            _stop(process)
+            pytest.fail(f"hermes_serve.py did not start:\n{log.read_text(encoding='utf-8')[-4000:]}")
+        client = httpx.Client(base_url=f"http://127.0.0.1:{int(line)}", timeout=SERVER_TIMEOUT_SECONDS)
+        started.append((root, process, client))
+        return client
+
+    yield start
+    for root, process, client in started:
+        client.close()
+        _stop(process)
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def _stop(process: subprocess.Popen) -> None:
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+    process.stdout.close()
