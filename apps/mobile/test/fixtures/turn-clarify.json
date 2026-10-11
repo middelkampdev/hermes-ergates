@@ -66,7 +66,18 @@
         "context_max": 272000,
         "context_percent": 4
       },
-      "status": "complete"
+      "status": "complete",
+      "persisted_turn": {
+        "row_ids": [
+          7,
+          8,
+          9,
+          10
+        ],
+        "complete": true,
+        "user_row_id": 7,
+        "final_assistant_row_id": 10
+      }
     }
   }
 ]
