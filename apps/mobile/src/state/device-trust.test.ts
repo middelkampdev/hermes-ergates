@@ -42,6 +42,39 @@ describe('detectDeviceTrust', () => {
     await expect(detectDeviceTrust({ isDevice: true, isRooted, forceRooted: false })).resolves.toBe('standard')
   })
 
+  it('counts a root check that never answers as standard after two seconds, so start-up cannot hang', async () => {
+    vi.useFakeTimers()
+    try {
+      let outcome: string = 'pending'
+      void detectDeviceTrust({ isDevice: true, isRooted: () => new Promise<boolean>(() => undefined), forceRooted: false }).then(trust => {
+        outcome = trust
+      })
+
+      await vi.advanceTimersByTimeAsync(1_999)
+      expect(outcome).toBe('pending')
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(outcome).toBe('standard')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('still reports a root check that answers just before the time limit', async () => {
+    vi.useFakeTimers()
+    try {
+      const isRooted = () => new Promise<boolean>(resolve => setTimeout(() => resolve(true), 1_900))
+      const outcome = detectDeviceTrust({ isDevice: true, isRooted, forceRooted: false })
+
+      await vi.advanceTimersByTimeAsync(1_900)
+
+      await expect(outcome).resolves.toBe('rooted')
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('follows the dev flag on a simulator', async () => {
     const isRooted = vi.fn()
 

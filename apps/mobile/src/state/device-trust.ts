@@ -26,10 +26,27 @@ export interface TrustProbe {
   forceRooted: boolean
 }
 
+/** How long start-up waits for a native call here; the spinner stays up until it answers. */
+const NATIVE_CALL_LIMIT_MS = 2_000
+
+/** `work`'s value, or `fallback` once `ms` pass without an answer. */
+async function within<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<T>(resolve => {
+    timer = setTimeout(() => resolve(fallback), ms)
+  })
+  try {
+    return await Promise.race([work, late])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
  * Simulators and emulators are always standard (their root signals say nothing
  * about a user's phone) unless the dev flag forces the rooted path. An unknown
- * device kind counts as a simulator. A check that throws counts as standard.
+ * device kind counts as a simulator. A check that throws, or that has not
+ * answered within two seconds, counts as standard: start-up waits for it.
  */
 export async function detectDeviceTrust(probe: TrustProbe): Promise<DeviceTrust> {
   if (probe.forceRooted) {
@@ -39,7 +56,7 @@ export async function detectDeviceTrust(probe: TrustProbe): Promise<DeviceTrust>
     return 'standard'
   }
   try {
-    return (await probe.isRooted()) ? 'rooted' : 'standard'
+    return (await within(probe.isRooted(), NATIVE_CALL_LIMIT_MS, false)) ? 'rooted' : 'standard'
   } catch {
     return 'standard'
   }
