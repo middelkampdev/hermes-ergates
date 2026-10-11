@@ -5,10 +5,12 @@ wrapped in :func:`guarded`. Hermes vetoes a tool call when a callback returns
 ``{"action": "block", "message": <text>}``; the message becomes the tool's
 result, so the agent reads it.
 
-Hermes fails OPEN when a callback raises: it logs the exception and runs the
-tool (``hermes_cli/plugins_dispatch.py`` at the pin, pinned by
-``contract/test_pre_tool_call.py``). :func:`guarded` therefore turns any
-exception into a block, so a broken gate never lets a call through.
+Since v0.21.6 Hermes also blocks the call when a callback raises, but its
+block message quotes the exception text, which can carry tool arguments
+(``hermes_cli/plugins_dispatch.py`` at the pin, pinned by
+``contract/test_pre_tool_call.py``); before, it ran the tool. :func:`guarded`
+turns any exception into a block with fixed text, so a broken gate never
+lets a call through and never echoes what it was checking.
 
 Rules, in order:
 

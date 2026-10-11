@@ -73,8 +73,8 @@ def test_rules_1_and_2_come_before_rule_3():
 
 
 def test_a_gate_that_raises_blocks_the_tool(caplog):
-    """Hermes runs the tool when a pre_tool_call callback raises (it fails OPEN), so
-    the gate must turn its own failure into a block."""
+    """A gate that raises must block. Hermes blocks too since v0.21.6, but quotes the
+    exception text in its block, so the gate turns its own failure into a fixed one."""
 
     @guarded
     def broken(tool_name, args):

@@ -1,9 +1,14 @@
 """The Ergates tool gate is a `pre_tool_call` callback.
 
 Pins what the gate relies on: a `{"action": "block", "message": str}` return
-vetoes the tool, a callback that raises is skipped (fail OPEN, so the Ergates
-callback must catch everything itself), a `register()` that raises loses every
-registration (so it must not raise), and a timed-out callback blocks.
+vetoes the tool, a `register()` that raises loses every registration (so it
+must not raise), and a timed-out callback blocks.
+
+A callback that raises was skipped at the previous pin (fail OPEN). Since
+v0.21.6 Hermes blocks the call instead, with a message that quotes the
+exception text. The Ergates callback still catches everything itself
+(`policy.guarded`), so its block carries fixed text and never an exception
+message, which can quote tool arguments.
 """
 
 from __future__ import annotations
@@ -46,20 +51,24 @@ def test_a_block_directive_with_a_message_vetoes_the_tool(hermes: PinnedSource) 
     assert hermes.lines(PLUGINS, 1859, 1860) == ('    if details.action == "block":\n' "        return details.message")
 
 
-def test_a_raising_callback_fails_open(hermes: PinnedSource) -> None:
-    # hermes_cli/plugins_dispatch.py:196-198: the exception is logged and the next callback runs.
-    assert hermes.lines(DISPATCH, 196, 198) == (
-        "            except Exception as exc:\n"
-        "                logger.warning(\n"
-        '                    "Hook \'%s\' callback %s raised: %s", hook_name, getattr(cb, "__name__", repr(cb)), exc)'
+def test_a_raising_callback_blocks_with_the_exception_text(hermes: PinnedSource) -> None:
+    """Hermes now fails closed itself; ``policy.guarded`` stays so the block names no exception text."""
+    # hermes_cli/plugins_dispatch.py:241-244: the failure is reported and, for pre_tool_call, a block appended.
+    assert hermes.lines(DISPATCH, 241, 244) == (
+        "            except (Exception, SystemExit) as exc:\n"
+        "                self._report_hook_failure(hook_name, cb, kwargs, exc)\n"
+        "                if fail_closed:  # a guard that raised made no decision: same veto as a timeout\n"
+        "                    results.append(_policy_error_block_directive(hook_name, cb, exc))"
     )
     invoke_hook = hermes.function(DISPATCH, "invoke_hook", owner="PluginDispatchMixin")
     loop = next(node for node in ast.walk(invoke_hook) if isinstance(node, ast.For))
     handler = loop.body[0].handlers[0]
-    assert ast.unparse(handler.type) == "Exception"
-    # Only the warning: no block directive is appended and nothing is re-raised.
-    assert len(handler.body) == 1
-    assert ast.unparse(handler.body[0].value.func) == "logger.warning"
+    assert ast.unparse(handler.type) == "(Exception, SystemExit)"
+    # hermes_cli/plugins_dispatch.py:66-67: that block's message quotes the exception.
+    assert hermes.lines(DISPATCH, 66, 67) == (
+        '    return {"action": "block",\n'
+        '            "message": f"{hook_name} plugin callback {callback_name} raised {type(exc).__name__}: {str(exc)[:200]}"}'
+    )
 
 
 def test_a_register_that_raises_loses_every_registration_the_gate_included(hermes: PinnedSource) -> None:
