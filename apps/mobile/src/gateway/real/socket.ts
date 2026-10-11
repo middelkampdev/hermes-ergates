@@ -77,6 +77,8 @@ export class SocketSession implements GatewayConnection {
   private terminalReported = false
   /** The approval and clarify requests Hermes still waits on, by id. */
   private readonly openRequests = new Map<string, ServerRequest>()
+  /** The ids answered on the current socket; a new socket starts with none. */
+  private readonly answeredHere = new Set<string>()
   private readonly requestHandlers = new Set<(request: ServerRequestFrame) => void>()
 
   private constructor(options: SocketSessionOptions) {
@@ -123,6 +125,16 @@ export class SocketSession implements GatewayConnection {
       return
     }
     if (!CARD_METHODS.has(request.method)) {
+      return
+    }
+    // Hermes handles the frames of one socket in arrival order, and session.activate and
+    // session.events.since run inline (server.py:181-196, rpc_dispatch.py:54-58). So an
+    // `open_requests` snapshot that answers a call sent before our answer still lists the
+    // id, and arrives after we answered. Hermes then sends no `request.cancel`
+    // (server_requests.py:262-293): drop that delivery, or the card reopens and a second tap
+    // shows a choice Hermes never applied. On a later socket the answer may have been lost
+    // with the old one, so a delivery there counts.
+    if (request.replayed === true && this.answeredHere.has(request.id)) {
       return
     }
     // A re-delivery after a reconnect reuses the id and replaces the entry.
@@ -254,6 +266,10 @@ export class SocketSession implements GatewayConnection {
       return
     }
     const mapped: ConnectionState = state === 'open' ? 'open' : state === 'connecting' ? 'connecting' : state === 'error' ? 'error' : 'closed'
+    if (state === 'open') {
+      // A new socket: an answer sent on an older one no longer holds back a delivery.
+      this.answeredHere.clear()
+    }
     this.setState(mapped)
     if ((state === 'closed' || state === 'error') && !this.closedByUser) {
       this.scheduleReconnect()
@@ -341,6 +357,7 @@ export class SocketSession implements GatewayConnection {
       return 'unknown'
     }
     this.openRequests.delete(requestId)
+    this.answeredHere.add(requestId)
     request.respond(result)
     return 'sent'
   }

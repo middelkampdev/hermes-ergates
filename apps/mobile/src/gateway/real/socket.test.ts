@@ -204,4 +204,32 @@ describe('SocketSession server requests', () => {
     expect(framesFor(ws, 'srq-000000000004')).toEqual([])
     session.close()
   })
+
+  it('drops a stale open_requests delivery of an id it answered on this socket, and takes one after a reconnect', async () => {
+    const open = [{ id: 'srq-00000000000e', method: 'approval', params: { session_id: 's1', request_id: 'ap14' } }]
+    installFakeWebSocket({ onRequest: m => (m === 'session.activate' ? { open_requests: open } : {}) })
+    const session = await SocketSession.open({ ...OPTS, backoffMs: [5] })
+    const seen: ServerRequestFrame[] = []
+    session.onRequest(r => seen.push(r))
+    const first = FakeWebSocket.instances[0]!
+    first.serverRequest('srq-00000000000e', 'approval', { session_id: 's1', request_id: 'ap14' })
+    await flush()
+    expect(session.respond('srq-00000000000e', { choice: 'once' })).toBe('sent')
+
+    // Hermes answered this activate before it read the answer, so the snapshot still lists the id.
+    await session.request('session.activate', { session_id: 's1' })
+    expect(seen.map(r => r.replayed)).toEqual([false])
+    expect(session.respond('srq-00000000000e', { choice: 'deny' })).toBe('unknown')
+    expect(framesFor(first, 'srq-00000000000e')).toEqual([{ jsonrpc: '2.0', id: 'srq-00000000000e', result: { choice: 'once' } }])
+
+    // On a new socket the answer may have been lost with the old one: the delivery counts.
+    first.serverClose(1006)
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    await vi.waitFor(() => expect(session.state).toBe('open'))
+    await session.request('session.activate', { session_id: 's1' })
+    expect(seen.map(r => r.replayed)).toEqual([false, true])
+    expect(session.respond('srq-00000000000e', { choice: 'once' })).toBe('sent')
+    expect(framesFor(FakeWebSocket.instances[1]!, 'srq-00000000000e')).toEqual([{ jsonrpc: '2.0', id: 'srq-00000000000e', result: { choice: 'once' } }])
+    session.close()
+  })
 })

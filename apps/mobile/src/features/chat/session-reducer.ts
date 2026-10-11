@@ -335,7 +335,9 @@ function requestCard(request: ServerRequestFrame): Extract<ChatItem, { kind: 'ap
 /**
  * One card per request id. A pending card stays as it is. A card in any other state goes back to
  * pending: Hermes delivers a request again only while it still waits for the answer, so the answer
- * the card shows never arrived. Hermes Desktop also keys its cards on the id and lets a
+ * the card shows never arrived. The socket already dropped the one re-delivery that proves nothing,
+ * a snapshot that Hermes took on the answering socket before the answer reached it
+ * (`SocketSession.takeRequest`). Hermes Desktop also keys its cards on the id and lets a
  * re-delivery replace the entry (apps/desktop/src/store/server-requests.ts:12-14).
  */
 function receiveRequest(state: SessionState, request: ServerRequestFrame): SessionState {
