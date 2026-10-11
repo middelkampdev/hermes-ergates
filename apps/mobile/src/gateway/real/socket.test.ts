@@ -119,6 +119,49 @@ describe('SocketSession', () => {
     session.close()
   })
 
+  it('reports a reconnect as open only after gateway.ready, so an activate follows client.capabilities', async () => {
+    installFakeWebSocket({})
+    const session = await SocketSession.open({ ...OPTS, backoffMs: [5] })
+    const states: string[] = []
+    // What the chat controller does: rebind the session as soon as the socket reports open again.
+    session.onState(state => {
+      states.push(state)
+      if (state === 'open' && states.length > 1) {
+        void session.request('session.activate', { session_id: 's1', omit_messages: true }).catch(() => undefined)
+      }
+    })
+    FakeWebSocket.instances[0]!.serverClose(1006)
+    await vi.waitFor(() => expect(FakeWebSocket.instances[1]?.sent.some(f => f.method === 'session.activate')).toBe(true))
+
+    // Hermes reads no frame before it sent gateway.ready and then reads them in order
+    // (tui_gateway/ws.py:365-397): an activate ahead of client.capabilities rebinds the
+    // session to a socket that has not said it answers requests, and an approval raised
+    // then is withdrawn (session_transports.py:38-48, server.py:833-846).
+    const methods = FakeWebSocket.instances[1]!.sent.map(f => f.method)
+    expect(methods.indexOf('client.capabilities')).toBeGreaterThanOrEqual(0)
+    expect(methods.indexOf('client.capabilities')).toBeLessThan(methods.indexOf('session.activate'))
+    session.close()
+  })
+
+  it('drops a socket that never announces readiness, and the reconnect dials a fresh one', async () => {
+    installFakeWebSocket({ withholdReady: ws => FakeWebSocket.instances.indexOf(ws) === 1 })
+    const session = await SocketSession.open({ ...OPTS, backoffMs: [5], readyTimeoutMs: 30 })
+    FakeWebSocket.instances[0]!.serverClose(1006)
+    // Hermes sends gateway.ready once per connection: waiting on the same socket again cannot succeed.
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(3))
+    expect(FakeWebSocket.instances[1]!.readyState).toBe(FakeWebSocket.CLOSED)
+    await vi.waitFor(() => expect(session.state).toBe('open'))
+    session.close()
+  })
+
+  it('stops dialing when the first open fails', async () => {
+    installFakeWebSocket({ closeOnOpen: { code: 1006 } })
+    await expect(SocketSession.open({ ...OPTS, backoffMs: [5] })).rejects.toSatisfy((e: unknown) => isGatewayError(e) && e.kind === 'network')
+    // Nobody holds the session: RealGateway drops it and builds a new one on the next connect.
+    await flush(40)
+    expect(FakeWebSocket.instances).toHaveLength(1)
+  })
+
   it('treats a failed ticket mint as terminal, before any socket exists', async () => {
     installFakeWebSocket({})
     const terminal: string[] = []

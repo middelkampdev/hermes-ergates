@@ -12,6 +12,8 @@ export interface FakeSocketScript {
   readyPayload?: Record<string, unknown>
   /** Close immediately with this code instead of opening. */
   closeOnOpen?: { code: number; reason?: string }
+  /** Open this socket without ever sending `gateway.ready`. */
+  withholdReady?: (socket: FakeWebSocket) => boolean
 }
 
 export class FakeWebSocket {
@@ -42,6 +44,9 @@ export class FakeWebSocket {
     }
     this.readyState = FakeWebSocket.OPEN
     this.emit('open', {})
+    if (script.withholdReady?.(this)) {
+      return
+    }
     this.serverEvent({ type: 'gateway.ready', payload: { heartbeat: true, replay_epoch: 'epoch-fake', ...(script.readyPayload ?? {}) } })
   }
 

@@ -153,7 +153,14 @@ export class SocketSession implements GatewayConnection {
 
   static async open(options: SocketSessionOptions): Promise<SocketSession> {
     const session = new SocketSession(options)
-    await session.dial()
+    try {
+      await session.dial()
+    } catch (err) {
+      // Nobody holds a session whose first open failed (RealGateway builds a new
+      // one on the next connect), so it must not keep redialing in the background.
+      session.close()
+      throw err
+    }
     return session
   }
 
@@ -257,19 +264,39 @@ export class SocketSession implements GatewayConnection {
     } catch (err) {
       throw this.lastCloseError ?? (err instanceof GatewayError ? err : mapRpcError(err))
     }
-    this.ready = await readyPromise
+    try {
+      this.ready = await readyPromise
+    } catch (err) {
+      // Hermes sends gateway.ready once per connection, so a socket that opened
+      // without it never will: drop it, or the next dial waits on it again.
+      this.client.invalidate('The gateway did not announce readiness.')
+      throw err
+    }
     this.reconnectAttempt = 0
+    // Only now is the connection `open`. The channel sends client.capabilities
+    // when gateway.ready arrives (json-rpc-channel.ts:489-492), and Hermes reads
+    // the frames of a socket in order. A handler that rebinds a session on
+    // `open` (the chat's reconnect) must not get ahead of it: Hermes would bind
+    // the session to a socket that has not said it answers requests, and
+    // withdraw an approval raised meanwhile (session_transports.py:38-48,
+    // server.py:833-846).
+    if (this.client.connectionState === 'open') {
+      this.setState('open')
+    }
   }
 
   private handleClientState(state: ClientState): void {
     if (state === 'idle') {
       return
     }
-    const mapped: ConnectionState = state === 'open' ? 'open' : state === 'connecting' ? 'connecting' : state === 'error' ? 'error' : 'closed'
     if (state === 'open') {
-      // A new socket: an answer sent on an older one no longer holds back a delivery.
+      // A new socket: an answer sent on an older one no longer holds back a
+      // delivery. Cleared before any frame of this socket is read, and `respond`
+      // sends nothing until `dialOnce` reports `open` after gateway.ready.
       this.answeredHere.clear()
+      return
     }
+    const mapped: ConnectionState = state === 'connecting' ? 'connecting' : state === 'error' ? 'error' : 'closed'
     this.setState(mapped)
     if ((state === 'closed' || state === 'error') && !this.closedByUser) {
       this.scheduleReconnect()
