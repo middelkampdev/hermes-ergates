@@ -61,7 +61,8 @@ jobs:
 
   contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The live tests download Hermes's dependency runtime (about 560 MB).
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
         with:
