@@ -340,10 +340,11 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
     a template's toolsets binding on every platform and at the next call.
     Before v0.21.6 ``profiles.configure`` wrote ``tools.enabled_toolsets``,
     which no Hermes surface reads any more; a profile configured then still
-    has that pin, so it still counts, and when a profile has both pins a
-    toolset must be granted by both (an upgrade never grants more than
-    either did). A pinned name whose tools Hermes registers under other
-    toolsets (``browser`` bundles ``browser-cdp``) grants those toolsets too.
+    has that pin, so it counts while the profile has no
+    ``platform_toolsets.cli``. Once it has one (the app configured it again
+    on v0.21.6), the legacy key is ignored. A pinned name whose tools Hermes
+    registers under other toolsets (``browser`` bundles ``browser-cdp``)
+    grants those toolsets too.
     Every MCP server the profile's config enables adds its toolset,
     ``mcp-<server>``: enabled for Hermes
     (``tools.mcp_tool_common.mcp_server_enabled``: ``enabled``, true unless
@@ -384,10 +385,10 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
 
     with _profile_home(profile):
         config = load_config_readonly() or {}
-        pins = _toolset_pins(config, parse_platform_toolsets_value)
-        if not pins:
+        pinned = _toolset_pin(config, parse_platform_toolsets_value)
+        if pinned is None:
             return None
-        granted = set.intersection(*(toolsets_granted_by(pinned) for pinned in pins))
+        granted = toolsets_granted_by(pinned)
         servers = config.get("mcp_servers")
         if isinstance(servers, dict):
             granted.update(
@@ -492,15 +493,14 @@ def _plugin_lists(config: dict[str, Any]) -> tuple[set[str] | None, set[str]]:
 _APP_PLATFORM = "cli"
 
 
-def _toolset_pins(config: dict[str, Any], parse_platform_list: Callable[[object], list | None]) -> list[list]:
-    """The toolset pins in ``config``: ``platform_toolsets.cli``, then the legacy ``tools.enabled_toolsets``.
+def _toolset_pin(config: dict[str, Any], parse_platform_list: Callable[[object], list | None]) -> list | None:
+    """The toolset pin in ``config``: ``platform_toolsets.cli`` when present, else the legacy
+    ``tools.enabled_toolsets``; ``None`` when neither is set (or both are ``null``).
 
-    A pin that is absent (or ``null``) is left out. ``parse_platform_list`` is
-    Hermes's parser for a ``platform_toolsets`` value. Raises ``ValueError``
-    for a pin, or a ``platform_toolsets`` section, that is not one Hermes
-    would read as a list.
+    ``parse_platform_list`` is Hermes's parser for a ``platform_toolsets``
+    value. Raises ``ValueError`` for a pin, or a ``platform_toolsets`` section,
+    that is not one Hermes would read as a list.
     """
-    pins: list[list] = []
     platforms = config.get("platform_toolsets")
     if platforms is not None and not isinstance(platforms, dict):
         raise ValueError("config platform_toolsets is not a mapping")
@@ -509,14 +509,12 @@ def _toolset_pins(config: dict[str, Any], parse_platform_list: Callable[[object]
         parsed = parse_platform_list(raw)
         if not isinstance(parsed, list):
             raise ValueError(f"config platform_toolsets.{_APP_PLATFORM} is not a list")
-        pins.append(parsed)
+        return parsed
     tools = config.get("tools")
     legacy = tools.get("enabled_toolsets") if isinstance(tools, dict) else None
-    if legacy is not None:
-        if not isinstance(legacy, list):
-            raise ValueError("config tools.enabled_toolsets is not a list")
-        pins.append(legacy)
-    return pins
+    if legacy is not None and not isinstance(legacy, list):
+        raise ValueError("config tools.enabled_toolsets is not a list")
+    return legacy
 
 
 def _created_job_id(raw: str) -> str:

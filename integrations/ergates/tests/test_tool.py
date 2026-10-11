@@ -758,14 +758,15 @@ def test_a_profile_configured_before_v0_21_6_keeps_its_legacy_pin(monkeypatch):
     assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web"})
 
 
-def test_with_both_pins_a_toolset_must_be_in_both(monkeypatch):
-    """An upgrade never grants more than either list did."""
+def test_with_both_pins_the_app_pin_decides_and_the_legacy_one_is_ignored(monkeypatch):
+    """``platform_toolsets.cli`` is what ``profiles.configure`` writes now, so a profile the
+    app configured again on v0.21.6 gets the toolsets it was given, not a stale legacy list."""
     _stub_hermes_grant_modules(monkeypatch, {
         "platform_toolsets": {"cli": ["web", "terminal"]},
         "tools": {"enabled_toolsets": ["web", "file"]},
     })
 
-    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web"})
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "terminal"})
 
 
 def test_every_mcp_server_the_profile_enables_adds_its_toolset(monkeypatch):
