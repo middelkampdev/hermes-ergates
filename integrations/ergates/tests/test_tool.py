@@ -670,7 +670,10 @@ def _parse_platform_toolsets_value(value):
     if isinstance(value, list):
         return value
     if isinstance(value, str) and value.strip().startswith("["):
-        parsed = ast.literal_eval(value.strip())
+        try:
+            parsed = ast.literal_eval(value.strip())
+        except (ValueError, SyntaxError):
+            return None
         return [str(item) for item in parsed] if isinstance(parsed, list) else None
     return None
 
@@ -719,8 +722,10 @@ def test_a_hermes_symbol_the_grant_needs_going_missing_blocks_instead_of_disarmi
 @pytest.mark.parametrize("config", [
     {"tools": {"enabled_toolsets": "web"}},
     {"platform_toolsets": {"cli": "web"}},
+    {"platform_toolsets": {"cli": "[web, terminal"}},
     {"platform_toolsets": "cli: [web]"},
-], ids=["legacy-pin-a-string", "app-pin-a-string", "platform-lists-not-a-mapping"])
+], ids=["legacy-pin-a-string", "app-pin-a-string", "app-pin-an-unparsable-list-literal",
+        "platform-lists-not-a-mapping"])
 def test_a_toolset_pin_that_is_not_a_list_blocks_instead_of_granting_nothing(provisioned_thijs, monkeypatch, config):
     """A hand-edited ``enabled_toolsets: web`` (a string, not a list) must not
     read as "no toolsets pinned", which would let Hermes decide every tool:
