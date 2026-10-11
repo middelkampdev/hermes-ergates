@@ -502,12 +502,21 @@ def test_the_gateway_lifecycle_guard_refuses_prose_and_depends_on_the_active_pro
 
 
 def test_the_profile_listing_names_default_and_every_profile_folder(hermes: PinnedSource) -> None:
-    """profile_names() keeps only the live ones: this listing includes deleted profiles."""
+    """profile_names() keeps only the live ones. Since v0.21.6 this listing already does: it
+    skips deleted profiles and folders without an identity marker. The adapter's own
+    ``profile_exists`` filter is kept as a safeguard (redundant at this pin)."""
     assert _arguments(hermes.function(PROFILES, "list_profile_names")) == []
-    # hermes_cli/profiles.py:282-285
-    assert hermes.lines(PROFILES, 282, 285) == (
+    # hermes_cli/profiles.py:494-497
+    assert hermes.lines(PROFILES, 494, 497) == (
         '    names = ["default"]\n'
         "    with contextlib.suppress(OSError):\n"
-        "        names.extend(entry.name for entry in _iter_named_profile_dirs(live_only=False))\n"
+        "        names.extend(entry.name for entry in _iter_named_profile_dirs())\n"
         "    return names"
+    )
+    # hermes_cli/profiles.py:469 and 484-485: the default `live_only=True` skips tombstoned
+    # profiles, and only folders with an identity marker are listed at all.
+    assert hermes.lines(PROFILES, 469, 469) == "def _iter_named_profile_dirs(*, live_only: bool = True) -> List[Path]:"
+    assert hermes.lines(PROFILES, 484, 485) == (
+        "        and named_profile_has_identity(entry)\n"
+        "        and not (live_only and named_profile_is_deleted(entry))"
     )
