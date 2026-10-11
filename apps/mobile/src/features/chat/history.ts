@@ -76,7 +76,7 @@ export type ChatItem =
    * One parsed `[IMPORTANT: Background process …]` receipt (spec 5.2). `displayKind` is set when the
    * row was stored as a v0.21.6 `process_complete` row, which Desktop shows as a system row.
    */
-  | { kind: 'receipt'; id: string; rowId?: number; receipt: ParsedReceipt; at?: number; live: boolean; displayKind?: typeof PROCESS_COMPLETE_DISPLAY_KIND }
+  | { kind: 'receipt'; id: string; rowId?: number; receipt: ParsedReceipt; at?: number; displayKind?: typeof PROCESS_COMPLETE_DISPLAY_KIND }
   /** A receipt-shaped row that failed to parse, or another `[IMPORTANT: …]` notice. `displayKind` as on a receipt. */
   | { kind: 'notice'; id: string; rowId?: number; noticeKind: 'delivery_update' | 'process' | 'batch' | 'unknown'; at?: number; detail: string; live?: boolean; displayKind?: typeof PROCESS_COMPLETE_DISPLAY_KIND }
 
@@ -166,7 +166,7 @@ export function historyToItems(messages: HistoryMessage[]): ChatItem[] {
       const typed: { displayKind?: typeof PROCESS_COMPLETE_DISPLAY_KIND } = m.display_kind === PROCESS_COMPLETE_DISPLAY_KIND ? { displayKind: PROCESS_COMPLETE_DISPLAY_KIND } : {}
       if (classified.kind === 'receipts') {
         for (const receipt of classified.receipts) {
-          items.push({ kind: 'receipt', id: `h-receipt-${rowKey}-${receipt.headline.processId}`, rowId: m.row_id, receipt, at: m.timestamp, live: false, ...typed })
+          items.push({ kind: 'receipt', id: `h-receipt-${rowKey}-${receipt.headline.processId}`, rowId: m.row_id, receipt, at: m.timestamp, ...typed })
         }
         continue
       }
@@ -443,8 +443,6 @@ const DURABLE_ONCE_SENT = new Set<DeliveryState>(['acknowledged', 'queued', 'unc
  *    can decide. (`queued`, `queued_unsent` and `failed` items are never
  *    re-labelled: those states are known exactly, and history is not expected
  *    to show them yet.)
- *  - live receipts whose process id does not appear among `fresh`'s receipts
- *    (history has not caught up with them yet).
  *  - live notices whose exact `detail` text does not appear among `fresh`'s
  *    notices (a notice has no id to pair on, so the text is the only evidence
  *    the same notification is now durable).
@@ -460,9 +458,6 @@ export function mergeHistory(items: ChatItem[], fresh: ChatItem[]): ChatItem[] {
   // so the survivor must be the returned copy, not the original.
   const retainedById = new Map(retained.map(i => [i.id, i]))
   const freshUserTexts = reconciled.filter(i => i.kind === 'user').map(i => (i as Extract<ChatItem, { kind: 'user' }>).text)
-  const freshReceiptProcessIds = new Set(
-    reconciled.filter((i): i is Extract<ChatItem, { kind: 'receipt' }> => i.kind === 'receipt').map(i => i.receipt.headline.processId)
-  )
   // A notice carries no id of any kind, so its durable twin can only be found by
   // its exact text; the spec forbids text matching only where it names
   // an id to pair on.
@@ -480,10 +475,6 @@ export function mergeHistory(items: ChatItem[], fresh: ChatItem[]): ChatItem[] {
         continue
       }
       survivors.push(item.delivery === 'acknowledged' ? { ...item, delivery: 'unconfirmed' } : item)
-      continue
-    }
-    if (item.kind === 'receipt' && item.live && !freshReceiptProcessIds.has(item.receipt.headline.processId)) {
-      survivors.push(item)
       continue
     }
     if (item.kind === 'notice' && item.live && !freshNoticeDetails.has(item.detail)) {

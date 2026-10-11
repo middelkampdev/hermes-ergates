@@ -364,16 +364,13 @@ describe('agent traffic rows', () => {
     expect(receiver.find(i => i.kind === 'bot_message')).toMatchObject({ handle: 'hermes', provenance: 'inferred' })
   })
 
-  it('keeps live receipts, live notices and live message_agent tool items across a snapshot that omits them', () => {
+  it('keeps live message_agent tool items across a snapshot that omits them', () => {
     const live: ChatItem[] = [
-      { kind: 'receipt', id: 'live-receipt-proc_0123456789ab', receipt: liveReceipt, live: true },
       { kind: 'tool', id: 'tool-call_9', toolId: 'call_9', name: 'message_agent', done: true, result: { status: 'sent', process_id: 'proc_0123456789ab' } },
       { kind: 'tool', id: 'tool-call_8', toolId: 'call_8', name: 'terminal', done: true }
     ]
     const merged = mergeHistory(live, [{ kind: 'user', id: 'h-user-1', rowId: 1, text: 'hi', delivery: 'acknowledged' }])
-    expect(merged.map(i => i.id)).toEqual(['h-user-1', 'live-receipt-proc_0123456789ab', 'tool-call_9'])
-    const reconciled = mergeHistory(live, [{ kind: 'receipt', id: 'h-receipt-5-proc_0123456789ab', rowId: 5, receipt: liveReceipt, live: false }])
-    expect(reconciled.filter(i => i.kind === 'receipt')).toHaveLength(1)
+    expect(merged.map(i => i.id)).toEqual(['h-user-1', 'tool-call_9'])
   })
 
   it('drops a live notice the snapshot now carries, and keeps one it does not', () => {
@@ -513,7 +510,7 @@ describe('ownership, revisions, receipts', () => {
   it('a message_agent tool.complete and a reconciled transcript row', () => {
     const s = run(bound(), [ev({ type: 'tool.start', seq: 1, payload: { tool_id: 'call_1', name: 'message_agent', args: { target: 'kevin', message: 'hi' } } }), ev({ type: 'tool.complete', seq: 2, payload: { tool_id: 'call_1', name: 'message_agent', result: { status: 'sent', process_id: 'proc_0123456789ab' } } })])
     expect(s.tailWanted).toBe(1); expect(s.revision).toBe(1)
-    const r = sessionReducer(s, { type: 'transcript/reconciled', toolCallIds: ['call_1'], processIds: [] })
+    const r = sessionReducer(s, { type: 'transcript/reconciled', toolCallIds: ['call_1'] })
     expect(r.items.some(i => i.kind === 'tool')).toBe(false)
   })
 
@@ -764,7 +761,7 @@ describe('turn anchor and outcome (spec 12.3)', () => {
   it('rule (g): the receipt-anchored simulator sequence places both live answers, driven through events', () => {
     // Kevin's chat on the simulator. Durable rows: 61 inbound bot message, 62 its answer, 63 the
     // receipt row for process P, 64 the receipt-driven turn's answer. Live order: turn A seals
-    // (L1), the process notification creates a live receipt for P while nothing is running, turn B
+    // (L1), the process notification names P while nothing is running, turn B
     // starts and seals (L2). B's anchor records P, so L2 resolves to row 63 (hard-id pairing,
     // spec 5.2/5.5) and transfers onto 64; L1 then anchors on 61 by exclusion (rule d).
     const processId = liveReceipt.headline.processId
@@ -794,7 +791,6 @@ describe('turn anchor and outcome (spec 12.3)', () => {
     expect(merged.items.find(i => i.kind === 'assistant' && i.rowId === 62)).toMatchObject({ turnOutcome: 'completed' })
     expect(merged.items.find(i => i.kind === 'assistant' && i.rowId === 64)).toMatchObject({ turnOutcome: 'completed' })
     expect(merged.items.some(i => i.kind === 'assistant' && i.rowId === undefined)).toBe(false)
-    expect(merged.items.some(i => i.kind === 'receipt' && i.live)).toBe(false)
     expect(merged.pendingReceiptProcessId).toBeNull()
   })
 

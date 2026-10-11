@@ -81,7 +81,7 @@ export interface UseTranscriptOptions {
   items: ChatItem[]
   roster: RosterPeer[]
   /** A merged page made these live observations durable (spec 5.8). */
-  onReconciled: (ids: { toolCallIds: string[]; processIds: string[] }) => void
+  onReconciled: (ids: { toolCallIds: string[] }) => void
 }
 
 type FetchOutcome = { status: 'ok'; page: TranscriptPage } | { status: 'skipped' } | { status: 'stale' } | { status: 'error' }
