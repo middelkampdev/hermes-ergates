@@ -8,7 +8,7 @@
 import { Image } from 'expo-image'
 import { StyleSheet, Text, View } from 'react-native'
 
-import { contrastRatio } from '@vendor/hermes/themes/color'
+import { contrastRatio } from '@vendor/hermes/shared/color'
 import { useTheme } from '@/theme/provider'
 import { TYPE } from '@/theme/tokens'
 
@@ -36,8 +36,9 @@ export function initialsFor(name: string): string {
 export function Avatar({ name, color, imageUri, size }: AvatarProps) {
   const theme = useTheme()
   const disc = color ?? theme.colors.userBubble
+  // The helper answers null for a color it cannot parse; that counts as no contrast.
   const foreground =
-    contrastRatio(theme.colors.foreground, disc) >= contrastRatio(theme.colors.primaryForeground, disc)
+    (contrastRatio(theme.colors.foreground, disc) ?? 0) >= (contrastRatio(theme.colors.primaryForeground, disc) ?? 0)
       ? theme.colors.foreground
       : theme.colors.primaryForeground
 
