@@ -36,6 +36,13 @@ describe('HttpClient', () => {
     expect(calls[0]?.init.body).toBe(JSON.stringify({ provider: 'basic', username: 'u', password: 'p' }))
   })
 
+  it('keeps the platform cookie jar out of requests', async () => {
+    const { impl, calls } = fetchStub(200, { ok: true })
+    const http = new HttpClient({ baseUrl: 'http://x', getAuth: () => ({ mode: 'password', cookie: 'hermes_session_at=abc' }), fetchImpl: impl })
+    await http.get('/api/profiles')
+    expect(calls[0]?.init.credentials).toBe('omit')
+  })
+
   it('maps 401 to unauthorized', async () => {
     const { impl } = fetchStub(401, { detail: 'Unauthorized' })
     const http = new HttpClient({ baseUrl: 'http://x', getAuth: () => ({ mode: 'none' }), fetchImpl: impl })

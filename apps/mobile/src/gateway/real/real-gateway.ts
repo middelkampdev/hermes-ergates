@@ -146,11 +146,11 @@ export class RealGateway implements GatewayPort {
   /**
    * Clear the platform cookie jar for this gateway's origin.
    *
-   * On iOS `fetch` runs on NSURLSession with `HTTPShouldHandleCookies`, and on
-   * Android OkHttp keeps its own jar, so the jar — not `HttpAuthState.cookie` —
-   * is what actually authenticates requests. `POST /auth/logout` is best-effort
-   * (offline sign-out, already-401 session), so a usable session cookie would
-   * otherwise survive sign-out and connection removal (docs/04 section 6, ADR-028).
+   * Requests skip the jar (`credentials: 'omit'` in http.ts), so it no longer
+   * authenticates anything. This stays to clear jars that older app versions
+   * filled. `POST /auth/logout` is best-effort (offline sign-out, already-401
+   * session), so a leftover session cookie would otherwise survive sign-out and
+   * connection removal (docs/04 section 6, ADR-028).
    *
    * The module is imported lazily: it pulls in react-native, which a plain
    * Node/vitest run cannot parse.

@@ -2,7 +2,8 @@
  * HTTP client for `hermes serve` REST. Two auth modes:
  *  - token: loopback plain mode, header `X-Hermes-Session-Token`
  *  - password: gated mode, cookies captured from `Set-Cookie` and replayed
- *    explicitly as a `Cookie` header (the React Native jar is not relied on).
+ *    explicitly as a `Cookie` header. The platform jar is off
+ *    (`credentials: 'omit'`), so it never keeps a second copy of the sign-in.
  * Never logs headers, bodies or full URLs.
  */
 
@@ -156,7 +157,9 @@ export class HttpClient {
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: controller.signal,
-        redirect: opts.redirect ?? 'manual'
+        redirect: opts.redirect ?? 'manual',
+        // The platform cookie jar would keep a copy of the sign-in on disk.
+        credentials: 'omit'
       })
     } catch (err) {
       clearTimeout(timer)
