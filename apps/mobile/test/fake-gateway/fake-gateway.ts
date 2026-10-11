@@ -209,7 +209,7 @@ export class FakeConnection implements GatewayConnection {
     this.deliver(request, false)
   }
 
-  /** Test hook: the request ended without this client's answer (timeout, interrupt, another surface), so Hermes emits `request.cancel` (server_requests.py:145-146). */
+  /** Test hook: the request ended without this client's answer (timeout, interrupt, session close, an `approval.respond` from another surface), so Hermes emits `request.cancel` (server_requests.py:145-146). */
   cancelRequest(id: string, reason: string): void {
     const request = this.openRequests.get(id)
     this.openRequests.delete(id)
