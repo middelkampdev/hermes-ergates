@@ -34,8 +34,9 @@ def test_the_callback_receives_the_tool_name_and_its_arguments(hermes: PinnedSou
 
 
 def test_a_block_directive_with_a_message_vetoes_the_tool(hermes: PinnedSource) -> None:
-    # hermes_cli/plugins.py:1815-1824: the first valid block or approve wins; a block needs a message.
-    assert hermes.lines(PLUGINS, 1815, 1824) == (
+    # hermes_cli/plugins.py:2007-2015: a block needs a message; the first valid block wins, and
+    # since v0.21.6 it also wins over an approve that another plugin returned before it.
+    assert hermes.lines(PLUGINS, 2007, 2015) == (
         '        if action not in ("block", "approve"):\n'
         "            continue\n"
         '        message = result.get("message")\n'
@@ -43,12 +44,11 @@ def test_a_block_directive_with_a_message_vetoes_the_tool(hermes: PinnedSource) 
         "        # A block directive requires a message (it becomes the tool result); approve's is optional.\n"
         '        if action == "block" and not message:\n'
         "            continue\n"
-        '        rule_key = result.get("rule_key") if action == "approve" else None\n'
-        "        rule_key = (rule_key.strip() or None) if isinstance(rule_key, str) else None\n"
-        "        return _PreToolCallDirective(action=action, message=message, rule_key=rule_key, modified_args=modified_args)"
+        '        if action == "block":\n'
+        "            return _PreToolCallDirective(action=\"block\", message=message, modified_args=modified_args)"
     )
-    # hermes_cli/plugins.py:1859-1860: the block message is what the tool call returns.
-    assert hermes.lines(PLUGINS, 1859, 1860) == ('    if details.action == "block":\n' "        return details.message")
+    # hermes_cli/plugins.py:2057-2058: the block message is what the tool call returns.
+    assert hermes.lines(PLUGINS, 2057, 2058) == ('    if details.action == "block":\n' "        return details.message")
 
 
 def test_a_raising_callback_blocks_with_the_exception_text(hermes: PinnedSource) -> None:
