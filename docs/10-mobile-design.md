@@ -10,14 +10,14 @@ Home is a single screen, not a permanent multi-tab dashboard. The account avatar
 
 ## 2. Hermes theme source and resolution
 
-Verified in the adjacent `hermes-agent` checkout at commit `d76856cc6971b6e0e1903b5369498bcc4bb83a60`:
+Verified in the adjacent `hermes-agent` checkout at v0.21.6, commit `818c13be1dc4fd28987e1e881a9408224afd4535`:
 
 | Source under that checkout | Role |
 |---|---|
-| `apps/desktop/src/themes/presets.ts` | Built-in palettes; `DEFAULT_SKIN_NAME = 'nous'`; light `colors` and dark `darkColors` |
+| `apps/desktop/src/themes/presets.ts` and `apps/shared/src/theme-presets.ts` | Built-in palettes; `DEFAULT_SKIN_NAME = 'nous'`; light `colors` and dark `darkColors` (the palette values live in the shared file) |
 | `apps/desktop/src/themes/types.ts` | `DesktopThemeColors` semantic token contract |
 | `apps/shared/src/skin.ts` | `HermesSkin` payload from the backend |
-| `apps/desktop/src/themes/skin.ts` and `color.ts` | Pure `skinToDesktopTheme` conversion and color helpers |
+| `apps/desktop/src/themes/skin.ts`, `color.ts` and `apps/shared/src/color.ts` | Pure `skinToDesktopTheme` conversion and color helpers (the sRGB and contrast helpers live in the shared file) |
 | `apps/desktop/src/themes/backend-sync.ts` | Built-in names retain their desktop palettes; `default` resolves to Nous; connect-time skin discovery does not overwrite a saved choice |
 
 Port the pure palette data and conversion functions into the app's pinned vendor directory, retaining the upstream license and provenance. Adapt persistence and application to React Native; do not import desktop DOM, CSS, localStorage, or nanostore wiring. Components consume a typed mobile theme object rather than literal hex colors. Palette upgrades happen with the Hermes pin.

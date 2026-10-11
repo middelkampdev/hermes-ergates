@@ -1,6 +1,6 @@
 # 06 - Hermes Client Contract
 
-Version: 0.3. Date: 2026-09-12. Source-reviewed against Hermes 0.21.2, commit `d76856cc6971b6e0e1903b5369498bcc4bb83a60`. Implementation/live fixtures: pending Phase 0.
+Version: 0.3. Date: 2026-09-12. Source-reviewed against Hermes 0.21.2, commit `d76856cc6971b6e0e1903b5369498bcc4bb83a60`, the pin until 2026-10-11. The pin is now 0.21.6 (`818c13be1dc4fd28987e1e881a9408224afd4535`); entries that name v0.21.6 were rechecked there. v0.21.6 sends approval, clarify, sudo and secret prompts as server-to-client requests, so the prompt entries below still describe 0.21.2. Implementation/live fixtures: pending Phase 0.
 
 This is the app's intended dependency surface. **Source-confirmed** entries below were checked in handlers/types. Examples use illustrative ids and paths, not captured traffic. Additional feature handlers are an inventory until their complete bodies, errors and lifecycle are recorded. Ergates-specific operations in 11 are proposed integration APIs, never upstream Hermes methods.
 
@@ -53,7 +53,7 @@ Source: `tui_gateway/methods_prompt.py`, `methods_session.py`, `methods_profiles
 | `session.steer`, `session.interrupt`, `session.compress` | `session_id`; text for steer | Explicit user intent; compression failure must remain visible |
 | `image.attach` | `session_id`, **`path`** | Server-visible existing path; rejects a bytes-only `data` call |
 | `image.attach_bytes` | `session_id`, **`content_base64`**; optional `filename`, `ext` | Remote bytes path; `data` is an alias; server validates type and its own byte cap |
-| `file.attach` | `session_id`, `path` or `data_url` (+ `name`) | Verified at pin d76856cc: the handler accepts either an existing gateway path or a data URL that it stages under the session's `attachments/`; the phone sends `data_url` + `name` and puts the returned `ref_text` in the prompt. The REST upload route stays the path for large files |
+| `file.attach` | `session_id`, `path` or `data_url` (+ `name`) | Verified at v0.21.6 (`tui_gateway/methods_prompt.py:976-996`, `tui_gateway/prompt_attachments.py:187-192`): the handler accepts either an existing gateway path or a data URL that it stages under the session's `attachments/`; the phone sends `data_url` + `name` and puts the returned `ref_text` in the prompt. The REST upload route stays the path for large files |
 | `approval.respond` | `session_id`, `request_id`, `choice` | `once`, `session`, `always`, `deny`; include identity even when fallback lookup is possible |
 | `clarify.respond` | Owning session/request plus answer in the advertised single/batch shape | Capture actual variants before implementing multi-select; expiry is authoritative |
 | `profiles.list` | Gateway profile inventory | Includes `ui_meta`, `ui_meta_revisions`, `has_avatar` |
@@ -162,12 +162,12 @@ Source: `apps/desktop/src/plugins/hermes-bots/{edit-profile-dialog,profile-confi
 | Avatar | `profiles.get_asset {name,asset:"avatar"}` → `{found,data,mime,size}` or `{found:false}`. Changed bytes/removal only via `profiles.set_asset`; maximum 2,000,000 decoded bytes |
 | Description / instructions | `profiles.configure {name,description,soul}` for touched fields only |
 | Model | `profiles.configure {name,provider,model}`; inspect `applied.model` and `confirm_required`; confirmed retry sends only model/provider plus `confirm_expensive_model:true` |
-| Skills / toolsets / MCP | `disabled_skills`, `enabled_toolsets`, `enabled_mcp_servers` arrays in `profiles.configure`; per-tool include/exclude uses the separate MCP config path |
+| Skills / toolsets / MCP | `disabled_skills`, `enabled_toolsets`, `enabled_mcp_servers` arrays in `profiles.configure`; per-tool include/exclude uses the separate MCP config path. On v0.21.6 `enabled_toolsets` is stored as the profile's `platform_toolsets.cli`, and an MCP server is turned off with `enabled: false` (`tui_gateway/methods_profiles.py:673-708`) |
 | Reasoning / other advanced config | Separate supported profile-scoped config calls; capture exact keys and lifecycle before exposing each field. They are not arbitrary `profiles.configure` params |
 | Notifications | Ergates subscription operation in 11; not a stock profile notification property |
 | Copy ID | Display/copy the existing profile id and gateway label; no backend mutation |
 
-Do not translate “all toolsets off” to an empty `enabled_toolsets`: the desktop treats that as restoring defaults. Expose this distinction and prove a supported deny-all path before offering one. Tool/MCP configuration success alone does not establish effective revocation in running sessions.
+Do not translate “all toolsets off” to an empty `enabled_toolsets`: on v0.21.6 an empty selection clears the pin, so the platform default applies again (`tui_gateway/methods_profiles.py:673-683`). Expose this distinction and prove a supported deny-all path before offering one. Tool/MCP configuration success alone does not establish effective revocation in running sessions.
 
 Read before editing, submit only changed sections and inspect each result. Metadata CAS does not make SOUL/model/assets atomic or versioned. Re-read non-metadata fields before save, keep partial failures visible, and require serialization if stronger concurrency guarantees are needed. Avoid desktop's local-only fallback when reporting a server save.
 

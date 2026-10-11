@@ -26,7 +26,7 @@ Tools needed, by job:
 | `lint` | `bash -n` on the shell scripts, then `uvx --from shellcheck-py==0.11.0.1 shellcheck` on them, then `uvx --from actionlint-py==1.7.12.25 actionlint` on the workflow files | `bash`, [`uv`](https://docs.astral.sh/uv/) (for `uvx`) |
 | `mobile` | `npm ci` (fresh installs, or when `node_modules` is missing), then `npm run typecheck`, `npm run lint`, `npm run test:coverage`, `npm run depcruise` | Node 26, npm |
 | `integration` | `uv run --python 3.11 --with pytest --with pytest-cov --with pyyaml pytest --cov --cov-fail-under=90` (run from `integrations/ergates`) | `uv`, Python 3.11 |
-| `contract` | Prepares a pinned Hermes checkout (`HERMES_SOURCE`, or a local/fetched checkout at the pin), then `pytest contract` and `pytest contract/live` through the same `uv run` invocation as `integration` (run from `integrations/ergates`) | `uv`, Python 3.11, `git` |
+| `contract` | Prepares a pinned Hermes checkout (`HERMES_SOURCE`, or a local/fetched checkout at the pin), then `pytest contract` and `pytest contract/live` through the same `uv run` invocation as `integration` (run from `integrations/ergates`) | `uv`, Python 3.11, `git`, network access (the live hot-mount test prepares Hermes's own dependency runtime, about 560 MB, in a temporary root, and takes about a minute) |
 | `deploy` | `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --quiet`, then `uv run --no-project --python 3.11 --with pytest --with pyyaml pytest -p no:cacheprovider deploy/tests` | Docker (with Compose), `uv`, Python 3.11 |
 
 The quick loops from the README, for iterating on one part:

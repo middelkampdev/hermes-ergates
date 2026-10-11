@@ -30,8 +30,10 @@ plugin in that Hermes (`integrations/ergates/README.md`, "Install"): link
 `integrations/ergates` to `~/.hermes/plugins/ergates`, then, from the
 repository root and with the Python your Hermes runs on, run
 `PYTHONPATH=integrations/ergates python -m ergates.install --templates deploy/templates`
-and restart `hermes serve`. The installer edits `~/.hermes/config.yaml` and
-the `config.yaml` of every profile.
+and restart `hermes serve` so it loads the plugin's hooks and tools. On
+Hermes v0.21.6 the routes alone would mount on their first request without a
+restart. The installer edits `~/.hermes/config.yaml` and the `config.yaml` of
+every profile.
 
 ## Verification
 
@@ -51,7 +53,7 @@ Run one job with `scripts/ci-local.sh mobile`, several with `scripts/ci-local.sh
 - `cd integrations/ergates && uv run --python 3.11 --with pytest --with pytest-cov --with pyyaml pytest`
 - Live backend smoke: `ERGATES_LIVE=1 ERGATES_TOKEN=… npx vitest run test/live` (from `apps/mobile`)
 
-Hermes pin: `d76856cc6971b6e0e1903b5369498bcc4bb83a60` (v0.21.2). Re-verify the vendored client against [06 - Client contract](docs/06-hermes-api-contract.md) on every upgrade; `scripts/ci-local.sh contract` checks the pinned integration automatically.
+Hermes pin: `818c13be1dc4fd28987e1e881a9408224afd4535` (v0.21.6). The vendored theme sources come from that commit; the vendored gateway client is still the v0.21.2 copy, because v0.21.6 sends approval and clarify prompts as server-to-client requests, which the app does not answer yet (`apps/mobile/vendor/hermes/PIN.md`). Re-verify the vendored client against [06 - Client contract](docs/06-hermes-api-contract.md) on every upgrade; `scripts/ci-local.sh contract` checks the pinned integration automatically.
 
 ## Contributing
 

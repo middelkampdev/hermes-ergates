@@ -370,7 +370,7 @@ VERIFY_CHECKS = {
     "V4": "401",
     "V5": "ergates.install --check",
     "V6": "refusing to run as root",
-    "V7": "plugins_dispatch.py:210-217",
+    "V7": "plugins_dispatch.py:160-173",
     "V8": "post_llm_call",
     "V9": "locked",
     "V10": "replaces the first",

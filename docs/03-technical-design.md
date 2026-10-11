@@ -1,6 +1,6 @@
 # 03 - Technical Design
 
-Version: 0.4. Date: 2026-09-13. Depends on [02](02-functional-design.md), [10](10-mobile-design.md), [11](11-implementation-readiness.md) and [08 ADR-029](08-decision-log.md#adr-029-app-code-shape-feature-modules-behind-one-gateway-port). Hermes pin: `d76856cc6971b6e0e1903b5369498bcc4bb83a60`, version 0.21.2. This is a design, not an executed deployment.
+Version: 0.4. Date: 2026-09-13. Depends on [02](02-functional-design.md), [10](10-mobile-design.md), [11](11-implementation-readiness.md) and [08 ADR-029](08-decision-log.md#adr-029-app-code-shape-feature-modules-behind-one-gateway-port). Hermes pin: `818c13be1dc4fd28987e1e881a9408224afd4535`, version 0.21.6 (0.21.2, `d76856cc6971b6e0e1903b5369498bcc4bb83a60`, until 2026-10-11). This is a design, not an executed deployment.
 
 ## 1. Boundaries
 

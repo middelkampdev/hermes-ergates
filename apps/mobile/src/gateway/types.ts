@@ -1,6 +1,9 @@
 /**
- * Wire types for the Hermes gateway, verified against the pinned backend
- * (commit d76856cc, v0.21.2). See docs/06-hermes-api-contract.md for the
+ * Wire types for the Hermes gateway. Pinned backend: commit 818c13be
+ * (v0.21.6); the types were verified at 0.21.2. The clarify and approval
+ * payloads still describe the 0.21.2 prompt notifications. v0.21.6 sends
+ * those prompts as server-to-client requests, which the app does not answer
+ * yet (vendor/hermes/PIN.md). See docs/06-hermes-api-contract.md for the
  * backend wire shapes.
  *
  * This module imports nothing from React Native or Expo (ADR-029 rule 1).

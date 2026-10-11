@@ -278,8 +278,9 @@ already done above, before first start.
    (04 section 6; 11 section 4.1).
 
 4. **Install the plugin into every profile, and the templates**, as the
-   `hermes` user, then restart the controllers: `hermes serve` mounts the
-   plugin's routes only when it starts.
+   `hermes` user, then restart the controllers so both load the plugin's
+   hooks and tools. (On Hermes v0.21.6 `hermes serve` would mount the
+   plugin's routes on their first request without a restart.)
 
    ```bash
    docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-serve python -m ergates.install

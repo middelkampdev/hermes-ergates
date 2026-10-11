@@ -239,14 +239,17 @@ Result:
 
 ### V7 Two sessions of one profile call tools at the same moment
 
-Hermes guards every `pre_tool_call` callback against running twice at once.
-At the pin (`hermes_cli/plugins_dispatch.py:210-217`) the guard's key is the
-hook name and the callback, with no session in it, and for `pre_tool_call`
-a skipped callback becomes a block (`plugins_dispatch.py:188-191`). So two
-sessions of one gateway process that call a tool in the same instant can
-block each other with `pre_tool_call plugin callback timed out or is still
-running`. The Ergates callback takes milliseconds, so the window is small;
-this check measures it.
+Hermes guards every `pre_tool_call` callback against running twice at once,
+and for `pre_tool_call` a skipped callback becomes a block with
+`pre_tool_call plugin callback timed out or is still running`
+(`hermes_cli/plugins_dispatch.py:233-236`). On v0.21.6 the guard's key holds
+the call's identity, its `tool_call_id`, else its `turn_id`
+(`plugins_dispatch.py:160-173`, `281-291`), so two sessions of one gateway
+process that call a tool in the same instant no longer skip each other. A
+skip still follows a callback that timed out (30 s by default,
+`plugins_dispatch.py:155`): Hermes then suppresses that callback for 60 s
+for every call (`plugins_dispatch.py:55`, `285-287`). This check confirms
+that no call is skipped on the real server.
 
 1. Open two Bot Chats of one specialist (two sessions of one profile).
 2. In both, at the same second, send: "Call the todo tool 20 times in a
@@ -254,15 +257,16 @@ this check measures it.
 3. `docker compose logs hermes-gateway hermes-serve | grep -c "skipped after previous timeout or while still running"`
 
 Expected: every call succeeds, and the count is `0`. Any skip is a finding:
-record how often, and raise it with the owner (a fix needs Hermes to key the
-guard by session, or a plugin-side change to the hook's wiring).
+record how often, and raise it with the owner.
 
 Result:
 
 ### V8 Two routines that finish at the same moment both push
 
 `post_llm_call` has the same guard, without the block: a skipped callback
-means a finished routine records no event and sends no push.
+means a finished routine records no event and sends no push. On v0.21.6 the
+hook gets the turn's `turn_id` (`agent/turn_finalizer.py:466-476`), so two
+routines that finish together are two keys and should not skip each other.
 
 1. In the app, create two routines in two profiles, both due in the same
    minute (a one-shot `in 3m` for each, saved within a few seconds).
