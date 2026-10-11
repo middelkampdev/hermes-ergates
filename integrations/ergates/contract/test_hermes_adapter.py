@@ -28,6 +28,7 @@ JOBS = "cron/jobs.py"
 CRONJOB = "tools/cronjob_tools.py"
 PROVIDER = "cron/scheduler_provider.py"
 RPC = "tui_gateway/methods_tools.py"
+MODEL_SWITCH = "tui_gateway/model_switch.py"
 PROMPT_SCAN = "tools/cronjob_prompt_scan.py"
 
 
@@ -138,14 +139,36 @@ def test_profile_lookups_take_a_name(hermes: PinnedSource) -> None:
 
 
 def test_a_profile_scope_is_the_context_local_home_override(hermes: PinnedSource) -> None:
+    """The adapter binds the home part of the cron.manage RPC's profile scope: the profile
+    folder from ``get_profile_dir`` (refused when it is not a folder) as the context-local home
+    override. Since v0.21.6 the RPC also binds that profile's secret scope and terminal policy
+    (``_session_profile_runtime_scope``); the adapter does not, because no setting it reads or
+    writes is a secret and it runs no command (see the ``hermes_adapter`` module docstring)."""
     assert _arguments(hermes.function(CONSTANTS, "set_hermes_home_override")) == ["path"]
     assert _arguments(hermes.function(CONSTANTS, "reset_hermes_home_override")) == ["token"]
-    # tui_gateway/methods_tools.py:44-47: the cron.manage RPC's own profile scope, which the adapter mirrors.
-    assert hermes.lines(RPC, 44, 47) == (
-        '                    profile_dir = _tools_mod("hermes_cli.profiles").get_profile_dir(profile)\n'
-        "                    if not profile_dir or not profile_dir.is_dir():\n"
+    # tui_gateway/methods_tools.py:55-61: the cron.manage RPC's own profile scope.
+    assert hermes.lines(RPC, 55, 61) == (
+        '                profile = _str_arg(params, "profile")\n'
+        "                try:\n"
+        "                    try:\n"
+        "                        home = _profile_home(profile)\n"
+        "                    except ProfileUnavailableError:\n"
         "                        return _err(rid, 4064, f\"profile '{profile}' not found\")\n"
-        '                    token = _tools_mod("hermes_constants").set_hermes_home_override(str(profile_dir))'
+        '                    scope = _session_profile_runtime_scope({"profile_home": str(home) if home else None})'
+    )
+    # tui_gateway/server.py:580-584: the folder comes from get_profile_dir and must be a folder.
+    assert hermes.lines(TUI_SERVER, 580, 584) == (
+        "    try:\n"
+        "        home = Path(profiles_mod.get_profile_dir(name))\n"
+        "    except ValueError:\n"
+        "        home = None\n"
+        "    if home is None or not home.is_dir():"
+    )
+    # tui_gateway/model_switch.py:78-80: the scope's home part is the context-local override.
+    assert hermes.lines(MODEL_SWITCH, 78, 80) == (
+        "            secrets = build_profile_secret_scope(home)\n"
+        "            overlay = None\n"
+        "            scopes.home = set_hermes_home_override(str(home))"
     )
 
 

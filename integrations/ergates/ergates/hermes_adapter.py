@@ -10,12 +10,21 @@ against the pinned Hermes itself.
 Imports happen inside each function, so importing this module never needs
 Hermes: the test suite and ``python -m ergates.flush`` run without it.
 
-Every call about one profile runs the way Hermes's own ``cron.manage`` RPC
-runs for a ``profile`` parameter (``tui_gateway/methods_tools.py`` at the
-pin): ``get_profile_dir(profile)`` becomes the context-local Hermes home
+Every call about one profile binds the home part of the scope Hermes's own
+``cron.manage`` RPC binds for a ``profile`` parameter
+(``tui_gateway/methods_tools.py`` at the pin): ``get_profile_dir(profile)``,
+refused unless it is a folder, becomes the context-local Hermes home
 (``set_hermes_home_override``) for the call and is reset afterwards. Config,
 cron and plugin discovery all resolve ``get_hermes_home()`` at call time, so
 they act on that profile, and no other thread sees the override.
+
+Since v0.21.6 the RPC also binds the profile's secret scope and terminal
+policy (``_session_profile_runtime_scope`` in ``tui_gateway/model_switch.py``).
+This module does not: no setting it reads or writes is a secret, and it
+runs no command. A ``${VAR}`` reference in the profile's ``config.yaml``
+expands against whatever secret scope the caller already holds (the
+request's in a dashboard route, the turn's in a hook), and ``save_config``
+writes the reference back, not the value.
 """
 
 from __future__ import annotations
