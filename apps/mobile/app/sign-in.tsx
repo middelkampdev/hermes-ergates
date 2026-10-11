@@ -11,7 +11,7 @@ import { Redirect, useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useEffect, useState } from 'react'
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 
-import { BLANK_CREDENTIALS, connectionToSignIn, credentialsFrom, credentialsReady, firstProvider, signInAgain, type CredentialValues } from '@/features/settings'
+import { BLANK_CREDENTIALS, connectionToSignIn, credentialsFrom, credentialsReady, firstProvider, signInAgain, usePrimaryConnection, type CredentialValues } from '@/features/settings'
 import { useGateway, useGatewayRegistry } from '@/gateway/registry'
 import { useDeviceStore, type Connection } from '@/state/device-store'
 import { currentDeviceTrust, rootedReasonLine } from '@/state/device-trust'
@@ -39,6 +39,7 @@ function SignIn({ connection }: { connection: Connection }) {
   const queryClient = useQueryClient()
   const bottomInset = useBottomInset(SPACE.giant)
   const mode = connection.authMode
+  const isPrimary = usePrimaryConnection()?.id === connection.id
   const [credentials, setCredentials] = useState<CredentialValues>(BLANK_CREDENTIALS)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -103,8 +104,10 @@ function SignIn({ connection }: { connection: Connection }) {
               {error}
             </Text>
           ) : null}
-          {/* Home always sends a connection without a sign-in here, so this is the way to Sign out or the gateway details when signing in cannot work. */}
-          <Button label="Settings" variant="secondary" onPress={() => router.push('/settings')} />
+          {/* Settings acts on the primary connection only. Home replaces itself with this screen for the primary
+              one, so there Settings is the only way to Sign out or the gateway details; any other connection
+              arrives here pushed from its chat, where Back still works. */}
+          {isPrimary ? <Button label="Settings" variant="secondary" onPress={() => router.push('/settings')} disabled={busy} /> : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
