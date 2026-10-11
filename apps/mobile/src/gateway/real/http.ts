@@ -172,7 +172,10 @@ export class HttpClient {
 
     const setCookie = splitSetCookie(response.headers.get('set-cookie'))
     if (setCookie.length && this.onSetCookie) {
-      this.onSetCookie(mergeCookieHeader(auth.cookie, setCookie))
+      // Merge into the cookie as it is now, not as it was when this request
+      // left: a request that answered in between may have refreshed it, and
+      // with the platform jar off nothing else would keep the newer value.
+      this.onSetCookie(mergeCookieHeader(this.getAuth().cookie, setCookie))
     }
 
     const text = await response.text()

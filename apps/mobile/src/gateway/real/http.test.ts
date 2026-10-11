@@ -36,6 +36,34 @@ describe('HttpClient', () => {
     expect(calls[0]?.init.body).toBe(JSON.stringify({ provider: 'basic', username: 'u', password: 'p' }))
   })
 
+  it('merges a late answer into the cookie as it is when that answer arrives, so it cannot undo a newer refresh', async () => {
+    const answer = new Map<string, (response: Response) => void>()
+    const impl = vi.fn(
+      (url: string | URL | Request) =>
+        new Promise<Response>(resolve => {
+          answer.set(new URL(String(url)).pathname, resolve)
+        })
+    ) as unknown as typeof fetch
+    let auth: HttpAuthState = { mode: 'password', cookie: 'hermes_session_at=old' }
+    const http = new HttpClient({
+      baseUrl: 'http://gw.local',
+      getAuth: () => auth,
+      onSetCookie: cookie => {
+        auth = { ...auth, cookie }
+      },
+      fetchImpl: impl
+    })
+
+    const startedFirst = http.get('/api/first')
+    const startedSecond = http.get('/api/second')
+    answer.get('/api/second')?.(new Response('{}', { status: 200, headers: { 'set-cookie': 'hermes_session_at=new; Path=/' } }))
+    await startedSecond
+    answer.get('/api/first')?.(new Response('{}', { status: 200, headers: { 'set-cookie': 'hermes_session_provider=basic; Path=/' } }))
+    await startedFirst
+
+    expect(auth.cookie).toBe('hermes_session_at=new; hermes_session_provider=basic')
+  })
+
   it('keeps the platform cookie jar out of requests', async () => {
     const { impl, calls } = fetchStub(200, { ok: true })
     const http = new HttpClient({ baseUrl: 'http://x', getAuth: () => ({ mode: 'password', cookie: 'hermes_session_at=abc' }), fetchImpl: impl })
