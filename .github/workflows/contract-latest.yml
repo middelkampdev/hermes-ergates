@@ -1,11 +1,13 @@
-# The contract tests of ci.yml against the newest stable Hermes release instead
-# of the pin, so a break shows up before the pin moves. It lives in its own
-# file so the schedule does not run the other CI jobs and its concurrency group
-# does not collide with the push runs on `develop`. It runs on a schedule (from
-# the default branch) and on manual dispatch, never on a pull request, so it
-# blocks no merge; a break turns the run red. `releases/latest` skips
-# pre-releases; Hermes also tags rc and canary builds.
-name: Contract tests, newest Hermes
+# The live contract tests (`contract/live`) against the newest stable Hermes
+# release instead of the pin, so a break shows up before the pin moves. The
+# text tests of ci.yml's `contract` job pin exact Hermes line numbers, which
+# move in nearly every release, so they run against the pin only. It lives in
+# its own file so the schedule does not run the other CI jobs and its
+# concurrency group does not collide with the push runs on `develop`. It runs
+# on a schedule (from the default branch) and on manual dispatch, never on a
+# pull request, so it blocks no merge; a break turns the run red.
+# `releases/latest` skips pre-releases; Hermes also tags rc and canary builds.
+name: Live contract tests, newest Hermes
 
 on:
   # Mondays at 05:23 UTC.
@@ -59,7 +61,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           version: "0.11.19"
-      - run: scripts/ci-local.sh contract
+      - run: scripts/ci-local.sh contract-live
         env:
           HERMES_SOURCE: ${{ github.workspace }}/.cache/hermes-latest
           HERMES_EXPECTED_REF: ${{ steps.commit.outputs.sha }}

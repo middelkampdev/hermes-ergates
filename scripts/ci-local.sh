@@ -8,6 +8,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 JOBS=(lint mobile integration contract deploy)
+# Jobs that run only when named. `contract-live` is the live half of `contract`
+# alone, for the weekly run against the newest Hermes release
+# (.github/workflows/contract-latest.yml).
+NAMED_JOBS=(contract-live)
 
 # The workflow files (actionlint) and the shell scripts themselves (bash -n,
 # then shellcheck), including the release scripts that otherwise first run in
@@ -115,6 +119,20 @@ job_contract() {
   prepare_hermes_source
   cd "$ROOT/integrations/ergates"
   "${UV_TEST[@]}" pytest contract
+  contract_live
+}
+
+# Only `contract/live/`. The text suite pins exact Hermes line numbers, which
+# move in nearly every release, so the weekly run against the newest release
+# skips it.
+job_contract_live() {
+  prepare_hermes_source
+  contract_live
+}
+
+# Needs HERMES_SOURCE (prepare_hermes_source).
+contract_live() {
+  cd "$ROOT/integrations/ergates"
   local requirements="$ROOT/.cache/hermes-requirements.txt"
   mkdir -p "$ROOT/.cache"
   uv export --quiet --frozen --no-dev --no-emit-project --no-hashes --project "$HERMES_SOURCE" -o "$requirements"
@@ -134,14 +152,14 @@ main() {
   fi
   local job
   for job in "${selected[@]}"; do
-    if [[ " ${JOBS[*]} " != *" $job "* ]]; then
-      echo "ci-local: unknown job '$job' (jobs: ${JOBS[*]})" >&2
+    if [[ " ${JOBS[*]} ${NAMED_JOBS[*]} " != *" $job "* ]]; then
+      echo "ci-local: unknown job '$job' (jobs: ${JOBS[*]} ${NAMED_JOBS[*]})" >&2
       return 2
     fi
   done
   for job in "${selected[@]}"; do
     echo "==> $job"
-    ("job_$job")
+    ("job_${job//-/_}")
   done
   echo "ci-local: passed: ${selected[*]}"
 }
