@@ -1,37 +1,50 @@
 /**
- * Root and jailbreak detection, with the probe faked: expo-device pulls in
- * react-native, which a plain Node run cannot parse.
+ * Root and jailbreak detection, with the probe faked: expo-device and the
+ * root-traces module pull in react-native, which a plain Node run cannot parse.
  */
 import { describe, expect, it, vi } from 'vitest'
 
 import { createAuthSecretStore, MemorySecretStore, type SecretStore } from '@/gateway/secrets'
 
-import { currentDeviceTrust, detectDeviceTrust, initDeviceTrust, rootedNoticeCopy, rootedReasonLine, startDeviceTrust, type TrustProbe } from './device-trust'
+import { currentDeviceTrust, detectDeviceTrust, initDeviceTrust, rootedNoticeCopy, rootedReasonLine, rootTracesFinder, startDeviceTrust, type TrustProbe } from './device-trust'
 import { secretKey } from './persistence'
 
-describe('detectDeviceTrust', () => {
-  it('counts a simulator as standard without asking the root check', async () => {
-    const isRooted = vi.fn()
+/** A trace search that finds nothing, as on a stock phone. */
+const noTraces = async (): Promise<string[]> => []
 
-    await expect(detectDeviceTrust({ isDevice: false, isRooted, forceRooted: false })).resolves.toBe('standard')
+describe('detectDeviceTrust', () => {
+  it('counts a simulator as standard without asking either check', async () => {
+    const isRooted = vi.fn()
+    const findRootTraces = vi.fn()
+
+    await expect(detectDeviceTrust({ isDevice: false, isRooted, findRootTraces, forceRooted: false })).resolves.toBe('standard')
 
     expect(isRooted).not.toHaveBeenCalled()
+    expect(findRootTraces).not.toHaveBeenCalled()
   })
 
   it('counts an unknown device kind as a simulator', async () => {
     const isRooted = vi.fn()
+    const findRootTraces = vi.fn()
 
-    await expect(detectDeviceTrust({ isDevice: null, isRooted, forceRooted: false })).resolves.toBe('standard')
+    await expect(detectDeviceTrust({ isDevice: null, isRooted, findRootTraces, forceRooted: false })).resolves.toBe('standard')
 
     expect(isRooted).not.toHaveBeenCalled()
+    expect(findRootTraces).not.toHaveBeenCalled()
   })
 
   it('reports a physical device the root check flags', async () => {
-    await expect(detectDeviceTrust({ isDevice: true, isRooted: async () => true, forceRooted: false })).resolves.toBe('rooted')
+    await expect(detectDeviceTrust({ isDevice: true, isRooted: async () => true, findRootTraces: noTraces, forceRooted: false })).resolves.toBe('rooted')
   })
 
   it('reports a clean physical device as standard', async () => {
-    await expect(detectDeviceTrust({ isDevice: true, isRooted: async () => false, forceRooted: false })).resolves.toBe('standard')
+    await expect(detectDeviceTrust({ isDevice: true, isRooted: async () => false, findRootTraces: noTraces, forceRooted: false })).resolves.toBe('standard')
+  })
+
+  it('flags a physical device on root traces alone, since the expo-device check misses rootless jailbreaks and Magisk', async () => {
+    const findRootTraces = async () => ['/var/jb']
+
+    await expect(detectDeviceTrust({ isDevice: true, isRooted: async () => false, findRootTraces, forceRooted: false })).resolves.toBe('rooted')
   })
 
   it('treats a failing root check as standard', async () => {
@@ -39,14 +52,38 @@ describe('detectDeviceTrust', () => {
       throw new Error('ERR_DEVICE_ROOT_DETECTION')
     }
 
-    await expect(detectDeviceTrust({ isDevice: true, isRooted, forceRooted: false })).resolves.toBe('standard')
+    await expect(detectDeviceTrust({ isDevice: true, isRooted, findRootTraces: noTraces, forceRooted: false })).resolves.toBe('standard')
+  })
+
+  it('treats a failing trace search as no traces', async () => {
+    const findRootTraces = async (): Promise<string[]> => {
+      throw new Error('native module missing')
+    }
+
+    await expect(detectDeviceTrust({ isDevice: true, isRooted: async () => false, findRootTraces, forceRooted: false })).resolves.toBe('standard')
+  })
+
+  it('still reports the root check when the trace search fails', async () => {
+    const findRootTraces = async (): Promise<string[]> => {
+      throw new Error('native module missing')
+    }
+
+    await expect(detectDeviceTrust({ isDevice: true, isRooted: async () => true, findRootTraces, forceRooted: false })).resolves.toBe('rooted')
+  })
+
+  it('still reports root traces when the root check fails', async () => {
+    const isRooted = async (): Promise<boolean> => {
+      throw new Error('ERR_DEVICE_ROOT_DETECTION')
+    }
+
+    await expect(detectDeviceTrust({ isDevice: true, isRooted, findRootTraces: async () => ['/system/xbin/su'], forceRooted: false })).resolves.toBe('rooted')
   })
 
   it('counts a root check that never answers as standard after two seconds, so start-up cannot hang', async () => {
     vi.useFakeTimers()
     try {
       let outcome: string = 'pending'
-      void detectDeviceTrust({ isDevice: true, isRooted: () => new Promise<boolean>(() => undefined), forceRooted: false }).then(trust => {
+      void detectDeviceTrust({ isDevice: true, isRooted: () => new Promise<boolean>(() => undefined), findRootTraces: noTraces, forceRooted: false }).then(trust => {
         outcome = trust
       })
 
@@ -60,11 +97,47 @@ describe('detectDeviceTrust', () => {
     }
   })
 
+  it('counts a trace search that never answers as no traces after two seconds, so start-up cannot hang', async () => {
+    vi.useFakeTimers()
+    try {
+      let outcome: string = 'pending'
+      const findRootTraces = () => new Promise<string[]>(() => undefined)
+      void detectDeviceTrust({ isDevice: true, isRooted: async () => false, findRootTraces, forceRooted: false }).then(trust => {
+        outcome = trust
+      })
+
+      await vi.advanceTimersByTimeAsync(1_999)
+      expect(outcome).toBe('pending')
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(outcome).toBe('standard')
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('still reports the root check when the trace search never answers, within the same two seconds', async () => {
+    vi.useFakeTimers()
+    try {
+      let outcome: string = 'pending'
+      const findRootTraces = () => new Promise<string[]>(() => undefined)
+      void detectDeviceTrust({ isDevice: true, isRooted: async () => true, findRootTraces, forceRooted: false }).then(trust => {
+        outcome = trust
+      })
+
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(outcome).toBe('rooted')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('still reports a root check that answers just before the time limit', async () => {
     vi.useFakeTimers()
     try {
       const isRooted = () => new Promise<boolean>(resolve => setTimeout(() => resolve(true), 1_900))
-      const outcome = detectDeviceTrust({ isDevice: true, isRooted, forceRooted: false })
+      const outcome = detectDeviceTrust({ isDevice: true, isRooted, findRootTraces: noTraces, forceRooted: false })
 
       await vi.advanceTimersByTimeAsync(1_900)
 
@@ -77,16 +150,30 @@ describe('detectDeviceTrust', () => {
 
   it('follows the dev flag on a simulator', async () => {
     const isRooted = vi.fn()
+    const findRootTraces = vi.fn()
 
-    await expect(detectDeviceTrust({ isDevice: false, isRooted, forceRooted: true })).resolves.toBe('rooted')
+    await expect(detectDeviceTrust({ isDevice: false, isRooted, findRootTraces, forceRooted: true })).resolves.toBe('rooted')
 
     expect(isRooted).not.toHaveBeenCalled()
+    expect(findRootTraces).not.toHaveBeenCalled()
+  })
+})
+
+describe('rootTracesFinder', () => {
+  it('asks the native module when the app was built with it', async () => {
+    const find = rootTracesFinder({ findRootTracesAsync: async () => ['/var/jb'] })
+
+    await expect(find()).resolves.toEqual(['/var/jb'])
+  })
+
+  it('finds nothing when the native module is missing, as in a dev client built before it existed', async () => {
+    await expect(rootTracesFinder(null)()).resolves.toEqual([])
   })
 })
 
 const KINDS = ['token', 'cookie', 'mode'] as const
-const rootedProbe: TrustProbe = { isDevice: true, isRooted: async () => true, forceRooted: false }
-const standardProbe: TrustProbe = { isDevice: true, isRooted: async () => false, forceRooted: false }
+const rootedProbe: TrustProbe = { isDevice: true, isRooted: async () => true, findRootTraces: noTraces, forceRooted: false }
+const standardProbe: TrustProbe = { isDevice: true, isRooted: async () => false, findRootTraces: noTraces, forceRooted: false }
 
 /** A persistent store holding a token, a cookie and a mode for each connection id. */
 async function signedInStore(...connectionIds: string[]): Promise<MemorySecretStore> {

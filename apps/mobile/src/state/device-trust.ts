@@ -5,11 +5,17 @@
  * hides root, and it never blocks the app: a phone that is not flagged, or whose
  * check fails, counts as standard.
  *
+ * Two checks run side by side. expo-device's `isRootedExperimentalAsync` sees
+ * `su` in /system/xbin and rootful-era jailbreaks only. The app's own
+ * root-traces module (modules/root-traces) also looks for the files a rootless
+ * jailbreak (Dopamine, palera1n: everything under /var/jb) or a common Android
+ * `su` install leaves behind. Either one is enough to flag the phone.
+ *
  * `detectDeviceTrust` takes a `TrustProbe` so Node tests can fake the device.
- * `expoTrustProbe` builds the real one. `expo-device` is loaded lazily (dynamic
- * import inside the function) rather than at module scope, for the same reason
- * persistence.ts loads expo-secure-store that way: it pulls in react-native,
- * which a plain Node/vitest run cannot parse.
+ * `expoTrustProbe` builds the real one. `expo-device` and the root-traces module
+ * are loaded lazily (dynamic import inside the function) rather than at module
+ * scope, for the same reason persistence.ts loads expo-secure-store that way:
+ * they pull in react-native, which a plain Node/vitest run cannot parse.
  */
 import type { AuthSecretStore, SecretStore } from '@/gateway/secrets'
 
@@ -22,6 +28,8 @@ export interface TrustProbe {
   isDevice: boolean | null
   /** The platform's root or jailbreak check. May reject. */
   isRooted(): Promise<boolean>
+  /** The root or jailbreak files found on this phone; empty when none. May reject. */
+  findRootTraces(): Promise<string[]>
   /** Development only: report `rooted` without asking the check, so the rooted path can be tried on a simulator. */
   forceRooted: boolean
 }
@@ -42,11 +50,22 @@ async function within<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> 
   }
 }
 
+/** `work`'s value, or `fallback` when it throws or has not answered within the native call limit. */
+async function settle<T>(work: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await within(Promise.resolve().then(work), NATIVE_CALL_LIMIT_MS, fallback)
+  } catch {
+    return fallback
+  }
+}
+
 /**
  * Simulators and emulators are always standard (their root signals say nothing
  * about a user's phone) unless the dev flag forces the rooted path. An unknown
- * device kind counts as a simulator. A check that throws, or that has not
- * answered within two seconds, counts as standard: start-up waits for it.
+ * device kind counts as a simulator. On a phone both checks run at once, each
+ * with its own two-second limit, and either one flags it. A check that throws,
+ * or that has not answered in time, counts as finding nothing, so one broken
+ * check never hides what the other found.
  */
 export async function detectDeviceTrust(probe: TrustProbe): Promise<DeviceTrust> {
   if (probe.forceRooted) {
@@ -55,23 +74,36 @@ export async function detectDeviceTrust(probe: TrustProbe): Promise<DeviceTrust>
   if (probe.isDevice !== true) {
     return 'standard'
   }
-  try {
-    return (await within(probe.isRooted(), NATIVE_CALL_LIMIT_MS, false)) ? 'rooted' : 'standard'
-  } catch {
-    return 'standard'
-  }
+  const [rooted, traces] = await Promise.all([settle(() => probe.isRooted(), false), settle(() => probe.findRootTraces(), [] as string[])])
+  return rooted || traces.length > 0 ? 'rooted' : 'standard'
+}
+
+/** The part of the root-traces native module this file uses. */
+export interface RootTracesModule {
+  findRootTracesAsync(): Promise<string[]>
 }
 
 /**
- * The probe backed by expo-device. `EXPO_PUBLIC_DEV_FORCE_ROOTED=1` is inlined at
- * bundle time and read only while `__DEV__` is true, so a release bundle never
- * honors it.
+ * The trace search backed by the native module, or one that finds nothing when
+ * the module is missing (a dev client built before the module existed), so
+ * start-up never breaks on an old build.
+ */
+export function rootTracesFinder(module: RootTracesModule | null): () => Promise<string[]> {
+  return module ? () => module.findRootTracesAsync() : async () => []
+}
+
+/**
+ * The probe backed by expo-device and the root-traces module.
+ * `EXPO_PUBLIC_DEV_FORCE_ROOTED=1` is inlined at bundle time and read only while
+ * `__DEV__` is true, so a release bundle never honors it.
  */
 export async function expoTrustProbe(): Promise<TrustProbe> {
   const Device = await import('expo-device')
+  const { default: rootTraces } = await import('../../modules/root-traces/src/RootTracesModule')
   return {
     isDevice: Device.isDevice,
     isRooted: () => Device.isRootedExperimentalAsync(),
+    findRootTraces: rootTracesFinder(rootTraces),
     forceRooted: __DEV__ && process.env.EXPO_PUBLIC_DEV_FORCE_ROOTED === '1'
   }
 }
