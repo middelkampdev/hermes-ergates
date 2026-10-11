@@ -42,6 +42,23 @@ For a gateway on the Tailscale VPS (password mode) enter its URL; the app reads 
 | `npx expo prebuild --platform ios --clean` | Regenerate the native project after changing plugins in `app.json` |
 | `scripts/release/upload-secrets.sh --check` | Store releases run in GitHub Actions from gflow tags, to TestFlight and Google Play internal testing; this checks the secrets in the git-ignored `.release/` before they are uploaded. Setup and every release: [RELEASING.md](RELEASING.md) |
 
+## App artwork
+
+The Crew artwork with the speech bubble is `assets/brand/crew-speech-source.png`.
+The original remains in `assets/brand/crew-source.png`. Run
+`npm run assets:generate` to export the iOS icon, Android legacy/adaptive/themed
+icons, and light/dark splash images from that source. The export keeps the
+approved faces and overlap; it only resizes the image and creates ink masks.
+
+`app.json` selects these files. Android uses a white adaptive background and
+transparent ink in the foreground and monochrome layers. The full artwork fits
+inside the central safe circle. The iOS icon is an opaque 1024 × 1024 PNG.
+The `expo-splash-screen` plugin configures both native launch screens.
+
+After changing artwork, regenerate and rebuild the native projects. A JavaScript
+reload does not replace installed launcher icons or native launch screens.
+Check launch screens in a preview or release build, not Expo Go or the dev client.
+
 ## Layout
 
 ```text

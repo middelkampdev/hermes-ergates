@@ -8,12 +8,8 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
+      "icon": "./assets/icon.png",
       "bundleIdentifier": "dev.middelkamp.ergates",
       "deploymentTarget": "16.4",
       "supportsTablet": false,
@@ -25,11 +21,11 @@
       }
     },
     "android": {
+      "icon": "./assets/android-icon.png",
       "package": "dev.middelkamp.ergates",
       "adaptiveIcon": {
         "backgroundColor": "#ffffff",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
@@ -37,6 +33,19 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "image": "./assets/splash-icon-dark.png",
+            "backgroundColor": "#0d1117"
+          }
+        }
+      ],
       [
         "expo-image-picker",
         {
