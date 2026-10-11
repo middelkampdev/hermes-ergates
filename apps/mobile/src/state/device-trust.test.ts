@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createAuthSecretStore, MemorySecretStore, type SecretStore } from '@/gateway/secrets'
 
-import { currentDeviceTrust, detectDeviceTrust, initDeviceTrust, rootedNoticeCopy, rootedReasonLine, rootTracesFinder, startDeviceTrust, type TrustProbe } from './device-trust'
+import { currentDeviceTrust, detectDeviceTrust, initDeviceTrust, loadRootTracesModule, rootedNoticeCopy, rootedReasonLine, rootTracesFinder, startDeviceTrust, type TrustProbe } from './device-trust'
 import { secretKey } from './persistence'
 
 /** A trace search that finds nothing, as on a stock phone. */
@@ -156,6 +156,22 @@ describe('detectDeviceTrust', () => {
 
     expect(isRooted).not.toHaveBeenCalled()
     expect(findRootTraces).not.toHaveBeenCalled()
+  })
+})
+
+describe('loadRootTracesModule', () => {
+  it('returns the module the import gives', async () => {
+    const module = { findRootTracesAsync: async () => [] }
+
+    await expect(loadRootTracesModule(async () => ({ default: module }))).resolves.toBe(module)
+  })
+
+  it('returns null when the import fails, so the probe still runs the expo-device check', async () => {
+    const load = async (): Promise<{ default: null }> => {
+      throw new Error('cannot load root-traces')
+    }
+
+    await expect(loadRootTracesModule(load)).resolves.toBeNull()
   })
 })
 

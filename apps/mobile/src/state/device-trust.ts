@@ -5,11 +5,12 @@
  * hides root, and it never blocks the app: a phone that is not flagged, or whose
  * check fails, counts as standard.
  *
- * Two checks run side by side. expo-device's `isRootedExperimentalAsync` sees
- * `su` in /system/xbin and rootful-era jailbreaks only. The app's own
- * root-traces module (modules/root-traces) also looks for the files a rootless
- * jailbreak (Dopamine, palera1n: everything under /var/jb) or a common Android
- * `su` install leaves behind. Either one is enough to flag the phone.
+ * Two checks run side by side. expo-device's `isRootedExperimentalAsync` mainly
+ * checks for `su` in /system/xbin, Superuser.apk, test-keys build tags and
+ * rootful-era jailbreak paths. The app's own root-traces module
+ * (modules/root-traces) also looks for the files a rootless jailbreak
+ * (Dopamine, palera1n: everything under /var/jb) or a common Android `su`
+ * install leaves behind. Either one is enough to flag the phone.
  *
  * `detectDeviceTrust` takes a `TrustProbe` so Node tests can fake the device.
  * `expoTrustProbe` builds the real one. `expo-device` and the root-traces module
@@ -93,13 +94,25 @@ export function rootTracesFinder(module: RootTracesModule | null): () => Promise
 }
 
 /**
+ * The root-traces module from `load`, or `null` when the import itself fails,
+ * so the probe is still built and the expo-device check still runs.
+ */
+export async function loadRootTracesModule(load: () => Promise<{ default: RootTracesModule | null }>): Promise<RootTracesModule | null> {
+  try {
+    return (await load()).default
+  } catch {
+    return null
+  }
+}
+
+/**
  * The probe backed by expo-device and the root-traces module.
  * `EXPO_PUBLIC_DEV_FORCE_ROOTED=1` is inlined at bundle time and read only while
  * `__DEV__` is true, so a release bundle never honors it.
  */
 export async function expoTrustProbe(): Promise<TrustProbe> {
   const Device = await import('expo-device')
-  const { default: rootTraces } = await import('../../modules/root-traces/src/RootTracesModule')
+  const rootTraces = await loadRootTracesModule(() => import('../../modules/root-traces/src/RootTracesModule'))
   return {
     isDevice: Device.isDevice,
     isRooted: () => Device.isRootedExperimentalAsync(),
