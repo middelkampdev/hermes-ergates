@@ -8,7 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 import { GatewayRegistryProvider } from '@/gateway/registry'
 import { currentDeviceTrust, expoTrustProbe, rootedNoticeCopy, startDeviceTrust } from '@/state/device-trust'
-import { authSecretStore, secureSecretStore } from '@/state/persistence'
+import { authSecretStore, clearPlatformCookieJar, secureSecretStore } from '@/state/persistence'
 import { useDeviceStore, waitForHydration } from '@/state/device-store'
 import { ThemeProvider, useTheme } from '@/theme/provider'
 import { useSkinStore } from '@/theme/skin-store'
@@ -33,7 +33,8 @@ function useHydrated(): boolean {
           authSecretStore,
           secureSecretStore,
           useDeviceStore.getState().connections.map(c => c.id),
-          expoTrustProbe
+          expoTrustProbe,
+          clearPlatformCookieJar
         )
       )
       .then(() => {

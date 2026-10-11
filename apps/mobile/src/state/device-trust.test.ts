@@ -170,6 +170,66 @@ describe('startDeviceTrust', () => {
     expect(await persistent.get(secretKey('c-1', 'token'))).toBe('token-of-c-1')
   })
 
+  it('clears the platform cookie jar once on a rooted phone, after the stored sign-ins are gone', async () => {
+    // A phone that ran an older build in password mode still has the Hermes
+    // cookies, the 30-day refresh cookie included, in the platform jar.
+    const persistent = await signedInStore('c-1')
+    let tokenWhenCleared: string | null = 'not cleared'
+    const clearPlatformCookies = vi.fn(async () => {
+      tokenWhenCleared = await persistent.get(secretKey('c-1', 'token'))
+    })
+
+    await expect(startDeviceTrust(createAuthSecretStore(persistent), persistent, ['c-1'], async () => rootedProbe, clearPlatformCookies)).resolves.toBe('rooted')
+
+    expect(clearPlatformCookies).toHaveBeenCalledTimes(1)
+    expect(tokenWhenCleared).toBeNull()
+  })
+
+  it('leaves the platform cookie jar alone on a standard phone', async () => {
+    const persistent = await signedInStore('c-1')
+    const clearPlatformCookies = vi.fn(async () => undefined)
+
+    await expect(startDeviceTrust(createAuthSecretStore(persistent), persistent, ['c-1'], async () => standardProbe, clearPlatformCookies)).resolves.toBe('standard')
+
+    expect(clearPlatformCookies).not.toHaveBeenCalled()
+  })
+
+  it('stays rooted, in memory and purged when the platform cookie jar cannot be cleared', async () => {
+    const persistent = await signedInStore('c-1')
+    const store = createAuthSecretStore(persistent)
+    const clearPlatformCookies = vi.fn(async () => {
+      throw new Error('no cookie module')
+    })
+
+    await expect(startDeviceTrust(store, persistent, ['c-1'], async () => rootedProbe, clearPlatformCookies)).resolves.toBe('rooted')
+
+    expect(clearPlatformCookies).toHaveBeenCalledTimes(1)
+    expect(store.memoryOnly).toBe(true)
+    expect(currentDeviceTrust()).toBe('rooted')
+    expect(await persistent.get(secretKey('c-1', 'token'))).toBeNull()
+  })
+
+  it('does not wait more than two seconds for a cookie jar that never answers', async () => {
+    const persistent = await signedInStore('c-1')
+    const store = createAuthSecretStore(persistent)
+    vi.useFakeTimers()
+    try {
+      let outcome: string = 'pending'
+      void startDeviceTrust(store, persistent, ['c-1'], async () => rootedProbe, () => new Promise<void>(() => undefined)).then(trust => {
+        outcome = trust
+      })
+
+      await vi.advanceTimersByTimeAsync(1_999)
+      expect(outcome).toBe('pending')
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(outcome).toBe('rooted')
+      expect(store.memoryOnly).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('builds the probe and applies it when the module is available', async () => {
     const persistent = await signedInStore('c-1')
     const store = createAuthSecretStore(persistent)

@@ -94,12 +94,20 @@ export function currentDeviceTrust(): DeviceTrust {
  * The switch comes first and the purge is best effort: once the store is in
  * memory the leftovers are never read again, so one entry that will not delete
  * must not stop the others or the app from starting.
+ *
+ * `clearPlatformCookies` then empties the platform cookie jar, where a phone that
+ * ran an older build in password mode still keeps the Hermes cookies, the 30-day
+ * refresh cookie included. Nothing in the app reads the jar any more (requests
+ * send `credentials: 'omit'`, the chat socket signs in with a ticket), so all of
+ * it can go. Also best effort: a failure, or no answer within two seconds, does
+ * not change the result.
  */
 export async function initDeviceTrust(
   store: AuthSecretStore,
   persistent: SecretStore,
   connectionIds: string[],
-  probe: TrustProbe
+  probe: TrustProbe,
+  clearPlatformCookies?: () => Promise<void>
 ): Promise<DeviceTrust> {
   const trust = await detectDeviceTrust(probe)
   settledTrust = trust
@@ -107,6 +115,15 @@ export async function initDeviceTrust(
     store.useMemoryOnly()
     const keys = connectionIds.flatMap(id => (['token', 'cookie', 'mode'] as const).map(kind => secretKey(id, kind)))
     await Promise.allSettled(keys.map(key => persistent.remove(key)))
+    if (clearPlatformCookies) {
+      await within(
+        Promise.resolve()
+          .then(clearPlatformCookies)
+          .catch(() => undefined),
+        NATIVE_CALL_LIMIT_MS,
+        undefined
+      )
+    }
   }
   return trust
 }
@@ -119,10 +136,11 @@ export async function startDeviceTrust(
   store: AuthSecretStore,
   persistent: SecretStore,
   connectionIds: string[],
-  buildProbe: () => Promise<TrustProbe>
+  buildProbe: () => Promise<TrustProbe>,
+  clearPlatformCookies?: () => Promise<void>
 ): Promise<DeviceTrust> {
   try {
-    return await initDeviceTrust(store, persistent, connectionIds, await buildProbe())
+    return await initDeviceTrust(store, persistent, connectionIds, await buildProbe(), clearPlatformCookies)
   } catch {
     settledTrust = 'standard'
     return 'standard'
