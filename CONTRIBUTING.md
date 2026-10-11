@@ -29,7 +29,7 @@ Tools needed, by job:
 | `contract` | Prepares a pinned Hermes checkout (`HERMES_SOURCE`, or a local/fetched checkout at the pin), then `pytest contract` and `pytest contract/live` through the same `uv run` invocation as `integration` (run from `integrations/ergates`) | `uv`, Python 3.11, `git`, network access (the live hot-mount test prepares Hermes's own dependency runtime, about 560 MB, in a temporary root, and takes about a minute) |
 | `deploy` | `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --quiet`, then `uv run --no-project --python 3.11 --with pytest --with pyyaml pytest -p no:cacheprovider deploy/tests` | Docker (with Compose), `uv`, Python 3.11 |
 
-CI also runs the `contract` job as `contract-latest` against the newest stable Hermes release. It runs weekly and on manual dispatch, never on a pull request. It sets `HERMES_SOURCE` to a checkout of that release and `HERMES_EXPECTED_REF` to the release commit, and the contract tests then expect that commit instead of the pin. To run it by hand, check out a release tag in a clean Hermes clone and run `scripts/ci-local.sh contract` with both variables set.
+The workflow `.github/workflows/contract-latest.yml` runs the `contract` job against the newest stable Hermes release. It runs weekly and on manual dispatch, never on a pull request. It sets `HERMES_SOURCE` to a checkout of that release and `HERMES_EXPECTED_REF` to the release commit, and the contract tests then expect that commit instead of the pin. To run it by hand, check out a release tag in a clean Hermes clone and run `scripts/ci-local.sh contract` with both variables set.
 
 The quick loops from the README, for iterating on one part:
 

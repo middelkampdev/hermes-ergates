@@ -1,6 +1,4 @@
 # Every job runs scripts/ci-local.sh, so a local run executes the same commands.
-# The jobs for a change run on push and pull_request; `contract-latest` runs
-# only on the weekly schedule and on manual dispatch.
 name: CI
 
 on:
@@ -14,23 +12,16 @@ on:
     branches: [master, develop]
   pull_request:
     branches: [master, develop, "release/**", "hotfix/**"]
-  # Mondays at 05:23 UTC, on the default branch. Runs `contract-latest` only.
-  schedule:
-    - cron: "23 5 * * 1"
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # The event name keeps the weekly run, which runs on `develop`, from
-  # cancelling a push run on `develop`, or being cancelled by one.
-  group: ci-${{ github.event_name }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   workflow-lint:
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -43,7 +34,6 @@ jobs:
       - run: scripts/ci-local.sh lint
 
   mobile:
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -58,7 +48,6 @@ jobs:
       - run: scripts/ci-local.sh mobile
 
   integration:
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -71,7 +60,6 @@ jobs:
       - run: scripts/ci-local.sh integration
 
   contract:
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -93,56 +81,7 @@ jobs:
         env:
           HERMES_SOURCE: ${{ github.workspace }}/.cache/hermes-pin
 
-  # The same contract tests against the newest stable Hermes release instead of
-  # the pin, so a break shows up before the pin moves. `releases/latest` skips
-  # pre-releases; Hermes also tags rc and canary builds. It runs outside pull
-  # requests, so it blocks no merge. A break turns the scheduled run red.
-  # Timeout: the live tests download Hermes's dependency runtime (about 560 MB).
-  contract-latest:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    continue-on-error: false
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - name: Find the newest stable Hermes release
-        id: release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="$(gh api repos/NousResearch/hermes-agent/releases/latest --jq .tag_name)"
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Expected a vX.Y.Z release tag, got '$tag'"
-            exit 1
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-      - name: Check out Hermes at that release
-        uses: actions/checkout@v7
-        with:
-          repository: NousResearch/hermes-agent
-          ref: refs/tags/${{ steps.release.outputs.tag }}
-          path: .cache/hermes-latest
-          persist-credentials: false
-      - name: Find the commit of that release
-        id: commit
-        env:
-          TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          sha="$(git -C .cache/hermes-latest rev-parse "refs/tags/${TAG}^{commit}")"
-          echo "Hermes $TAG is commit $sha"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-      - uses: astral-sh/setup-uv@v10.2.0
-        with:
-          version: "0.11.19"
-      - run: scripts/ci-local.sh contract
-        env:
-          HERMES_SOURCE: ${{ github.workspace }}/.cache/hermes-latest
-          HERMES_EXPECTED_REF: ${{ steps.commit.outputs.sha }}
-
   deploy:
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
