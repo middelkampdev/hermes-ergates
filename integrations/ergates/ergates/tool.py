@@ -421,9 +421,9 @@ def _services_on_first_use() -> Callable[[], _Services]:
 
     Opening can fail. ``register`` must not: Hermes then disposes of every
     registration the plugin made, the tool gate included, and every tool call
-    runs unchecked (``contract/test_pre_tool_call.py`` pins it). So the store
-    opens here, and a failed open raises to that one caller and is tried again
-    by the next call.
+    runs unchecked (``integrations/ergates-tests/contract/test_pre_tool_call.py``
+    pins it). So the store opens here, and a failed open raises to that one
+    caller and is tried again by the next call.
     """
     lock = threading.Lock()
     opened: list[_Services] = []

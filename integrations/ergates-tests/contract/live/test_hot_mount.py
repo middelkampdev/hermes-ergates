@@ -10,11 +10,13 @@ clone it.
 
 Hermes scans every install (``tools/plugin_guard.py``): ``safe`` installs,
 ``caution`` needs confirmation, and ``dangerous`` is blocked even with
-``force``. The hot-mount root keeps Hermes's default settings, so its install
-passes through that scan, and it never passes ``force``. The plugin's tests
-live in ``integrations/ergates-tests`` so the installed tree holds only
-runtime code; ``contract/test_install_scan.py`` runs the same scanner on the
-same files without the live suite.
+``force``. The hot-mount root's ``config.yaml`` sets only
+``security.allow_lazy_installs: false`` (as ``conftest.py`` does for the
+session root) and leaves ``plugins.scan_on_install`` at Hermes's default, on,
+so its install passes through that scan; it never passes ``force``. The
+plugin's tests live in ``integrations/ergates-tests`` so the installed tree
+holds only runtime code; ``contract/test_install_scan.py`` runs the same
+scanner on the same files without the live suite.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ INSTALL = "/api/dashboard/agent-plugins/install"
 
 @pytest.fixture
 def root_without_plugin(tmp_path) -> Path:
-    """A new Hermes root with no plugin in it and Hermes's default install scan."""
+    """A new Hermes root with no plugin in it, and the install scan on (Hermes's default)."""
     root = tmp_path / "hermes"
     root.mkdir()
     # Same reason as conftest.py: no lazy `uv pip install` of optional provider stacks.

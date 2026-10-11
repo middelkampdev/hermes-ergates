@@ -8,9 +8,10 @@ result, so the agent reads it.
 Since v0.21.6 Hermes also blocks the call when a callback raises, but its
 block message quotes the exception text, which can carry tool arguments
 (``hermes_cli/plugins_dispatch.py`` at the pin, pinned by
-``contract/test_pre_tool_call.py``); before, it ran the tool. :func:`guarded`
-turns any exception into a block with fixed text, so a broken gate never
-lets a call through and never echoes what it was checking.
+``integrations/ergates-tests/contract/test_pre_tool_call.py``); before, it
+ran the tool. :func:`guarded` turns any exception into a block with fixed
+text, so a broken gate never lets a call through and never echoes what it
+was checking.
 
 Rules, in order:
 

@@ -42,7 +42,8 @@ _NAME_RE = re.compile(NAME_PATTERN_DESCRIPTION)
 # The profile names Hermes refuses to create: ``_RESERVED_NAMES`` in
 # ``hermes_cli/profiles.py`` (``default`` is the built-in profile). Hermes keeps
 # them in a private constant, so this is a copy;
-# ``contract/test_reserved_profile_names.py`` keeps it equal to the pin.
+# ``integrations/ergates-tests/contract/test_reserved_profile_names.py`` keeps
+# it equal to the pin.
 HERMES_RESERVED_PROFILE_NAMES = frozenset({"hermes", "default", "test", "tmp", "root", "sudo"})
 
 TITLE_MAX_LEN = 60

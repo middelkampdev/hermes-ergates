@@ -14,10 +14,11 @@ briefing or description text.
 
 Hermes is reached only through the functions an ``Operations`` is given
 (``hermes_adapter`` in production, fakes in the tests), so this module
-imports no Hermes code (``tests/test_hermes_boundary.py``). Methods block: a store write can wait
-up to the store's busy timeout, and a second identical reminder request
-waits up to ``reminders.IN_FLIGHT_WAIT_SECONDS`` for the first. The router
-runs them on a worker thread.
+imports no Hermes code
+(``integrations/ergates-tests/tests/test_hermes_boundary.py``). Methods
+block: a store write can wait up to the store's busy timeout, and a second
+identical reminder request waits up to ``reminders.IN_FLIGHT_WAIT_SECONDS``
+for the first. The router runs them on a worker thread.
 """
 
 from __future__ import annotations

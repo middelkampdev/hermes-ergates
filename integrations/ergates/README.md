@@ -418,10 +418,10 @@ uv run --python 3.11 pytest --cov --cov-fail-under=90
 The contract tests need a checkout of the Hermes source at the pin. From the
 repository root, `scripts/ci-local.sh contract` prepares one under
 `.cache/hermes-pin` (a detached `git worktree add` from your Hermes clone)
-and runs two suites: `contract/` reads the pinned files as text, and
-`contract/live/` imports the pinned Hermes, with its locked dependencies
-exported from the pin's `uv.lock`, in a temporary Hermes root. Or point
-`HERMES_SOURCE` at a clean checkout of
+and runs two suites: `integrations/ergates-tests/contract/` reads the
+pinned files as text, and `contract/live/` under it imports the pinned
+Hermes, with its locked dependencies exported from the pin's `uv.lock`, in
+a temporary Hermes root. Or point `HERMES_SOURCE` at a clean checkout of
 `818c13be1dc4fd28987e1e881a9408224afd4535` (v0.21.6). Never point either
 suite at a real `~/.hermes`: the live suite makes its own. The live
 hot-mount test installs the plugin through Hermes's install route, which on
