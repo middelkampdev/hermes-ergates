@@ -356,6 +356,93 @@ describe("buildTimeline: the answer to this bot's own dispatch stays expanded (H
   })
 })
 
+/** The row Hermes v0.21.6 closes a failed turn with (agent/turn_failure_copy.py:39-41, :48; agent/conversation_loop.py:1848-1850). */
+const FAILED_TURN_NOTICE = 'Your request was not processed. Send it again if you still want me to carry it out.'
+
+describe('buildTimeline: system rows between the inbound row and its answer (Desktop interAgentSender, assistant-message.tsx:133-150)', () => {
+  const at = 1789375800
+  const human = (row: number, text: string): ChatItem => ({ kind: 'user', id: `h-user-${row}`, rowId: row, text, at: at + row, delivery: 'acknowledged' })
+  const inbound = (row: number, text: string): ChatItem => ({ kind: 'bot_message', id: `h-bot-${row}`, rowId: row, handle: 'kevin', name: 'Kevin', text, at: at + row, provenance: 'inferred' })
+  const says = (row: number, text: string, over: Partial<Extract<ChatItem, { kind: 'assistant' }>> = {}): ChatItem => ({ kind: 'assistant', id: `h-assistant-${row}`, rowId: row, text, at: at + row, ...over })
+  /** A closing human turn, so the turn under test is historical and would fold on inference. */
+  const closing = (row: number): ChatItem[] => [human(row, 'ok thanks'), says(row + 1, 'anytime')]
+  const receipt = (row: number, displayKind?: string): ChatItem[] =>
+    historyToItems([{ role: 'user', text: receiptCliCut.text, row_id: row, timestamp: at + row, ...(displayKind ? { display_kind: displayKind } : {}) }])
+  const failedTurn = (row: number, displayMetadata?: unknown): ChatItem[] =>
+    historyToItems([{ role: 'assistant', text: FAILED_TURN_NOTICE, row_id: row, timestamp: at + row, display_kind: 'failed_turn', ...(displayMetadata === undefined ? {} : { display_metadata: displayMetadata }) }])
+  /** What the core closer stores with the row (agent/conversation_loop.py:1772-1788); Desktop draws an error card from it. */
+  const ERROR_DETAILS = { error: 'HTTP 529: overloaded', error_surface: { layer: 'provider', code: 'overloaded', retryable: true } }
+  const modelSwitch = (row: number): ChatItem[] => historyToItems([{ role: 'user', text: 'model changed', row_id: row, timestamp: at + row, display_kind: 'model_switch' }])
+
+  it('folds the answer behind a v0.21.6 process_complete row: Desktop looks back past a system row to the inbound row', () => {
+    const items = [inbound(1, 'is the build green?'), ...receipt(2, 'process_complete'), says(3, 'yes, all green'), ...closing(4)]
+    const result = buildTimeline(input({ items }))
+    expect(keys(result.lines)).toContain('x-in-h-bot-1')
+    expect(keys(result.lines)).not.toContain('h-assistant-3')
+    expect(result.exchanges.find(x => x.id === 'x-in-h-bot-1')).toMatchObject({ members: ['h-bot-1', 'h-assistant-3'], reply: { body: 'yes, all green' } })
+  })
+
+  it('folds the answer behind an event row the same way', () => {
+    const items = [inbound(1, 'is the build green?'), ...modelSwitch(2), says(3, 'yes, all green'), ...closing(4)]
+    expect(keys(buildTimeline(input({ items })).lines)).toContain('x-in-h-bot-1')
+  })
+
+  it('keeps the answer behind an untyped receipt row expanded: a row written before v0.21.6 is a user row on Desktop', () => {
+    const items = [inbound(1, 'is the build green?'), ...receipt(2), says(3, 'yes, all green'), ...closing(4)]
+    const { lines } = buildTimeline(input({ items }))
+    expect(keys(lines)).not.toContain('x-in-h-bot-1')
+    expect(keys(lines)).toContain('h-assistant-3')
+  })
+
+  it('a system row after the turn already answered starts the next turn: Desktop stops at the earlier assistant row', () => {
+    const items = [inbound(1, 'is the build green?'), says(2, 'yes, all green'), ...receipt(3, 'process_complete'), says(4, 'the deploy finished too'), ...closing(5)]
+    const result = buildTimeline(input({ items }))
+    expect(result.exchanges.find(x => x.id === 'x-in-h-bot-1')).toMatchObject({ members: ['h-bot-1', 'h-assistant-2'] })
+    expect(keys(result.lines)).toContain('h-assistant-4')
+  })
+
+  it('draws the failed_turn row as a system row and never folds it as the reply to the inbound row', () => {
+    const items = [inbound(1, 'is the build green?'), ...failedTurn(2), ...closing(3)]
+    const { lines } = buildTimeline(input({ items }))
+    expect(keys(lines)).not.toContain('x-in-h-bot-1')
+    expect(lines.find(line => line.key === 'h-bot-1')).toMatchObject({ kind: 'bot_message' })
+    expect(lines.find(line => line.key === 'h-assistant-2')).toMatchObject({ kind: 'item', item: { kind: 'event', text: FAILED_TURN_NOTICE } })
+  })
+
+  it('draws the failed_turn row as a system row in a human turn too, never as a bubble', () => {
+    const items = [human(1, 'deploy it'), ...failedTurn(2)]
+    expect(buildTimeline(input({ items })).lines.find(line => line.key === 'h-assistant-2')).toMatchObject({ kind: 'item', item: { kind: 'event', text: FAILED_TURN_NOTICE } })
+  })
+
+  it('a failed_turn row without error details is only a system row: a later answer behind it folds, as on Desktop', () => {
+    // The messaging gateway's closer stores no metadata (gateway/run_turn.py:1719-1721).
+    const items = [inbound(1, 'is the build green?'), ...failedTurn(2), ...receipt(3, 'process_complete'), says(4, 'the deploy finished'), ...closing(5)]
+    const result = buildTimeline(input({ items }))
+    expect(result.exchanges.find(x => x.id === 'x-in-h-bot-1')).toMatchObject({ members: ['h-bot-1', 'h-assistant-4'] })
+    expect(keys(result.lines)).not.toContain('h-assistant-4')
+    expect(result.lines.find(line => line.key === 'h-assistant-2')).toMatchObject({ kind: 'item', item: { kind: 'event' } })
+  })
+
+  it('a failed_turn row with error details stands for the error card Desktop puts before it: the look-back stops there', () => {
+    // hydration.ts:579-591 adds an assistant message for the card; interAgentSender stops at an assistant message.
+    const items = [inbound(1, 'is the build green?'), ...failedTurn(2, ERROR_DETAILS), ...receipt(3, 'process_complete'), says(4, 'the deploy finished'), ...closing(5)]
+    const { lines } = buildTimeline(input({ items }))
+    expect(keys(lines)).not.toContain('x-in-h-bot-1')
+    expect(keys(lines)).toContain('h-assistant-4')
+    expect(lines.find(line => line.key === 'h-assistant-2')).toMatchObject({ kind: 'item', item: { kind: 'event', text: FAILED_TURN_NOTICE } })
+  })
+
+  it('a retained live answer whose range holds only an absorbed system row keeps that turn expanded (spec 12.3)', () => {
+    // The snapshot that first retained the live answer ended at row 2: its home can only be a turn with an
+    // input row in (1, 2]. Row 2 is a process_complete row the inbound turn absorbed, so that turn is the candidate.
+    const live: ChatItem = { kind: 'assistant', id: 'live-assistant-9', text: 'all green', at: at + 90, turnOutcome: 'completed', liveAnchor: { afterRowId: 1, retainedBeforeRowId: 2 } }
+    const items = [inbound(1, 'is the build green?'), ...receipt(2, 'process_complete'), says(3, 'yes, all green'), ...closing(4), live]
+    const { lines } = buildTimeline(input({ items }))
+    expect(keys(lines)).not.toContain('x-in-h-bot-1')
+    expect(keys(lines)).toContain('h-assistant-3')
+  })
+})
+
 describe('buildTimeline: consecutive merge (spec 5.4; only rows adjacent in the timeline merge)', () => {
   it('merges two sends to the same peer that end up adjacent', () => {
     const { lines } = buildTimeline(input({ items: senderItems(), rows: senderRows() }))
