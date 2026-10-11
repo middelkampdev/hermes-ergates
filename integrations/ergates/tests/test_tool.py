@@ -6,6 +6,7 @@ in 11 section 4.1-4.2 ("never creates a profile", "records the proposal as
 configured").
 """
 
+import ast
 import contextvars
 import json
 import logging
@@ -623,6 +624,16 @@ def _fake_profile_home(profile):
     yield Path("/hermes/profiles") / profile
 
 
+def _parse_platform_toolsets_value(value):
+    """Hermes's parser (hermes_cli/toolset_validation.py:12-30): a list, or a list literal saved as a string."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str) and value.strip().startswith("["):
+        parsed = ast.literal_eval(value.strip())
+        return [str(item) for item in parsed] if isinstance(parsed, list) else None
+    return None
+
+
 def _stub_hermes_grant_modules(monkeypatch, config, *, drop_mcp_reader=False):
     """Fake the Hermes modules ``granted_toolsets`` imports, so its real import
     and config-reading logic runs without a Hermes install. ``drop_mcp_reader``
@@ -634,6 +645,9 @@ def _stub_hermes_grant_modules(monkeypatch, config, *, drop_mcp_reader=False):
     hermes_config.load_config_readonly = lambda: config
     monkeypatch.setitem(sys.modules, "hermes_cli", types.ModuleType("hermes_cli"))
     monkeypatch.setitem(sys.modules, "hermes_cli.config", hermes_config)
+    validation = types.ModuleType("hermes_cli.toolset_validation")
+    validation.parse_platform_toolsets_value = _parse_platform_toolsets_value
+    monkeypatch.setitem(sys.modules, "hermes_cli.toolset_validation", validation)
     model_tools = types.ModuleType("model_tools")
     model_tools.get_toolset_for_tool = lambda tool_name: None
     monkeypatch.setitem(sys.modules, "model_tools", model_tools)
@@ -661,13 +675,65 @@ def test_a_hermes_symbol_the_grant_needs_going_missing_blocks_instead_of_disarmi
     assert _gate(_RecordingCtx())(tool_name="terminal", args={}) == {"action": "block", "message": BLOCK_UNVERIFIED}
 
 
-def test_a_toolset_pin_that_is_not_a_list_blocks_instead_of_granting_nothing(profile_process, monkeypatch):
+@pytest.mark.parametrize("config", [
+    {"tools": {"enabled_toolsets": "web"}},
+    {"platform_toolsets": {"cli": "web"}},
+    {"platform_toolsets": "cli: [web]"},
+], ids=["legacy-pin-a-string", "app-pin-a-string", "platform-lists-not-a-mapping"])
+def test_a_toolset_pin_that_is_not_a_list_blocks_instead_of_granting_nothing(profile_process, monkeypatch, config):
     """A hand-edited ``enabled_toolsets: web`` (a string, not a list) must not
     read as "no toolsets pinned", which would let Hermes decide every tool:
     the pre_tool_call hook blocks until it is fixed."""
-    _stub_hermes_grant_modules(monkeypatch, {"tools": {"enabled_toolsets": "web"}})
+    _stub_hermes_grant_modules(monkeypatch, config)
 
     assert _gate(_RecordingCtx())(tool_name="terminal", args={}) == {"action": "block", "message": BLOCK_UNVERIFIED}
+
+
+def test_the_grant_is_the_app_toolset_pin_profiles_configure_writes(monkeypatch):
+    """Since v0.21.6 ``profiles.configure`` pins a template's toolsets as ``platform_toolsets.cli``."""
+    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": ["web", "file"]}})
+
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "file"})
+
+
+def test_an_app_toolset_pin_saved_as_a_list_literal_string_is_that_list(monkeypatch):
+    """Hermes reads ``"['web']"`` (what older ``hermes config set`` builds saved) as a list; so does the grant."""
+    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": "['web']"}})
+
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web"})
+
+
+def test_another_platforms_toolset_list_is_not_the_pin(monkeypatch):
+    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"telegram": ["web"], "cli": None}})
+
+    assert hermes_adapter.granted_toolsets("thijs") is None
+
+
+def test_a_profile_configured_before_v0_21_6_keeps_its_legacy_pin(monkeypatch):
+    """``tools.enabled_toolsets``, which ``profiles.configure`` wrote before v0.21.6 and no Hermes
+    surface reads now, still narrows the grant of a profile that has it."""
+    _stub_hermes_grant_modules(monkeypatch, {"tools": {"enabled_toolsets": ["web"]}})
+
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web"})
+
+
+def test_with_both_pins_a_toolset_must_be_in_both(monkeypatch):
+    """An upgrade never grants more than either list did."""
+    _stub_hermes_grant_modules(monkeypatch, {
+        "platform_toolsets": {"cli": ["web", "terminal"]},
+        "tools": {"enabled_toolsets": ["web", "file"]},
+    })
+
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web"})
+
+
+def test_every_mcp_server_the_profile_enables_adds_its_toolset(monkeypatch):
+    _stub_hermes_grant_modules(monkeypatch, {
+        "platform_toolsets": {"cli": ["web"]},
+        "mcp_servers": {"notes": {}, "off": {"enabled": False}, "legacy": {"disabled": True}, "broken": "x"},
+    })
+
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "mcp-notes"})
 
 
 def _store_folder_is_a_file(root):

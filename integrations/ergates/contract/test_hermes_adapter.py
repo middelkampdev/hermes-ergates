@@ -296,37 +296,63 @@ UTILS = "utils.py"
 TUI_SERVER = "tui_gateway/server.py"
 GATEWAY_TURN = "gateway/run_turn.py"
 TOOLS_CONFIG = "hermes_cli/tools_config.py"
+TOOLSET_VALIDATION = "hermes_cli/toolset_validation.py"
+CRON_SCHEDULER = "cron/scheduler.py"
+BOT_MODE_PROBE = "tools/bot_mode_probe.py"
 
 
 def test_the_toolset_pin_is_what_profiles_configure_writes(hermes: PinnedSource) -> None:
-    # tui_gateway/methods_profiles.py:509-517: `enabled_toolsets` replaces tools.enabled_toolsets; an empty list removes the pin.
-    assert hermes.lines(PROFILES_RPC, 509, 517) == (
+    """Since v0.21.6 the pin is ``platform_toolsets.cli``; before, it was ``tools.enabled_toolsets``."""
+    # tui_gateway/methods_profiles.py:673-683: `enabled_toolsets` replaces platform_toolsets.cli;
+    # an empty list removes the pin.
+    assert hermes.lines(PROFILES_RPC, 673, 683) == (
         "def _save_toolset_pin(cfg, enabled, save_config) -> None:\n"
-        "    wanted = sorted(_clean_names(enabled))\n"
-        '    tools_cfg = cfg.get("tools") if isinstance(cfg.get("tools"), dict) else {}\n'
+        '    """Pin ``platform_toolsets.cli``: the key ``_load_enabled_toolsets`` reads and ``hermes tools`` writes.\n'
+        '    An empty selection clears the pin so the platform default applies again."""\n'
+        "    from hermes_cli.tools_config import _save_platform_tools\n"
+        "\n"
+        "    wanted = _clean_names(enabled)\n"
         "    if wanted:\n"
-        '        tools_cfg["enabled_toolsets"] = wanted\n'
-        "    else:\n"
-        '        tools_cfg.pop("enabled_toolsets", None)\n'
-        '    cfg["tools"] = tools_cfg\n'
+        '        _save_platform_tools(cfg, "cli", wanted)\n'
+        '    elif isinstance(cfg.get("platform_toolsets"), dict):\n'
+        '        cfg["platform_toolsets"].pop("cli", None)\n'
         "    save_config(cfg)"
     )
-    # tui_gateway/methods_profiles.py:384: profiles.describe reads the same key as the profile's toolsets.
-    assert hermes.lines(PROFILES_RPC, 384, 384) == (
-        '    pinned = (cfg.get("tools") if isinstance(cfg.get("tools"), dict) else {}).get("enabled_toolsets")'
+    # hermes_cli/tools_config.py:745: the list stored (plus MCP server names it already held).
+    assert hermes.lines(TOOLS_CONFIG, 745, 745) == (
+        '    config["platform_toolsets"][platform] = sorted(enabled_toolset_keys | preserved_entries)'
+    )
+    # tui_gateway/methods_profiles.py:571: profiles.describe reads the same key as the profile's toolsets.
+    assert hermes.lines(PROFILES_RPC, 571, 571) == (
+        '    pinned = _coerce_platform_toolsets_value((cfg.get("platform_toolsets") or {}).get("cli"), "cli")'
+    )
+    # hermes_cli/tools_config.py:552: every reader parses the value with the parser the grant uses.
+    assert hermes.lines(TOOLS_CONFIG, 552, 552) == "    parsed = parse_platform_toolsets_value(value)"
+    assert _arguments(hermes.function(TOOLSET_VALIDATION, "parse_platform_toolsets_value")) == ["value"]
+    # tools/bot_mode_probe.py:388: nothing writes the previous pin any more.
+    assert hermes.lines(BOT_MODE_PROBE, 388, 388) == (
+        "        # tools.enabled_toolsets is written by no surface, so watching it left Bot Chats"
     )
 
 
-def test_hermes_builds_a_sessions_tools_from_platform_toolsets_not_from_the_pin(hermes: PinnedSource) -> None:
-    """Why the gate enforces the pin: Hermes does not, when it builds a session."""
-    # tui_gateway/server.py:1869 (app sessions) and gateway/run_turn.py:2151 (gateway turns).
-    assert hermes.lines(TUI_SERVER, 1869, 1869) == '        enabled = _get_platform_tools(cfg, "cli", include_default_mcp_servers=True)'
-    assert hermes.lines(GATEWAY_TURN, 2151, 2151) == "        return sorted(_get_platform_tools(user_config, platform_key))"
-    # hermes_cli/tools_config.py:553-554: that function reads platform_toolsets.
-    assert hermes.lines(TOOLS_CONFIG, 553, 554) == (
+def test_hermes_builds_app_sessions_from_the_pin_and_other_platforms_from_their_own_list(hermes: PinnedSource) -> None:
+    """Hermes now applies the pin itself, to app sessions when it builds them (the gate's
+    grant is redundant there). The gate still enforces it on gateway turns and cron runs,
+    which Hermes builds from their own platform's list, and at the next call of a running
+    session, which ``profiles.configure`` does not rebuild."""
+    # tui_gateway/server.py:2087 (in _load_enabled_toolsets, which _build_agent calls at 2695).
+    assert hermes.lines(TUI_SERVER, 2087, 2087) == '        enabled = _get_platform_tools(cfg, "cli", include_default_mcp_servers=True)'
+    assert hermes.lines(TUI_SERVER, 2695, 2695) == "        enabled_toolsets=_load_enabled_toolsets(platform),"
+    # gateway/run_turn.py:2403 (gateway turns) and cron/scheduler.py:482 (cron runs).
+    assert hermes.lines(GATEWAY_TURN, 2403, 2403) == "        return sorted(_get_platform_tools(user_config, platform_key))"
+    assert hermes.lines(CRON_SCHEDULER, 482, 482) == '        return sorted(_get_platform_tools(cfg or {}, "cron"))'
+    # hermes_cli/tools_config.py:579-580: that function reads the platform's own list.
+    assert hermes.lines(TOOLS_CONFIG, 579, 580) == (
         '    platform_toolsets = config.get("platform_toolsets") or {}\n'
-        "    toolset_names = platform_toolsets.get(platform)"
+        "    toolset_names = _coerce_platform_toolsets_value(platform_toolsets.get(platform), platform)"
     )
+    # profiles.configure rebuilds no running session.
+    assert "_refresh_live_sessions" not in hermes.text(PROFILES_RPC)
 
 
 def test_config_is_read_without_a_copy_for_every_tool_call(hermes: PinnedSource) -> None:
