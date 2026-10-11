@@ -383,7 +383,7 @@ VERIFY_CHECKS = {
     "V17": "no app is connected",
     "V18": "workspace",
     "V19": "Restore drill",
-    "V20": "d76856cc",
+    "V20": "818c13be",
     "V21": "a real Git remote",
     "V22": "stay tappable",
     "V23": "queued_unsent",

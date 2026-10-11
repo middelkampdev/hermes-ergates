@@ -469,11 +469,12 @@ Result:
 docker compose exec hermes-serve hermes --version
 ```
 
-The integration's contract tests run against Hermes `d76856cc`; the image
-is release `v2026.9.11`, 155 commits earlier. Record the version, and
-decide whether to move the pin to a release that has an image (rerun
-`scripts/ci-local.sh contract` after the move) or to build the image from
-the pin.
+The integration's contract tests run against Hermes `818c13be` (release
+v0.21.6), and the image in `docker-compose.yml` is built from that same
+commit. Record what the command prints; its first line should name v0.21.6.
+If it names another version, the containers still run an older image:
+recreate them from the compose file. Do not swap the pinned digest for the
+registry's plain `v0.21.6` tag, which is an older build.
 
 Result:
 
