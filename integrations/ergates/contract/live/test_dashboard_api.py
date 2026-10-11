@@ -31,7 +31,7 @@ ROUTES = [
     ("POST", "/proposals/p-1/reject"),
     ("POST", "/proposals/p-1/steps"),
     ("POST", "/profiles/thijs/plugin"),
-    ("GET", "/attention/prefs?profile=thijs"),
+    ("GET", "/attention/prefs?scope=*"),
     ("PUT", "/attention/prefs"),
 ]
 
@@ -221,15 +221,21 @@ def test_provisioning_through_hermes_serve_ends_complete(web, token_headers, roo
 
 
 def test_attention_prefs_round_trip(web, token_headers):
+    """The read names its scope with ``?scope=``. Since v0.21.6 Hermes runs every plugin route in the
+    profile scope of a ``profile`` parameter, so it answers a ``?profile=`` that is no profile name itself,
+    with its own 400 ``{"detail"}``, before Ergates sees the request."""
     prefs = {"profile": "*", "muted": False, "quiet_start": "22:00", "quiet_end": "07:00"}
 
     put = web.put(f"{API}/attention/prefs", json=prefs, headers=token_headers)
-    got = web.get(f"{API}/attention/prefs", params={"profile": "*"}, headers=token_headers)
-    bad = web.get(f"{API}/attention/prefs", params={"profile": "Bad Name"}, headers=token_headers)
+    got = web.get(f"{API}/attention/prefs", params={"scope": "*"}, headers=token_headers)
+    bad_scope = web.get(f"{API}/attention/prefs", params={"scope": "Bad Name"}, headers=token_headers)
+    bad_profile = web.get(f"{API}/attention/prefs", params={"profile": "Bad Name"}, headers=token_headers)
 
     assert (put.status_code, put.json()) == (200, {"prefs": prefs})
     assert (got.status_code, got.json()) == (200, {"prefs": prefs})
-    assert (bad.status_code, bad.json()["error"]["code"]) == (400, "invalid")
+    assert (bad_scope.status_code, bad_scope.json()["error"]["code"]) == (400, "invalid")
+    assert (bad_profile.status_code, list(bad_profile.json())) == (400, ["detail"])
+    assert "is not a valid profile name" in bad_profile.json()["detail"]
 
 
 def test_the_store_is_built_once_per_process(web, token_headers, monkeypatch):
@@ -245,7 +251,7 @@ def test_the_store_is_built_once_per_process(web, token_headers, monkeypatch):
     monkeypatch.setattr(module, "ControlStore", CountingStore)
     for _ in range(3):
         web.get(f"{API}/health", headers=token_headers)
-        web.get(f"{API}/attention/prefs", params={"profile": "*"}, headers=token_headers)
+        web.get(f"{API}/attention/prefs", params={"scope": "*"}, headers=token_headers)
 
     assert len(built) == 1
     assert module.operations() is module.operations()
