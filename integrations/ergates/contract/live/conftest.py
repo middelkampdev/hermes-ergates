@@ -75,13 +75,18 @@ def root() -> Path:
 
 
 @pytest.fixture
-def make_profile(root):
-    """``make_profile(name)`` creates the named profile's home and returns it."""
+def make_profile():
+    """``make_profile(name)`` creates the named profile with Hermes's ``create_profile`` and returns its home.
+
+    ``create_profile`` is what ``hermes profile create`` and the app's
+    ``profiles.create`` RPC run. Since v0.21.6 a folder under ``profiles/`` is a
+    profile only when it holds an identity marker (``hermes_constants.py``
+    ``named_profile_is_live``), which a bare ``mkdir`` does not make.
+    """
+    from hermes_cli.profiles import create_profile
 
     def make(name: str) -> Path:
-        home = root / "profiles" / name
-        home.mkdir(parents=True)
-        return home
+        return Path(create_profile(name))
 
     return make
 
