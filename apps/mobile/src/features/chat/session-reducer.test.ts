@@ -7,6 +7,7 @@ import historyReceiver from '@test/fixtures/agent-traffic/history-receiver.json'
 import historySender from '@test/fixtures/agent-traffic/history-sender.json'
 import liveJson from '@test/fixtures/agent-traffic/receipt-live-json.json'
 import receiptBatchThree from '@test/fixtures/agent-traffic/receipt-batch-three.json'
+import receiptCliCut from '@test/fixtures/agent-traffic/receipt-cli-cut.json'
 import receiptWatchMatch from '@test/fixtures/agent-traffic/receipt-watch-match.json'
 import clarifyRequest from '@test/fixtures/clarify-request.json'
 import turnClarify from '@test/fixtures/turn-clarify.json'
@@ -19,6 +20,9 @@ import { initialSessionState, localTurnPending, sessionReducer, type SessionActi
 const liveReceiptParse = parseReceiptRow(liveJson.text)
 if (liveReceiptParse.kind !== 'receipts') throw new Error('receipt-live-json fixture did not parse as a receipt')
 const liveReceipt = liveReceiptParse.receipts[0]!
+
+/** What v0.21.6 sends in `status.update {kind: "process"}` for a completion (session_notifications.py:546-552). */
+const TITLE = 'Background Process Finished: /opt/data/hermes/hermes-agent/venv/bin/python /opt/data/hermes/hermes-agent/tools/bot_mo...'
 
 const LIVE = 'live0001'
 const STORED = '20260913_170000_fixture'
@@ -395,6 +399,13 @@ describe('agent traffic rows', () => {
     expect(items.filter(i => i.kind === 'user')).toHaveLength(0)
   })
 
+  it('projects a v0.21.6 process_complete row into a receipt item, never a user bubble', () => {
+    const items = historyToItems([{ role: 'user', text: receiptCliCut.text, row_id: 203, display_kind: 'process_complete', display_metadata: { display_text: TITLE } }])
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ kind: 'receipt', id: 'h-receipt-203-proc_c1d2e3f4a5b6', rowId: 203, displayKind: 'process_complete', receipt: { cut: 3072 } })
+    expect(items.filter(i => i.kind === 'user')).toHaveLength(0)
+  })
+
   it('gives a receipt item a positional id, never "undefined", when the row has no row_id', () => {
     const items = historyToItems([{ role: 'user', text: liveJson.text }])
     const receipt = items.find(i => i.kind === 'receipt')
@@ -447,6 +458,14 @@ describe('ownership, revisions, receipts', () => {
     expect(again.items.filter(i => i.kind === 'receipt')).toHaveLength(1)
     const other = sessionReducer(s, ev({ type: 'status.update', seq: 3, payload: { kind: 'status', text: 'Thinking' } }))
     expect(other.live.statusLine).toBe('Thinking')
+  })
+
+  it('adds nothing for the v0.21.6 process title and asks for the REST tail', () => {
+    const s = run(bound(), [ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text: TITLE } })])
+    expect(s.items).toEqual([])
+    expect(s.tailWanted).toBe(1)
+    expect(s.live.statusLine).toBeNull()
+    expect(s.pendingReceiptProcessId).toBeNull()
   })
 
   it('a message_agent tool.complete and a reconciled transcript row', () => {

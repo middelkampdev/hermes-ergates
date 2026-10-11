@@ -16,7 +16,9 @@ import type { GatewayEventFrame, HistoryMessage, TranscriptQuery, TranscriptRawP
 
 import { flush } from '@test/fake-gateway/fake-websocket'
 import historyFixture from '@test/fixtures/history.json'
+import receiptCliCut from '@test/fixtures/agent-traffic/receipt-cli-cut.json'
 import liveJson from '@test/fixtures/agent-traffic/receipt-live-json.json'
+import transcriptSender from '@test/fixtures/agent-traffic/transcript-sender.json'
 
 import { FakeGateway, type FakeScript } from '../fake-gateway/fake-gateway'
 import { memoryOutbox } from '../fake-gateway/memory-outbox'
@@ -65,6 +67,59 @@ describe('a refused send with no process', () => {
     expect(exchangeCopy(refused!)).toBe('zed could not be reached')
     // Nothing older is missing: the window reached the start of the recorded chat.
     expect(build.needsOlder).toBe(false)
+  })
+})
+
+/** What v0.21.6 sends in `status.update {kind: "process"}` for a completion (session_notifications.py:546-552). */
+const TITLE = 'Background Process Finished: /opt/data/hermes/hermes-agent/venv/bin/python /opt/data/hermes/hermes-agent/tools/bot_mo...'
+
+/** A send to Kevin whose long reply Hermes cut (receipt-cli-cut.json), as v0.21.6 streams it. */
+const KEVIN_ARGS = { target: 'kevin', message: 'When can you train?' }
+const V0216_TURN: GatewayEventFrame[] = [
+  { type: 'message.start', seq: 1 },
+  { type: 'tool.start', seq: 2, payload: { tool_id: 'call_k', name: 'message_agent', args: KEVIN_ARGS } },
+  { type: 'tool.complete', seq: 3, payload: { tool_id: 'call_k', name: 'message_agent', args: KEVIN_ARGS, result: receiptCliCut.result } },
+  { type: 'message.complete', seq: 4, payload: { text: 'I asked Kevin.', status: 'complete' } },
+  { type: 'status.update', seq: 5, payload: { kind: 'process', text: TITLE } }
+]
+
+/** The recorded sender rows plus the three durable rows of that send; the last one is the v0.21.6 receipt row. */
+const V0216_ROWS: unknown[] = [
+  ...(transcriptSender.messages as unknown[]),
+  { id: 127, role: 'assistant', content: '', timestamp: 1789376000, tool_calls: [{ id: 'call_k', type: 'function', function: { name: 'message_agent', arguments: JSON.stringify(KEVIN_ARGS) } }] },
+  { id: 128, role: 'tool', content: JSON.stringify(receiptCliCut.result), timestamp: 1789376001, tool_call_id: 'call_k', tool_name: 'message_agent' },
+  { id: 129, role: 'user', content: receiptCliCut.text, timestamp: 1789376060, display_kind: 'process_complete', display_metadata: { display_text: TITLE } }
+]
+
+/** `rows` paged like the REST route: counted from the newest end for `order: 'latest'`, returned ascending. */
+function pageOf(rows: unknown[], q: TranscriptQuery & { sessionId: string }): TranscriptRawPage {
+  const fromNewest = [...rows].reverse().slice(q.offset ?? 0, (q.offset ?? 0) + q.limit)
+  const messages = q.order === 'latest' ? fromNewest.reverse() : rows.slice(q.offset ?? 0, (q.offset ?? 0) + q.limit)
+  return { session_id: q.sessionId, messages, pagination: { limit: q.limit, offset: q.offset ?? 0, order: q.order, returned: messages.length } }
+}
+
+describe('a v0.21.6 delivery', () => {
+  it('folds from the process_complete row the REST tail brings; the live title adds no item', async () => {
+    const gateway = new FakeGateway({ onSubmit: () => V0216_TURN, transcript: q => pageOf(V0216_ROWS, q) })
+    const controller = createSessionController({ port: gateway, profile: 'thijs', connectionId: 'c-test', outbox: memoryOutbox() })
+    await controller.open()
+    const transcript = transcriptWindow(gateway, controller, 'thijs')
+
+    await controller.send('Ask Kevin when he can train')
+    await flush(20)
+
+    // The `message_agent` completion, the local turn's completion and the process title (spec 5.8).
+    expect(controller.getView().state.tailWanted).toBe(3)
+
+    await transcript.fetchInitial()
+    await transcript.fetchTail()
+
+    expect(controller.getView().state.items.filter(i => i.kind === 'notice')).toEqual([])
+    const build = buildExchanges(collectEvidence(controller.getView().state.items, transcript.current().rows), { roster, window: transcript.current() })
+    const kevin = build.exchanges.find(x => x.anchor.toolCallId === 'call_k')
+    expect(kevin).toMatchObject({ phase: 'settled', state: { delivery: 'settled', reply: { kind: 'excerpt' } } })
+    expect(exchangeCopy(kevin!)).toBe('2 messages with Kevin · shortened by Hermes')
+    expect(build.unpaired).toEqual([])
   })
 })
 

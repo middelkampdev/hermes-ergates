@@ -26,7 +26,7 @@ import type {
   UsagePayload
 } from '@/gateway/types'
 
-import { parseReceiptRow } from './agent-traffic/receipt'
+import { PROCESS_TITLE_RE, parseReceiptRow } from './agent-traffic/receipt'
 import { historyToItems, maxRowId, mergeHistory, newestInputRowId, type ChatItem, type DeliveryState, type LiveAnchor } from './history'
 
 export type { ChatItem, DeliveryState } from './history'
@@ -89,7 +89,8 @@ export interface SessionState {
   /**
    * The process id of the last live receipt appended while no turn was running (rule g). The next
    * turn to start is the one Hermes runs on that receipt row, so the id moves onto its anchor;
-   * cleared when a turn starts (consumed) and when one completes.
+   * cleared when a turn starts (consumed) and when one completes. Only a 0.21.2 server sends a
+   * receipt live: v0.21.6 sends a title without a process id, so the id stays null there.
    */
   pendingReceiptProcessId: string | null
 }
@@ -480,8 +481,16 @@ function startTurn(state: SessionState, unownedAs: 'foreign' | 'unknown', at: nu
  * it never reaches the working line (spec 5.9), and the notification itself is
  * the evidence a row exists — the tail is wanted even when the receipt is one we
  * already hold (5.8).
+ *
+ * Hermes v0.21.6 sends only a one-line title for a completion and keeps the
+ * receipt in the durable `process_complete` row (tui_gateway/session_notifications.py:546-552,
+ * :598-602). A title adds no item, as on Desktop, which only re-reads its process list
+ * (apps/desktop/src/app/session/hooks/use-message-stream/gateway-event/status.ts:116-119); the REST tail brings the receipt.
  */
 function applyProcessNotification(state: SessionState, text: string, at: number | undefined): SessionState {
+  if (PROCESS_TITLE_RE.test(text)) {
+    return { ...state, tailWanted: state.tailWanted + 1 }
+  }
   const parsed = parseReceiptRow(text)
   const when = at ?? Date.now()
   let items = state.items

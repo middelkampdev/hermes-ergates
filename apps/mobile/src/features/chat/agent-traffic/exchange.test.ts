@@ -21,6 +21,8 @@ import type { ExchangeState, PeerRef, RosterPeer, TranscriptRow } from './types'
 
 import senderPageRaw from '@test/fixtures/agent-traffic/transcript-sender.json'
 import senderPage1Raw from '@test/fixtures/agent-traffic/transcript-sender-page1.json'
+import receiptCli from '@test/fixtures/agent-traffic/receipt-cli.json'
+import receiptCliCut from '@test/fixtures/agent-traffic/receipt-cli-cut.json'
 import receiptRefusalJson from '@test/fixtures/agent-traffic/receipt-refusal-json.json'
 import receiptDamaged from '@test/fixtures/agent-traffic/receipt-damaged.json'
 import receiptBatchTwo from '@test/fixtures/agent-traffic/receipt-batch-two.json'
@@ -260,12 +262,33 @@ describe('deriveState', () => {
     expect(settled.state.latestOutcomeUnavailable).toBe(false)
   })
 
-  it('reads a damaged live payload as damaged when the paired result carries a delivery id', () => {
+  it('reads a damaged live payload as damaged when the paired result is the live-owner ack', () => {
     const fixture = receiptDamaged as unknown as ReceiptFixture
     const derived = deriveState({ result: fixture.result, receipt: parsed(fixture.text), sendDone: true })
     expect(derived.state.reply).toEqual({ kind: 'damaged' })
     expect(derived.state.delivery).toBe('unknown')
     expect(derived.evidence.deliveryId).toBe(fixture.result?.delivery_id)
+  })
+
+  it('reads a v0.21.6 CLI reply as settled text although its ack carries a delivery_id', () => {
+    const parsed = parseReceiptRow(receiptCli.text)
+    if (parsed.kind !== 'receipts') throw new Error('unreachable')
+    const ack = { status: 'queued', delivery_id: 'a'.repeat(64), to: '@kevin', reply_delivery: 'notification', detail: 'Message queued for @kevin.', process_id: 'proc_782bd84d7f2a', queued_at: 1789375767 }
+    expect(deriveState({ result: ack, receipt: parsed.receipts[0], sendDone: true }).state).toMatchObject({ delivery: 'settled', reply: { kind: 'text' } })
+  })
+
+  it('reads a cut v0.21.6 CLI reply as an excerpt and says Hermes shortened it', () => {
+    const fixture = receiptCliCut as unknown as ReceiptFixture
+    const receipt = parsed(fixture.text)
+    const processId = receipt.headline.processId
+    const { exchanges } = build(evidenceOf({
+      sends: [sendEvidence({ toolCallId: 'call_k', anchorRowId: 40 })],
+      results: [{ toolCallId: 'call_k', result: fixture.result, rowId: 41 }],
+      receipts: [{ processId, receipt, rowId: 42, itemId: `h-receipt-42-${processId}`, live: false }],
+    }))
+    expect(exchanges[0]?.state).toMatchObject({ delivery: 'settled', reply: { kind: 'excerpt' }, worker: { kind: 'exited', code: 0 } })
+    expect(exchanges[0]?.reply?.body).not.toContain('characters cut')
+    expect(exchangeCopy(exchanges[0]!)).toBe('2 messages with Kevin · shortened by Hermes')
   })
 
   it('never throws on a result that is not an object', () => {
@@ -333,7 +356,7 @@ describe('buildExchanges', () => {
     expect(exchangeCopy(exchanges[0]!)).toBe('zed could not be reached')
   })
 
-  it('reads the synthetic refusal receipt paired with a sent result as refused', () => {
+  it('reads the synthetic refusal receipt paired with a spawn ack as refused', () => {
     const fixture = receiptRefusalJson as unknown as ReceiptFixture
     const receipt = parsed(fixture.text)
     const processId = receipt.headline.processId

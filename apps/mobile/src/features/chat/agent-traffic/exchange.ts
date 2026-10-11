@@ -257,6 +257,8 @@ interface ResultFields {
   error?: string
   deliveryId?: string
   processId?: string
+  /** Only the spawn ack carries it (tools/bot_mode_dm.py:748-756); the live-owner ack never does (:675-689). */
+  queuedAt?: number
 }
 
 function readResult(result: unknown): ResultFields {
@@ -268,6 +270,7 @@ function readResult(result: unknown): ResultFields {
   if (typeof obj.error === 'string') fields.error = obj.error
   if (typeof obj.delivery_id === 'string') fields.deliveryId = obj.delivery_id
   if (typeof obj.process_id === 'string') fields.processId = obj.process_id
+  if (typeof obj.queued_at === 'number') fields.queuedAt = obj.queued_at
   return fields
 }
 
@@ -318,7 +321,8 @@ export function deriveState(input: { result?: unknown; receipt?: ParsedReceipt; 
 
   if (input.receipt) {
     if (evidence.processId === undefined) evidence.processId = input.receipt.headline.processId
-    const reading = readBody(input.receipt, { pairedResultHasDeliveryId: fields.deliveryId !== undefined })
+    // Spec 5.2 rule 5: a `delivery_id` without `queued_at` is the live-owner ack, whose receipt is always JSON.
+    const reading = readBody(input.receipt, { pairedResultIsLiveOwner: fields.deliveryId !== undefined && fields.queuedAt === undefined })
     if (reading.kind === 'outcome') {
       delivery = reading.delivery
       reply = reading.reply

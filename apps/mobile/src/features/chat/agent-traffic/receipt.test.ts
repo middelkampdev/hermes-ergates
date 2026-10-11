@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  CUT_MARKER_RE,
+  PROCESS_TITLE_RE,
   deliveryFromReason,
   deliveryFromStatus,
   parseReceiptRow,
@@ -12,10 +14,12 @@ import {
 
 import receiptCli from '@test/fixtures/agent-traffic/receipt-cli.json'
 import receiptCliSecond from '@test/fixtures/agent-traffic/receipt-cli-second.json'
+import receiptCliCut from '@test/fixtures/agent-traffic/receipt-cli-cut.json'
 import receiptRefusalJson from '@test/fixtures/agent-traffic/receipt-refusal-json.json'
 import receiptLiveJson from '@test/fixtures/agent-traffic/receipt-live-json.json'
 import receiptLiveAmbiguous from '@test/fixtures/agent-traffic/receipt-live-ambiguous.json'
 import receiptLiveFailed from '@test/fixtures/agent-traffic/receipt-live-failed.json'
+import receiptLiveCancelled from '@test/fixtures/agent-traffic/receipt-live-cancelled.json'
 import receiptRelayReply from '@test/fixtures/agent-traffic/receipt-relay-reply.json'
 import receiptRelayEmpty from '@test/fixtures/agent-traffic/receipt-relay-empty.json'
 import receiptRelayFailure from '@test/fixtures/agent-traffic/receipt-relay-failure.json'
@@ -54,10 +58,12 @@ const asFixture = (value: unknown): ReceiptFixture => value as ReceiptFixture
 const singleReceiptFixtures: [string, ReceiptFixture][] = [
   ['receipt-cli', asFixture(receiptCli)],
   ['receipt-cli-second', asFixture(receiptCliSecond)],
+  ['receipt-cli-cut', asFixture(receiptCliCut)],
   ['receipt-refusal-json', asFixture(receiptRefusalJson)],
   ['receipt-live-json', asFixture(receiptLiveJson)],
   ['receipt-live-ambiguous', asFixture(receiptLiveAmbiguous)],
   ['receipt-live-failed', asFixture(receiptLiveFailed)],
+  ['receipt-live-cancelled', asFixture(receiptLiveCancelled)],
   ['receipt-relay-reply', asFixture(receiptRelayReply)],
   ['receipt-relay-empty', asFixture(receiptRelayEmpty)],
   ['receipt-relay-failure', asFixture(receiptRelayFailure)],
@@ -81,7 +87,7 @@ describe.each(singleReceiptFixtures)('%s', (_name, fixture) => {
     expect(receipt.headline.processId).toBe(fixture.expect.processId)
     expect(workerFromHeadline(receipt.headline).kind).toBe(fixture.expect.worker)
 
-    const reading = readBody(receipt, { pairedResultHasDeliveryId: Boolean(fixture.result && 'delivery_id' in fixture.result) })
+    const reading = readBody(receipt, { pairedResultIsLiveOwner: Boolean(fixture.result && 'delivery_id' in fixture.result && !('queued_at' in fixture.result)) })
     expect(reading.kind).toBe('outcome')
     if (reading.kind !== 'outcome') throw new Error('unreachable')
     expect(reading.delivery).toBe(fixture.expect.delivery)
@@ -163,47 +169,89 @@ it('turns watch matches and unknown IMPORTANT rows into notices, and other text 
 })
 
 describe('readBody order', () => {
-  const rec = (body: string, exitCode: number | 'unknown' = 0, trimmed = false): ParsedReceipt => ({ headline: { processId: 'proc_0123456789ab', description: 'exited', exitCode, sigterm: false }, attribution: [], command: 'c', body, trimmed, raw: '' })
+  const rec = (body: string, exitCode: number | 'unknown' = 0, trimmed = false, cut: number | null = null): ParsedReceipt => ({ headline: { processId: 'proc_0123456789ab', description: 'exited', exitCode, sigterm: false }, attribution: [], command: 'c', body, trimmed, cut, raw: '' })
 
   it('JSON with status', () => {
-    expect(readBody(rec('{"status":"settled","delivery_id":"d","reply":"Tue"}'), { pairedResultHasDeliveryId: true })).toMatchObject({ kind: 'outcome', delivery: 'settled', reply: { kind: 'text', body: 'Tue', completeness: 'complete' }, deliveryId: 'd' })
-    expect(readBody(rec('{"status":"settled","delivery_id":"d"}'), { pairedResultHasDeliveryId: true })).toMatchObject({ delivery: 'settled', reply: { kind: 'empty' } })
-    expect(readBody(rec('{"status":"ambiguous","delivery_id":"d"}'), { pairedResultHasDeliveryId: true })).toMatchObject({ delivery: 'unknown', reply: { kind: 'none' } })
-    expect(readBody(rec('{"status":"failed","reason":"provider_rate_limit","error":"x"}'), { pairedResultHasDeliveryId: true })).toMatchObject({ delivery: 'failed', reason: 'provider_rate_limit' })
-    expect(readBody(rec('{"status":"failed","reason":"delivery_timeout"}'), { pairedResultHasDeliveryId: true })).toMatchObject({ delivery: 'unknown' })
+    expect(readBody(rec('{"status":"settled","delivery_id":"d","reply":"Tue"}'), { pairedResultIsLiveOwner: true })).toMatchObject({ kind: 'outcome', delivery: 'settled', reply: { kind: 'text', body: 'Tue', completeness: 'complete' }, deliveryId: 'd' })
+    expect(readBody(rec('{"status":"settled","delivery_id":"d"}'), { pairedResultIsLiveOwner: true })).toMatchObject({ delivery: 'settled', reply: { kind: 'empty' } })
+    expect(readBody(rec('{"status":"ambiguous","delivery_id":"d"}'), { pairedResultIsLiveOwner: true })).toMatchObject({ delivery: 'unknown', reply: { kind: 'none' } })
+    expect(readBody(rec('{"status":"failed","reason":"provider_rate_limit","error":"x"}'), { pairedResultIsLiveOwner: true })).toMatchObject({ delivery: 'failed', reason: 'provider_rate_limit' })
+    expect(readBody(rec('{"status":"failed","reason":"delivery_timeout"}'), { pairedResultIsLiveOwner: true })).toMatchObject({ delivery: 'unknown' })
   })
 
   it('JSON with error and no status: refusal or failure by reason', () => {
-    expect(readBody(rec('{"error":"busy","reason":"target_busy"}'), { pairedResultHasDeliveryId: false })).toMatchObject({ delivery: 'refused', reply: { kind: 'none' } })
-    expect(readBody(rec('{"error":"no such","reason":"unknown"}'), { pairedResultHasDeliveryId: false })).toMatchObject({ delivery: 'unknown' })
-    expect(readBody(rec('{"error":"x","reason":"cancelled"}'), { pairedResultHasDeliveryId: false })).toMatchObject({ delivery: 'cancelled' })
-    expect(readBody(rec('{"error":"x","reason":"made_up_code"}'), { pairedResultHasDeliveryId: false })).toMatchObject({ delivery: 'unknown' })
+    expect(readBody(rec('{"error":"busy","reason":"target_busy"}'), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'refused', reply: { kind: 'none' } })
+    expect(readBody(rec('{"error":"no such","reason":"unknown"}'), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'unknown' })
+    expect(readBody(rec('{"error":"x","reason":"cancelled"}'), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'cancelled' })
+    expect(readBody(rec('{"error":"x","reason":"made_up_code"}'), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'unknown' })
   })
 
   it('JSON object without status or error is a delivery_update notice', () => {
-    expect(readBody(rec('{"detail":"queued"}'), { pairedResultHasDeliveryId: false })).toEqual({ kind: 'notice' })
+    expect(readBody(rec('{"detail":"queued"}'), { pairedResultIsLiveOwner: false })).toEqual({ kind: 'notice' })
   })
 
   it('relay failure, timeout, reply', () => {
-    expect(readBody(rec('Delivery to @kevin on peer failed [reason: runtime_offline]: down'), { pairedResultHasDeliveryId: false })).toMatchObject({ delivery: 'refused', reason: 'runtime_offline' })
-    expect(readBody(rec('Delivery to @kevin on peer failed: down'), { pairedResultHasDeliveryId: false })).toMatchObject({ delivery: 'unknown', reason: 'unknown' })
-    expect(readBody(rec('No reply from @kevin on peer within 600s. The message may still be delivered'), { pairedResultHasDeliveryId: false })).toMatchObject({ delivery: 'unknown', reply: { kind: 'none' }, latestOutcomeUnavailable: true })
-    expect(readBody(rec('Reply from @kevin on peer:\nTuesday.'), { pairedResultHasDeliveryId: false })).toMatchObject({ delivery: 'settled', reply: { kind: 'text', body: 'Tuesday.', completeness: 'unknown' } })
-    expect(readBody(rec('Reply from @kevin on peer:\n(empty reply)'), { pairedResultHasDeliveryId: false })).toMatchObject({ reply: { kind: 'empty' } })
-    expect(readBody(rec('Reply from @kevin on peer:\n'), { pairedResultHasDeliveryId: false })).toMatchObject({ delivery: 'settled', reply: { kind: 'empty' } })
+    expect(readBody(rec('Delivery to @kevin on peer failed [reason: runtime_offline]: down'), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'refused', reason: 'runtime_offline' })
+    expect(readBody(rec('Delivery to @kevin on peer failed: down'), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'unknown', reason: 'unknown' })
+    expect(readBody(rec('No reply from @kevin on peer within 600s. The message may still be delivered'), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'unknown', reply: { kind: 'none' }, latestOutcomeUnavailable: true })
+    expect(readBody(rec('Reply from @kevin on peer:\nTuesday.'), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'settled', reply: { kind: 'text', body: 'Tuesday.', completeness: 'unknown' } })
+    expect(readBody(rec('Reply from @kevin on peer:\n(empty reply)'), { pairedResultIsLiveOwner: false })).toMatchObject({ reply: { kind: 'empty' } })
+    expect(readBody(rec('Reply from @kevin on peer:\n'), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'settled', reply: { kind: 'empty' } })
   })
 
-  it('damaged: a brace start, or a paired live result even when the tail is prose', () => {
-    expect(readBody(rec('{"status":"sett'), { pairedResultHasDeliveryId: false })).toMatchObject({ delivery: 'unknown', reply: { kind: 'damaged' } })
-    expect(readBody(rec('ly","reply":"prose tail"}'), { pairedResultHasDeliveryId: true })).toMatchObject({ reply: { kind: 'damaged' } })
+  it('damaged: a brace start, or a paired live-owner ack even when the tail is prose', () => {
+    expect(readBody(rec('{"status":"sett'), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'unknown', reply: { kind: 'damaged' } })
+    expect(readBody(rec('ly","reply":"prose tail"}'), { pairedResultIsLiveOwner: true })).toMatchObject({ reply: { kind: 'damaged' } })
   })
 
   it('CLI text drops session lines; empty remainder depends on the exit code; trimmed text is an excerpt', () => {
-    expect(readBody(rec('session_id: abc\n↻ Resumed session x\nTuesday works.'), { pairedResultHasDeliveryId: false })).toMatchObject({ delivery: 'settled', reply: { kind: 'text', body: 'Tuesday works.' } })
-    expect(readBody(rec('session_id: abc\n', 0), { pairedResultHasDeliveryId: false })).toMatchObject({ delivery: 'settled', reply: { kind: 'empty' } })
-    expect(readBody(rec('', 1), { pairedResultHasDeliveryId: false })).toMatchObject({ delivery: 'unknown', reply: { kind: 'none' } })
-    expect(readBody(rec('tail of the reply', 0, true), { pairedResultHasDeliveryId: false })).toMatchObject({ reply: { kind: 'excerpt', body: 'tail of the reply' } })
-    expect(readBody(rec('{"error":"x","reason":"target_busy"}', 1, true), { pairedResultHasDeliveryId: false })).toMatchObject({ reply: { kind: 'none' } })
+    expect(readBody(rec('session_id: abc\n↻ Resumed session x\nTuesday works.'), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'settled', reply: { kind: 'text', body: 'Tuesday works.' } })
+    expect(readBody(rec('session_id: abc\n', 0), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'settled', reply: { kind: 'empty' } })
+    expect(readBody(rec('', 1), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'unknown', reply: { kind: 'none' } })
+    expect(readBody(rec('tail of the reply', 0, true), { pairedResultIsLiveOwner: false })).toMatchObject({ reply: { kind: 'excerpt', body: 'tail of the reply' } })
+    expect(readBody(rec('{"error":"x","reason":"target_busy"}', 1, true), { pairedResultIsLiveOwner: false })).toMatchObject({ reply: { kind: 'none' } })
+  })
+
+  it('reads cut text as an excerpt on the reply branches only', () => {
+    expect(readBody(rec('tail of the reply', 0, false, 3072), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'settled', reply: { kind: 'excerpt', body: 'tail of the reply' } })
+    expect(readBody(rec('Reply from @kevin on laptop:\nthe end', 0, false, 3072), { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'settled', reply: { kind: 'excerpt', body: 'the end' } })
+    expect(readBody(rec('ly","reply":"prose tail"}', 0, false, 3072), { pairedResultIsLiveOwner: true })).toMatchObject({ delivery: 'unknown', reply: { kind: 'damaged' } })
+  })
+})
+
+describe('the v0.21.6 cut marker', () => {
+  it('strips the v0.21.6 cut marker into cut and reads the rest as an excerpt', () => {
+    const head = '[IMPORTANT: Background process proc_c1d2e3f4a5b6 completed normally (exit code 0).\nCommand: x\nOutput:\n'
+    const parsed = parseSingleReceipt(`${head}...(first 2048 characters cut \u2014 process(action="log", session_id="proc_c1d2e3f4a5b6") has the full output)\nend of the reply]`)
+    expect(parsed).toMatchObject({ cut: 2048, trimmed: false, body: 'end of the reply' })
+    expect(readBody(parsed!, { pairedResultIsLiveOwner: false })).toMatchObject({ delivery: 'settled', reply: { kind: 'excerpt', body: 'end of the reply' } })
+  })
+
+  it('leaves cut null when the receipt carries no marker, and when the subagent trim marker took its place', () => {
+    expect(parseSingleReceipt(receiptCli.text)).toMatchObject({ cut: null, trimmed: false })
+    expect(parseSingleReceipt(receiptSubagentTrimmed.text)).toMatchObject({ cut: null, trimmed: true })
+    expect(CUT_MARKER_RE.test('...(first 12 characters cut \u2014 process(action="log", session_id="proc_c1d2e3f4a5b6") has the full output)\n')).toBe(true)
+  })
+})
+
+describe('PROCESS_TITLE_RE', () => {
+  it('matches the one-line titles v0.21.6 sends in status.update {kind: "process"}', () => {
+    for (const title of [
+      'Background Process Finished: /opt/data/hermes/hermes-agent/venv/bin/python /opt/data/hermes/hermes-agent/tools/bot_mo...',
+      'Background Process Failed (exit 1): python run.py',
+      'Background Process Terminated: sleep 600',
+      'Background Process Lost: tail -f log',
+      'Background Process Failed to Start: missing-binary',
+      'Background Process Finished',
+    ]) {
+      expect(PROCESS_TITLE_RE.test(title)).toBe(true)
+    }
+  })
+
+  it('does not match a receipt, a batch title or a subagent title', () => {
+    expect(PROCESS_TITLE_RE.test(receiptCli.text)).toBe(false)
+    expect(PROCESS_TITLE_RE.test('2 Background Processes Finished')).toBe(false)
+    expect(PROCESS_TITLE_RE.test('Subagent Task Completed: Ask Kevin for a slot')).toBe(false)
   })
 })
 

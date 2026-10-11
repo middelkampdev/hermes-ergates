@@ -1,13 +1,15 @@
 {
   "shape": "relay-timeout",
   "synthetic": true,
-  "text": "[IMPORTANT: Background process proc_b8c9d0e1f2a3 exited (exit code 1).\nCommand: /opt/data/hermes/hermes-agent/venv/bin/python -c 'import json,os,sys,time ...'\nOutput:\nNo reply from @kevin on laptop within 600s. The message may still be delivered when the Desktop reconnects; do not resend blindly.]",
+  "text": "[IMPORTANT: Background process proc_b8c9d0e1f2a3 exited (exit code 1).\nCommand: /opt/data/hermes/hermes-agent/venv/bin/python /opt/data/hermes/hermes-agent/tools/bot_mode_dm.py --wait-reply /opt/data/hermes/bot_relay/replies/ee25b6e9e70124e0b4e0aa1d97429c4b.json '@kevin on laptop' 3120\nOutput:\nNo reply from @kevin on laptop within 3120s. The message may still be delivered when the Desktop reconnects; do not resend blindly.]",
   "result": {
-    "status": "sent",
-    "to": "@kevin",
-    "detail": "Message dispatched to @kevin. This is asynchronous — do NOT wait or poll. Finish your turn now; when the delivery completes, its notification carries the reply — relay it then, attributed to that agent.",
+    "status": "queued",
+    "delivery_id": "ee25b6e9e70124e0b4e0aa1d97429c4b",
+    "to": "@kevin on laptop",
+    "reply_delivery": "notification",
+    "detail": "Message queued for @kevin on laptop: this acknowledges the hand-off to a background delivery process, not a delivery receipt — do NOT wait or poll. Finish your turn now; that process's completion notification carries the delivery outcome — the reply (relay it then, attributed to that agent) or the delivery failure (report it; the message was NOT delivered).",
     "process_id": "proc_b8c9d0e1f2a3",
-    "sent_at": 1789375767
+    "queued_at": 1789375767
   },
   "expect": {
     "processId": "proc_b8c9d0e1f2a3",

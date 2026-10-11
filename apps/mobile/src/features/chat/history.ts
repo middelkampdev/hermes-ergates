@@ -5,7 +5,7 @@
 
 import type { ApprovalRequestParams, ClarifyQuestion, HistoryMessage } from '@/gateway/types'
 
-import { classifyUserRow, A2A_DISPLAY_KIND, type RowClass } from './agent-traffic/classify'
+import { classifyUserRow, A2A_DISPLAY_KIND, PROCESS_COMPLETE_DISPLAY_KIND, type RowClass } from './agent-traffic/classify'
 import type { ParsedReceipt } from './agent-traffic/receipt'
 
 /**
@@ -67,10 +67,13 @@ export type ChatItem =
   | { kind: 'approval'; id: string; requestId: string; payload: ApprovalRequestParams; state: 'pending' | 'resolved' | 'expired'; choice?: string }
   /** Inbound agent-to-agent message, from a validated `a2a_message` stamp or the legacy inferred text grammar (spec 5.1/5.6). */
   | { kind: 'bot_message'; id: string; rowId?: number; handle: string; name: string; text: string; at?: number; provenance: 'structured' | 'inferred'; senderId?: string; deliveryId?: string }
-  /** One parsed `[IMPORTANT: Background process …]` receipt (spec 5.2). */
-  | { kind: 'receipt'; id: string; rowId?: number; receipt: ParsedReceipt; at?: number; live: boolean }
-  /** A receipt-shaped row that failed to parse, or another `[IMPORTANT: …]` notice. */
-  | { kind: 'notice'; id: string; rowId?: number; noticeKind: 'delivery_update' | 'process' | 'batch' | 'unknown'; at?: number; detail: string; live?: boolean }
+  /**
+   * One parsed `[IMPORTANT: Background process …]` receipt (spec 5.2). `displayKind` is set when the
+   * row was stored as a v0.21.6 `process_complete` row, which Desktop shows as a system row.
+   */
+  | { kind: 'receipt'; id: string; rowId?: number; receipt: ParsedReceipt; at?: number; live: boolean; displayKind?: typeof PROCESS_COMPLETE_DISPLAY_KIND }
+  /** A receipt-shaped row that failed to parse, or another `[IMPORTANT: …]` notice. `displayKind` as on a receipt. */
+  | { kind: 'notice'; id: string; rowId?: number; noticeKind: 'delivery_update' | 'process' | 'batch' | 'unknown'; at?: number; detail: string; live?: boolean; displayKind?: typeof PROCESS_COMPLETE_DISPLAY_KIND }
 
 const HIDDEN_KINDS = new Set(['hidden'])
 
@@ -125,14 +128,16 @@ export function historyToItems(messages: HistoryMessage[]): ChatItem[] {
       }
 
       classified ??= classifyUserRow({ text, displayKind: m.display_kind, displayMetadata: m.display_metadata })
+      // Desktop shows a `process_complete` row as a system row, not a user row; the fold reads it so (timeline.ts).
+      const typed: { displayKind?: typeof PROCESS_COMPLETE_DISPLAY_KIND } = m.display_kind === PROCESS_COMPLETE_DISPLAY_KIND ? { displayKind: PROCESS_COMPLETE_DISPLAY_KIND } : {}
       if (classified.kind === 'receipts') {
         for (const receipt of classified.receipts) {
-          items.push({ kind: 'receipt', id: `h-receipt-${rowKey}-${receipt.headline.processId}`, rowId: m.row_id, receipt, at: m.timestamp, live: false })
+          items.push({ kind: 'receipt', id: `h-receipt-${rowKey}-${receipt.headline.processId}`, rowId: m.row_id, receipt, at: m.timestamp, live: false, ...typed })
         }
         continue
       }
       if (classified.kind === 'notice') {
-        items.push({ kind: 'notice', id: `h-notice-${rowKey}`, rowId: m.row_id, noticeKind: classified.noticeKind, at: m.timestamp, detail: classified.detail })
+        items.push({ kind: 'notice', id: `h-notice-${rowKey}`, rowId: m.row_id, noticeKind: classified.noticeKind, at: m.timestamp, detail: classified.detail, ...typed })
         continue
       }
       if (classified.kind === 'bot_message') {

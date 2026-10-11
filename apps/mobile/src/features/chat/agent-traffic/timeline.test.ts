@@ -14,6 +14,7 @@ import type { RosterPeer } from './types'
 
 import historyReceiver from '@test/fixtures/agent-traffic/history-receiver.json'
 import historySender from '@test/fixtures/agent-traffic/history-sender.json'
+import receiptCliCut from '@test/fixtures/agent-traffic/receipt-cli-cut.json'
 import senderPage from '@test/fixtures/agent-traffic/transcript-sender.json'
 
 const ROSTER: RosterPeer[] = [
@@ -336,6 +337,22 @@ describe("buildTimeline: the answer to this bot's own dispatch stays expanded (H
     const notice: ChatItem = { kind: 'notice', id: 'h-notice-4', rowId: 4, noticeKind: 'process', detail: 'raw' }
     const items = [human(1, 'ask Kevin'), dispatch(1, '@kevin'), says(3, 'Asked.'), notice, says(5, 'Noted.'), inbound(6, 'the list'), says(7, 'Kevin sent the list.'), ...closing(8)]
     expect(keys(buildTimeline(input({ items })).lines)).toContain('x-in-h-bot-6')
+  })
+
+  it('a v0.21.6 process_complete receipt between the dispatch and the delivery is a system row on Desktop: the scan goes past it', () => {
+    // Desktop hydrates a process_complete row as a system notice (hydration.ts:159-175, :452), and
+    // dispatchedTo skips every row that is neither user nor assistant (agent-delivery.tsx:71-73).
+    const receiptRow = (displayKind?: string): ChatItem[] =>
+      historyToItems([{ role: 'user', text: receiptCliCut.text, row_id: 4, ...(displayKind ? { display_kind: displayKind } : {}) }])
+    const around = (receipt: ChatItem[]): ChatItem[] => [human(1, 'ask Kevin'), dispatch(1, '@kevin'), says(3, 'Asked.'), ...receipt, says(5, 'Noted.'), inbound(6, 'the list'), says(7, 'Kevin sent the list.'), ...closing(8)]
+
+    const typed = keys(buildTimeline(input({ items: around(receiptRow('process_complete')) })).lines)
+    expect(typed).not.toContain('x-in-h-bot-6')
+    expect(typed).toContain('x-msg-h-bot-6')
+    expect(typed).toContain('h-assistant-7')
+
+    // The same receipt stored untyped (a row written before the upgrade) is a user row on Desktop and still ends the scan.
+    expect(keys(buildTimeline(input({ items: around(receiptRow()) })).lines)).toContain('x-in-h-bot-6')
   })
 })
 

@@ -219,13 +219,24 @@ function agentKey(value: unknown): string {
 }
 
 /**
+ * Rows Desktop shows as system rows, which `dispatchedTo` scans past: events, and on v0.21.6 the
+ * receipt or notice of a `process_complete` row (apps/desktop/src/lib/chat-messages/hydration.ts:159-175,
+ * :452). An untyped receipt row, written before v0.21.6, is a user row on Desktop and ends the scan.
+ */
+function isSystemRow(item: ChatItem): boolean {
+  if (item.kind === 'event') return true
+  return (item.kind === 'receipt' || item.kind === 'notice') && item.displayKind !== undefined
+}
+
+/**
  * Did this bot send a `message_agent` to the sender of the inbound row at `index`, in the current
  * exchange? Then that row is the teammate's answer to our dispatch, and the assistant row after it
  * is the report to the human, not a reply to the teammate: the turn must not fold. Hermes Desktop
- * `dispatchedTo` (apps/desktop/.../thread/agent-delivery.tsx, #114629), rule for rule: the scan
- * goes backward and ends at the nearest input row that is not an inbound row, or at an earlier
- * inbound row from the same sender, so one dispatch exempts only the answer that follows it.
- * The sender matches by handle or by display name: a missed fold shows content, a wrong fold hides it.
+ * `dispatchedTo` (apps/desktop/src/components/assistant-ui/thread/agent-delivery.tsx:48-83 at
+ * v0.21.6, #114629), rule for rule: the scan goes backward and ends at the nearest input row that is
+ * not an inbound row, or at an earlier inbound row from the same sender, so one dispatch exempts only
+ * the answer that follows it. The sender matches by handle or by display name: a missed fold shows
+ * content, a wrong fold hides it.
  */
 function answersOwnDispatch(items: ChatItem[], index: number): boolean {
   const head = items[index]
@@ -238,8 +249,8 @@ function answersOwnDispatch(items: ChatItem[], index: number): boolean {
       if (sender.has(agentKey(item.handle)) || sender.has(agentKey(item.name))) return false
       continue
     }
-    // Desktop renders an event as a system row and scans past it; every other input row ends the exchange.
-    if (item.kind !== 'event' && isInputRow(item)) return false
+    // Desktop scans past a system row (agent-delivery.tsx:71-73); every other input row ends the exchange.
+    if (!isSystemRow(item) && isInputRow(item)) return false
     if (item.kind === 'tool' && item.name === MESSAGE_AGENT && sender.has(agentKey(item.args?.target))) return true
   }
   return false
