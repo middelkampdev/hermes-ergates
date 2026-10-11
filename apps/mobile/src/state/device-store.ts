@@ -39,6 +39,8 @@ export interface Prefs {
   haptics: boolean
   locale: string
   keepRecentOffline: boolean
+  /** Set once the rooted or jailbroken phone notice was dismissed, so it shows one time. */
+  rootedNoticeSeen: boolean
 }
 
 export const defaultPrefs: Prefs = {
@@ -46,7 +48,8 @@ export const defaultPrefs: Prefs = {
   themeName: 'default',
   haptics: true,
   locale: 'en-US',
-  keepRecentOffline: false
+  keepRecentOffline: false,
+  rootedNoticeSeen: false
 }
 
 /** Persisted schema version (also encoded in `DEVICE_STORAGE_KEY`). */
