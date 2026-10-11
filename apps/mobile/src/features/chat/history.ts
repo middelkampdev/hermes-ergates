@@ -3,7 +3,7 @@
  * local (not yet durable) user items. Pure; no React Native imports.
  */
 
-import type { ClarifyQuestion, HistoryMessage, ApprovalRequestPayload } from '@/gateway/types'
+import type { ApprovalRequestParams, ClarifyQuestion, HistoryMessage } from '@/gateway/types'
 
 import { classifyUserRow, A2A_DISPLAY_KIND, type RowClass } from './agent-traffic/classify'
 import type { ParsedReceipt } from './agent-traffic/receipt'
@@ -62,8 +62,9 @@ export type ChatItem =
   | { kind: 'commentary'; id: string; text: string; at?: number }
   | { kind: 'tool'; id: string; toolId?: string; name: string; context?: string; args?: Record<string, unknown>; result?: unknown; durationS?: number; done: boolean; error?: string }
   | { kind: 'event'; id: string; text: string; at?: number }
+  /** On this card and the approval card, `requestId` is the server request id (`srq-<12 hex>`) the answer goes back to. */
   | { kind: 'clarify'; id: string; requestId: string; questions: ClarifyQuestion[]; state: 'pending' | 'answered' | 'expired' | 'dismissed'; answers?: Record<string, string>; error?: string }
-  | { kind: 'approval'; id: string; requestId: string; payload: ApprovalRequestPayload; state: 'pending' | 'resolved' | 'expired'; choice?: string }
+  | { kind: 'approval'; id: string; requestId: string; payload: ApprovalRequestParams; state: 'pending' | 'resolved' | 'expired'; choice?: string }
   /** Inbound agent-to-agent message, from a validated `a2a_message` stamp or the legacy inferred text grammar (spec 5.1/5.6). */
   | { kind: 'bot_message'; id: string; rowId?: number; handle: string; name: string; text: string; at?: number; provenance: 'structured' | 'inferred'; senderId?: string; deliveryId?: string }
   /** One parsed `[IMPORTANT: Background process …]` receipt (spec 5.2). */

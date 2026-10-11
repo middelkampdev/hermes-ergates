@@ -8,7 +8,7 @@
 
 import type { WebSocketLike } from '@vendor/hermes/shared/json-rpc-gateway'
 
-import { GatewayError, isGatewayError } from '../errors'
+import { GatewayError, isGatewayError, requireSent } from '../errors'
 import type { ErgatesApi, FilesApi, GatewayConnection, GatewayPort, ProfilesApi, RoutinesApi, SessionsApi, ToolsApi } from '../port'
 import { normalizeTranscriptPage } from '../transcript'
 import type * as T from '../types'
@@ -395,17 +395,15 @@ export class RealGateway implements GatewayPort {
       const c = await this.sessionSocket(sessionId)
       return c.request<T.UsagePayload>('session.usage', { session_id: sessionId })
     },
+    // Response frames to the server requests (tui_gateway/contracts/server_requests.py:100-129, :48-55),
+    // never the `approval.respond` RPC, which Hermes keeps for other surfaces.
     respondApproval: async p => {
       const c = await this.sessionSocket(p.session_id)
-      await c.request('approval.respond', { session_id: p.session_id, request_id: p.request_id, choice: p.choice })
+      requireSent(c.respond(p.request_id, { choice: p.choice }))
     },
     respondClarify: async p => {
       const c = await this.sessionSocket(p.session_id)
-      const params: Record<string, unknown> = { session_id: p.session_id, request_id: p.request_id, answer: p.answer }
-      if (p.question_id) {
-        params.question_id = p.question_id
-      }
-      return c.request<{ status: string; remaining?: string[] }>('clarify.respond', params)
+      requireSent(c.respond(p.request_id, { answers: p.answers }))
     },
     attachImageBytes: async p => {
       const c = await this.sessionSocket(p.session_id)

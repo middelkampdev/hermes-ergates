@@ -8,6 +8,7 @@ import historySender from '@test/fixtures/agent-traffic/history-sender.json'
 import liveJson from '@test/fixtures/agent-traffic/receipt-live-json.json'
 import receiptBatchThree from '@test/fixtures/agent-traffic/receipt-batch-three.json'
 import receiptWatchMatch from '@test/fixtures/agent-traffic/receipt-watch-match.json'
+import clarifyRequest from '@test/fixtures/clarify-request.json'
 import turnClarify from '@test/fixtures/turn-clarify.json'
 import turnPong from '@test/fixtures/turn-pong.json'
 
@@ -32,6 +33,23 @@ function run(state: SessionState, actions: SessionAction[]): SessionState {
 
 const ev = (event: Partial<GatewayEventFrame> & { type: string }): SessionAction => ({ type: 'event', event: { session_id: LIVE, ...event } })
 
+const activateResult = (over: Partial<ActivateResult> = {}): ActivateResult => ({
+  session_id: LIVE,
+  session_key: STORED,
+  status: 'idle',
+  running: false,
+  message_count: 0,
+  messages: [],
+  messages_omitted: true,
+  info: {},
+  ...over
+})
+
+const req = (id: string, method: string, params: Record<string, unknown>, replayed = false, sid = LIVE): SessionAction =>
+  ({ type: 'request/received', request: { id, method, params: { session_id: sid, ...params }, replayed } })
+const APPROVAL = { request_id: 'ap1', command: 'rm -rf build', choices: ['once', 'deny'] }
+const clarify = (id: string) => req(id, 'clarify', { questions: [{ qid: 'q0', question: `${id}?` }] })
+
 describe('recorded turns', () => {
   it('renders the pong turn as one user bubble and one assistant bubble', () => {
     const start = run(bound(), [{ type: 'submit/started', localId: 'l1', text: 'Reply with exactly the single word: pong', at: 1 }, { type: 'submit/acknowledged', localId: 'l1' }])
@@ -52,15 +70,18 @@ describe('recorded turns', () => {
   })
 
   it('renders the clarify turn with a pending card, then answers it', () => {
-    const end = run(bound(), (turnClarify as GatewayEventFrame[]).map(e => ({ type: 'event', event: e }) as SessionAction))
+    // v0.21.6 asks the question as a server request, not as an event in the turn (server.py:2288-2289).
+    const events = (turnClarify as GatewayEventFrame[]).map(e => ({ type: 'event', event: e }) as SessionAction)
+    const asked: SessionAction = { type: 'request/received', request: { id: clarifyRequest.id, method: clarifyRequest.method, params: clarifyRequest.params, replayed: false } }
+    const end = run(bound(), [...events.slice(0, -1), asked, ...events.slice(-1)])
     const card = end.items.find(i => i.kind === 'clarify')
-    expect(card).toMatchObject({ kind: 'clarify', requestId: 'e75e6b23', state: 'pending' })
+    expect(card).toMatchObject({ kind: 'clarify', requestId: 'srq-5c1e9a0b7d42', state: 'pending' })
     if (card?.kind !== 'clarify') throw new Error('no card')
     expect(card.questions[0]?.choices).toEqual(['A) tea (Recommended)', 'B) coffee'])
     const tools = end.items.filter(i => i.kind === 'tool')
     expect(tools).toHaveLength(1)
     expect(tools[0]).toMatchObject({ name: 'clarify', done: false })
-    const answered = sessionReducer(end, { type: 'clarify/responded', requestId: 'e75e6b23', answers: { q0: 'A' } })
+    const answered = sessionReducer(end, { type: 'clarify/responded', requestId: 'srq-5c1e9a0b7d42', answers: { q0: 'A' } })
     expect(answered.items.find(i => i.kind === 'clarify')).toMatchObject({ state: 'answered', answers: { q0: 'A' } })
   })
 })
@@ -145,45 +166,34 @@ describe('streaming rules', () => {
 })
 
 describe('requests', () => {
-  it('adds an approval card once and resolves it', () => {
-    const req = ev({ type: 'approval.request', seq: 1, payload: { request_id: 'a1', command: 'rm -rf build', description: 'dangerous command' } })
-    const s = run(bound(), [req, { ...req, event: { ...(req as { event: GatewayEventFrame }).event, seq: 2 } } as SessionAction])
-    expect(s.items.filter(i => i.kind === 'approval')).toHaveLength(1)
-    const r = sessionReducer(s, { type: 'approval/responded', requestId: 'a1', choice: 'once' })
-    expect(r.items[0]).toMatchObject({ state: 'resolved', choice: 'once' })
+  it('opens one card per request id, reopens an answered card Hermes delivers again, and ignores other sessions', () => {
+    const s = run(bound(), [req('srq-000000000001', 'approval', APPROVAL), req('srq-000000000001', 'approval', APPROVAL, true), req('srq-000000000009', 'approval', APPROVAL, false, 'other')])
+    expect(s.items.filter(i => i.kind === 'approval')).toMatchObject([{ requestId: 'srq-000000000001', state: 'pending' }])
+    const again = run(s, [{ type: 'approval/responded', requestId: 'srq-000000000001', choice: 'once' }, req('srq-000000000001', 'approval', APPROVAL, true)])
+    expect(again.items.filter(i => i.kind === 'approval')).toMatchObject([{ state: 'pending' }])
   })
 
-  it('expires only the matching clarify request', () => {
-    const s = run(bound(), [
-      ev({ type: 'clarify.request', seq: 1, payload: { request_id: 'c1', questions: [{ qid: 'q0', question: 'A?', choices: ['A) x'], multi_select: false }] } }),
-      ev({ type: 'clarify.request', seq: 2, payload: { request_id: 'c2', questions: [{ qid: 'q0', question: 'B?', choices: ['A) y'], multi_select: false }] } }),
-      ev({ type: 'clarify.expire', seq: 3, payload: { request_id: 'c1' } })
-    ])
-    expect(s.items.find(i => i.kind === 'clarify' && i.requestId === 'c1')).toMatchObject({ state: 'expired' })
-    expect(s.items.find(i => i.kind === 'clarify' && i.requestId === 'c2')).toMatchObject({ state: 'pending' })
+  it('expires only the cancelled card, and every pending card session.activate no longer lists', () => {
+    const s = run(bound(), [clarify('srq-00000000000a'), clarify('srq-00000000000b'), clarify('srq-00000000000c'),
+      ev({ type: 'request.cancel', seq: 1, payload: { id: 'srq-00000000000a', method: 'clarify', reason: 'timeout' } }),
+      { type: 'session/activated', result: activateResult({ open_requests: [{ id: 'srq-00000000000b', method: 'clarify', params: { session_id: LIVE } }] }) }])
+    const cards = s.items.filter(i => i.kind === 'clarify')
+    expect(cards).toMatchObject([{ state: 'expired' }, { state: 'pending', questions: [{ qid: 'q0', choices: [], multi_select: false }] }, { state: 'expired' }])
   })
 
-  it('accepts the single-question clarify shape too', () => {
-    const s = run(bound(), [ev({ type: 'clarify.request', seq: 1, payload: { request_id: 'c3', question: 'Tea?', choices: ['A) yes', 'B) no'], multi_select: true } })])
-    const card = s.items[0]
-    if (card?.kind !== 'clarify') throw new Error('no card')
-    expect(card.questions).toEqual([{ qid: 'q0', question: 'Tea?', choices: ['A) yes', 'B) no'], multi_select: true }])
+  it('expires every pending card a resume payload no longer lists', () => {
+    const s = run(bound(), [clarify('srq-00000000000d'), req('srq-00000000000e', 'approval', APPROVAL),
+      { type: 'session/resumed', snapshot: { status: 'waiting', running: false, open_requests: [{ id: 'srq-00000000000e', method: 'approval', params: { session_id: LIVE } }] } }])
+    expect(s.items.filter(i => i.kind === 'clarify' || i.kind === 'approval')).toMatchObject([{ state: 'expired' }, { state: 'pending' }])
+  })
+
+  it('takes no card for a method the phone does not show', () => {
+    const s = run(bound(), [req('srq-00000000000f', 'sudo', { command: 'apt install x' })])
+    expect(s).toEqual(bound())
   })
 })
 
 describe('reconnect snapshot (session.activate)', () => {
-  const activateResult = (over: Partial<ActivateResult> = {}): ActivateResult => ({
-    session_id: LIVE,
-    session_key: STORED,
-    status: 'idle',
-    running: false,
-    message_count: 0,
-    messages: [],
-    messages_omitted: true,
-    info: {},
-    ...over
-  })
-
   it('restores the partial answer from a running turn', () => {
     const s = run(bound(), [ev({ type: 'message.start', seq: 1 }), ev({ type: 'message.delta', seq: 2, payload: { text: 'half' } })])
     const activated = sessionReducer(s, { type: 'session/activated', result: activateResult({ running: true, status: 'streaming', inflight: { user: 'q', assistant: 'half an answer', streaming: true } }), at: 5 })
@@ -332,7 +342,7 @@ describe('delivery states and history merge', () => {
   })
 
   it('keeps pending request cards across a history reload', () => {
-    const s = run(bound(), [ev({ type: 'approval.request', seq: 1, payload: { request_id: 'a1', command: 'ls' } }), { type: 'history/loaded', messages: [] }])
+    const s = run(bound(), [req('srq-000000000010', 'approval', { request_id: 'a1', command: 'ls' }), { type: 'history/loaded', messages: [] }])
     expect(s.items.filter(i => i.kind === 'approval')).toHaveLength(1)
   })
 })
@@ -884,6 +894,7 @@ describe('idle snapshot (spec 12.3)', () => {
     expect(sessionReducer(idle, ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text: liveJson.text } })).idleSnapshot.confirmed).toBe(false)
     expect(sessionReducer(idle, ev({ type: 'status.update', seq: 1, payload: { text: 'thinking' } })).idleSnapshot.confirmed).toBe(false)
     expect(sessionReducer(idle, { type: 'turn/observed-running' }).idleSnapshot.confirmed).toBe(false)
+    expect(sessionReducer(idle, req('srq-000000000011', 'approval', APPROVAL)).idleSnapshot.confirmed).toBe(false)
     const invalidated = sessionReducer(idle, ev({ type: 'message.start', seq: 1 }))
     expect(sessionReducer(invalidated, activate()).idleSnapshot.confirmed).toBe(true)
   })

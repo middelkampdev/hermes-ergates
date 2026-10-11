@@ -68,9 +68,7 @@ export interface OpenedChat {
   messages: HistoryMessage[]
   running: boolean
   created: boolean
-  /** Wire-shaped, so the same folder handles resume and activate snapshots. */
-  pending: { pending_approval?: unknown; pending_clarify?: unknown }
-  /** What `session.resume` said about the session being idle; `null` for a chat we just minted (spec 12.3). */
+  /** What `session.resume` said about the session being idle and the requests still open; `null` for a chat we just minted (spec 12.3). */
   snapshot: ResumeSnapshot | null
 }
 
@@ -101,8 +99,7 @@ async function resumeStored(port: GatewayPort, profile: string, storedId: string
     messages: r.messages ?? [],
     running: Boolean(r.running),
     created: false,
-    pending: { pending_approval: r.pending_approval, pending_clarify: r.pending_clarify },
-    snapshot: { status: r.status, running: Boolean(r.running), inflight: r.inflight ?? null, hydrating: r.hydrating, auto_continue: r.auto_continue }
+    snapshot: { status: r.status, running: Boolean(r.running), inflight: r.inflight ?? null, hydrating: r.hydrating, auto_continue: r.auto_continue, open_requests: r.open_requests }
   }
 }
 
@@ -133,7 +130,7 @@ export async function openCanonicalChat(port: GatewayPort, profile: string, summ
     if (!isTitleConflict(err)) {
       // An older gateway without `session.title`: keep the freshly created
       // session. The first prompt persists the row, as it always did.
-      return { liveSessionId: created.session_id, storedSessionId: created.stored_session_id, messages: created.messages ?? [], running: false, created: true, pending: {}, snapshot: null }
+      return { liveSessionId: created.session_id, storedSessionId: created.stored_session_id, messages: created.messages ?? [], running: false, created: true, snapshot: null }
     }
     // ADOPT-BEFORE-MINT: someone else took the canonical title between our
     // registry miss and this write. Re-consult the registry and adopt the
@@ -145,5 +142,5 @@ export async function openCanonicalChat(port: GatewayPort, profile: string, summ
     return resumeStored(port, profile, winner.resolved_id || winner.id)
   }
 
-  return { liveSessionId: created.session_id, storedSessionId: created.stored_session_id, messages: created.messages ?? [], running: false, created: true, pending: {}, snapshot: null }
+  return { liveSessionId: created.session_id, storedSessionId: created.stored_session_id, messages: created.messages ?? [], running: false, created: true, snapshot: null }
 }

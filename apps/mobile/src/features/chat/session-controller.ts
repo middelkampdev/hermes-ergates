@@ -7,7 +7,8 @@
  * Responsibilities (docs/03 sections 4-5, docs/05 section 5):
  *  - open the socket and the canonical chat, load history
  *  - bind the session BEFORE subscribing, so no foreign frame can move the
- *    replay watermark; events that arrive during the bind are buffered, not lost
+ *    replay watermark; events and server requests that arrive during the bind
+ *    are buffered, not lost
  *  - resynchronise on every reconnect: `session.activate` (which rebinds the
  *    session's event transport) and only then replay
  *  - refetch history when the reducer asks, retrying with backoff on failure
@@ -17,12 +18,12 @@
 
 import { GatewayError, isGatewayError, userMessage } from '@/gateway/errors'
 import type { ConnectionFailure, ConnectionState, GatewayConnection, GatewayPort } from '@/gateway/port'
-import type { ApprovalChoice, GatewayEventFrame, ProfileSummary } from '@/gateway/types'
+import type { ApprovalChoice, GatewayEventFrame, ProfileSummary, ServerRequestFrame } from '@/gateway/types'
 
 import { openCanonicalChat } from './canonical-chat'
 import { SendQueue, type OutboxStore } from './send-queue'
 import { initialSessionState, localTurnPending, sessionReducer, type SessionAction, type SessionState } from './session-reducer'
-import { HISTORY_STALE_ROUNDS, historyRetryDelayMs, pendingCardActions, resyncSession } from './session-sync'
+import { HISTORY_STALE_ROUNDS, historyRetryDelayMs, resyncSession } from './session-sync'
 
 export type { OutboxStore } from './send-queue'
 export type { SessionState } from './session-reducer'
@@ -95,6 +96,14 @@ export interface SessionControllerOptions {
   clearTimer?: (timer: unknown) => void
 }
 
+/** One `open()` run and the subscriptions it holds; `cancelled` once it was replaced or closed. */
+interface OpenAttempt {
+  cancelled: boolean
+  offEvent?: () => void
+  offRequest?: () => void
+  offState?: () => void
+}
+
 let localCounter = 0
 const defaultLocalId = (): string => `${Date.now().toString(36)}-${++localCounter}`
 
@@ -113,7 +122,7 @@ export function createSessionController(options: SessionControllerOptions): Sess
   const listeners = new Set<() => void>()
 
   /** The open attempt in progress or completed; `cancelled` once it was replaced or closed. */
-  let attempt: { cancelled: boolean; offEvent?: () => void; offState?: () => void } | null = null
+  let attempt: OpenAttempt | null = null
   let lastSummary: ProfileSummary | undefined
   let connection: GatewayConnection | null = null
   let liveId: string | null = null
@@ -217,6 +226,7 @@ export function createSessionController(options: SessionControllerOptions): Sess
     if (attempt !== null) {
       attempt.cancelled = true
       attempt.offEvent?.()
+      attempt.offRequest?.()
       attempt.offState?.()
     }
     attempt = null
@@ -229,7 +239,7 @@ export function createSessionController(options: SessionControllerOptions): Sess
   async function open(summary?: ProfileSummary): Promise<void> {
     detach()
     lastSummary = summary
-    const run: { cancelled: boolean; offEvent?: () => void; offState?: () => void } = { cancelled: false }
+    const run: OpenAttempt = { cancelled: false }
     attempt = run
     phase = 'opening'
     openError = null
@@ -242,22 +252,26 @@ export function createSessionController(options: SessionControllerOptions): Sess
       connection = opened
       // Subscribe now so nothing is missed, but hold the frames until the
       // session is bound: until then the reducer cannot tell this session's
-      // events from another's, and seqs are per-session.
+      // events from another's, and seqs are per-session. Server requests wait
+      // in the same buffer, so the `open_requests` the resume below re-delivers
+      // reach the reducer after the bind, in arrival order.
       let bound = false
-      const buffered: GatewayEventFrame[] = []
-      const handle = (event: GatewayEventFrame): void => {
-        if (event.type === 'skin.changed') {
-          ingestSkin(connectionId, event.payload, true)
+      const buffered: SessionAction[] = []
+      const handle = (action: SessionAction): void => {
+        if (action.type === 'event' && action.event.type === 'skin.changed') {
+          ingestSkin(connectionId, action.event.payload, true)
         }
-        dispatch({ type: 'event', event, at: now() })
+        dispatch(action)
       }
-      run.offEvent = opened.onEvent(event => {
+      const take = (action: SessionAction): void => {
         if (!bound) {
-          buffered.push(event)
+          buffered.push(action)
           return
         }
-        handle(event)
-      })
+        handle(action)
+      }
+      run.offEvent = opened.onEvent(event => take({ type: 'event', event, at: now() }))
+      run.offRequest = opened.onRequest((request: ServerRequestFrame) => take({ type: 'request/received', request }))
       ingestSkin(connectionId, opened.ready.skin, false)
 
       const chat = await openCanonicalChat(port, profile, summary)
@@ -273,18 +287,14 @@ export function createSessionController(options: SessionControllerOptions): Sess
       if (chat.snapshot) {
         dispatch({ type: 'session/resumed', snapshot: chat.snapshot })
       }
-      // Pending requests survive reconnects on the server; re-render them.
-      for (const action of pendingCardActions(chat.liveSessionId, chat.pending)) {
-        dispatch(action)
-      }
       if (chat.running) {
         // We did not see this turn start, so it may be one whose completion we
         // already missed: the reducer marks it `unknown`, not ours (spec 5.8).
         dispatch({ type: 'turn/observed-running', at: now() })
       }
       bound = true
-      for (const event of buffered.splice(0)) {
-        handle(event)
+      for (const action of buffered.splice(0)) {
+        handle(action)
       }
       run.offState = opened.onState(next => onConnectionState(opened, next))
 
@@ -449,20 +459,11 @@ export function createSessionController(options: SessionControllerOptions): Sess
     if (!live) {
       return
     }
-    const card = state.items.find(i => i.kind === 'clarify' && i.requestId === requestId)
-    const questions = card?.kind === 'clarify' ? card.questions : []
     try {
-      if (questions.length > 1) {
-        for (const q of questions) {
-          await port.sessions.respondClarify({ session_id: live, request_id: requestId, question_id: q.qid, answer: answers[q.qid] ?? '' })
-        }
-      } else {
-        const only = questions[0]?.qid ?? 'q0'
-        await port.sessions.respondClarify({ session_id: live, request_id: requestId, answer: answers[only] ?? Object.values(answers)[0] ?? '' })
-      }
+      // One response frame answers the whole set (tui_gateway/contracts/server_requests.py:48-52).
+      await port.sessions.respondClarify({ session_id: live, request_id: requestId, answers })
     } catch (err) {
-      // A mid-loop failure leaves the earlier answers locked in server-side, so
-      // the card must stay open and say what happened instead of looking answered.
+      // Nothing reached Hermes: the card stays open and says what happened.
       dispatch({ type: 'clarify/failed', requestId, message: userMessage(err) })
       return
     }
@@ -474,9 +475,13 @@ export function createSessionController(options: SessionControllerOptions): Sess
     if (!live) {
       return
     }
+    const card = state.items.find(i => i.kind === 'clarify' && i.requestId === requestId)
+    const qids = card?.kind === 'clarify' && card.questions.length > 0 ? card.questions.map(q => q.qid) : ['q0']
+    // The card's one free-text field answers the first question (FR-121); `null` skips
+    // the others, as Hermes reads it (server_requests.py:296-299).
+    const answers: Record<string, string | null> = Object.fromEntries(qids.map((qid, index) => [qid, index === 0 ? freeText : null]))
     try {
-      // Free text answers the question and marks the card dismissed (FR-121).
-      await port.sessions.respondClarify({ session_id: live, request_id: requestId, answer: freeText })
+      await port.sessions.respondClarify({ session_id: live, request_id: requestId, answers })
     } catch (err) {
       dispatch({ type: 'clarify/failed', requestId, message: userMessage(err) })
       return

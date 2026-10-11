@@ -86,15 +86,15 @@ describe('activateSession', () => {
 })
 
 describe('resyncSession', () => {
-  it('rebinds the transport BEFORE replaying, and restores the pending cards', async () => {
+  it('rebinds the transport BEFORE replaying, and hands the open requests to the reducer', async () => {
+    const open = [{ id: 'srq-0000000000a1', method: 'approval', params: { session_id: LIVE, request_id: 'ap1', command: 'rm -rf build' } }]
     const h = harness({
       activate: async () =>
         activateResult({
           running: true,
-          status: 'streaming',
+          status: 'waiting',
           inflight: { user: 'do it', assistant: 'working', streaming: true },
-          pending_approval: { request_id: 'ap1', command: 'rm -rf build' },
-          pending_clarify: { request_id: 'c1', questions: [{ qid: 'q0', question: 'Tea?', choices: ['A) yes'], multi_select: false }] }
+          open_requests: open
         })
     })
     const result = await resyncSession({ port: h.port, connection: h.connection, liveSessionId: LIVE, lastSeq: () => 3, dispatch: h.dispatch })
@@ -104,12 +104,11 @@ describe('resyncSession', () => {
     // socket open and silent for everything that comes after.
     expect(h.order).toEqual([`session.activate ${LIVE} omit=true`, `session.events.since ${LIVE} 3`])
     expect(result).toMatchObject({ activated: true, replayed: true, stale: false })
-    expect(h.actions.map(a => a.type)).toEqual(['session/activated', 'event', 'event', 'replay/result'])
-    const events = h.actions.filter(a => a.type === 'event')
-    expect(events[0]).toMatchObject({ event: { type: 'approval.request', session_id: LIVE } })
-    expect(events[1]).toMatchObject({ event: { type: 'clarify.request', session_id: LIVE } })
-    // Synthesised cards carry no seq, so they cannot move the watermark.
-    expect(events.every(a => a.type === 'event' && a.event.seq === undefined)).toBe(true)
+    // The connection itself delivers each open request again before activate
+    // resolves (json-rpc-channel.ts:474-483); the activate result only tells
+    // the reducer which cards Hermes still waits on.
+    expect(h.actions.map(a => a.type)).toEqual(['session/activated', 'replay/result'])
+    expect(h.actions[0]).toMatchObject({ type: 'session/activated', result: { open_requests: open } })
   })
 
   it('reports a stale session id instead of replaying into a chat that is gone', async () => {

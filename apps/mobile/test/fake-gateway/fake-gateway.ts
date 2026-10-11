@@ -11,7 +11,7 @@
  * Vitest.
  */
 
-import { GatewayError } from '@/gateway/errors'
+import { GatewayError, requireSent, type RespondOutcome } from '@/gateway/errors'
 import type { ConnectionFailure, ConnectionState, FilesApi, GatewayConnection, GatewayPort, ProfilesApi, RoutinesApi, SessionsApi, ToolsApi } from '@/gateway/port'
 import { normalizeTranscriptPage } from '@/gateway/transcript'
 import type * as T from '@/gateway/types'
@@ -89,9 +89,9 @@ export interface FakeScript {
 }
 
 /**
- * One live connection for one profile. `emit` and `simulateDrop` are
- * test-only hooks (not part of `GatewayConnection`) reached via
- * `FakeGateway.connectionFor`.
+ * One live connection for one profile. `emit`, `serverRequest`,
+ * `cancelRequest` and `simulateDrop` are test-only hooks (not part of
+ * `GatewayConnection`) reached via `FakeGateway.connectionFor`.
  */
 export class FakeConnection implements GatewayConnection {
   readonly profile: string
@@ -100,12 +100,17 @@ export class FakeConnection implements GatewayConnection {
   submitCalls = 0
   /** Every RPC this connection saw, in order: `[method, params]`. */
   readonly requests: { method: string; params: Record<string, unknown> }[] = []
+  /** Every answer to a server request that went out, in order. */
+  readonly responses: { id: string; result: Record<string, unknown> }[] = []
   lastError: ConnectionFailure | null = null
 
   private readonly script: FakeScript
   private stateValue: ConnectionState = 'open'
   private readonly eventHandlers = new Set<(event: T.GatewayEventFrame) => void>()
   private readonly stateHandlers = new Set<(state: ConnectionState) => void>()
+  private readonly requestHandlers = new Set<(request: T.ServerRequestFrame) => void>()
+  /** The server requests Hermes still waits on, by id, oldest first (server_requests.py:337-341). */
+  private readonly openRequests = new Map<string, T.OpenServerRequest>()
   private readonly log: T.GatewayEventFrame[] = []
   private seqCounter = 1000
   /** Rejecters of the requests still waiting for an answer. */
@@ -181,18 +186,71 @@ export class FakeConnection implements GatewayConnection {
     return () => this.stateHandlers.delete(handler)
   }
 
+  onRequest(handler: (request: T.ServerRequestFrame) => void): () => void {
+    this.requestHandlers.add(handler)
+    return () => this.requestHandlers.delete(handler)
+  }
+
+  /** Like `SocketSession.respond`: nothing goes out while the socket is down or for a request Hermes no longer holds. */
+  respond(requestId: string, result: Record<string, unknown>): RespondOutcome {
+    if (this.stateValue !== 'open') {
+      return 'offline'
+    }
+    if (!this.openRequests.delete(requestId)) {
+      return 'unknown'
+    }
+    this.responses.push({ id: requestId, result: structuredClone(result) })
+    return 'sent'
+  }
+
+  /** Test hook: Hermes writes a server request to this socket and waits for the answer. */
+  serverRequest(request: T.OpenServerRequest): void {
+    this.openRequests.set(request.id, request)
+    this.deliver(request, false)
+  }
+
+  /** Test hook: the request ended without this client's answer (timeout, interrupt, another surface), so Hermes emits `request.cancel` (server_requests.py:145-146). */
+  cancelRequest(id: string, reason: string): void {
+    const request = this.openRequests.get(id)
+    this.openRequests.delete(id)
+    this.emit({ type: 'request.cancel', session_id: request?.params.session_id, seq: this.nextSeq(), payload: { id, method: request?.method ?? '', reason } })
+  }
+
+  /** The requests still open for one session, as `open_requests` lists them. */
+  openRequestsFor(sessionId: string): T.OpenServerRequest[] {
+    return [...this.openRequests.values()].filter(r => r.params.session_id === sessionId).map(r => structuredClone(r))
+  }
+
+  /** Like the vendored channel (json-rpc-channel.ts:413-426, 474-483): every `open_requests` entry of an answer is delivered again, before the caller sees the answer. */
+  redeliver(open: T.OpenServerRequest[] | undefined): void {
+    for (const request of open ?? []) {
+      this.deliver(request, true)
+    }
+  }
+
+  private deliver(request: T.OpenServerRequest, replayed: boolean): void {
+    for (const handler of this.requestHandlers) {
+      handler({ ...structuredClone(request), replayed })
+    }
+  }
+
   async replay(sessionId: string, lastSeen: number): Promise<T.ReplayResult> {
     this.requests.push({ method: 'session.events.since', params: { session_id: sessionId, last_seen: lastSeen } })
     const gap = this.log.filter(e => typeof e.seq === 'number' && e.seq > lastSeen)
     const latest = gap.reduce((max, e) => Math.max(max, e.seq ?? 0), lastSeen)
+    const open = this.openRequestsFor(sessionId)
     const base: T.ReplayResult = {
       events: gap,
       latest_seq: latest,
       truncated: false,
       count: gap.length,
-      epoch: this.script.readyEpoch ?? 'epoch-fake'
+      epoch: this.script.readyEpoch ?? 'epoch-fake',
+      // `session.events.since` lists the open requests too, even when there are none (methods_session.py:2345-2348).
+      open_requests: open
     }
-    return { ...base, ...(this.script.replay ?? {}) }
+    const result = { ...base, ...(this.script.replay ?? {}) }
+    this.redeliver(result.open_requests)
+    return result
   }
 
   close(): void {
@@ -442,6 +500,7 @@ export class FakeGateway implements GatewayPort {
         throw new GatewayError('busy', 'The assistant is busy with another turn.', { code: 4009, data: 'session disconnect interrupt settling' })
       }
       const base = clone(sessionCreateFixture) as T.SessionCreateResult
+      const open = conn.openRequestsFor(liveSessionId)
       const result: T.ActivateResult = {
         session_id: liveSessionId,
         session_key: base.stored_session_id,
@@ -451,8 +510,11 @@ export class FakeGateway implements GatewayPort {
         messages_omitted: true,
         message_count: 0,
         info: base.info,
+        // Left out when empty, like `_live_session_payload` (server.py:3191-3196).
+        ...(open.length > 0 ? { open_requests: open } : {}),
         ...(this.script.activate ?? {})
       }
+      conn.redeliver(result.open_requests)
       return result
     },
     title: async (liveSessionId, title) => {
@@ -467,7 +529,9 @@ export class FakeGateway implements GatewayPort {
     resume: async params => {
       const base = clone(sessionCreateFixture) as T.SessionCreateResult
       this.sessionOwner.set(base.session_id, params.profile ?? '')
-      return {
+      const conn = this.connections.get(params.profile ?? '')
+      const open = conn?.openRequestsFor(base.session_id) ?? []
+      const result: T.SessionResumeResult = {
         session_id: base.session_id,
         resumed: params.session_id,
         session_key: params.session_id,
@@ -475,8 +539,11 @@ export class FakeGateway implements GatewayPort {
         messages: clone(historyFixture.messages) as T.HistoryMessage[],
         running: false,
         status: 'idle',
-        info: base.info
+        info: base.info,
+        ...(open.length > 0 ? { open_requests: open } : {})
       }
+      conn?.redeliver(result.open_requests)
+      return result
     },
     history: async () => {
       this.calls.history += 1
@@ -506,10 +573,11 @@ export class FakeGateway implements GatewayPort {
     steer: async () => ({ status: 'queued' }),
     usage: async () => ({}),
     respondApproval: async p => {
-      const conn = this.connectionForSession(p.session_id)
-      conn.emit({ type: 'approval.received', session_id: p.session_id, seq: conn.nextSeq(), payload: { request_id: p.request_id, choice: p.choice } })
+      requireSent(this.connectionForSession(p.session_id).respond(p.request_id, { choice: p.choice }))
     },
-    respondClarify: async () => ({ status: 'answered' }),
+    respondClarify: async p => {
+      requireSent(this.connectionForSession(p.session_id).respond(p.request_id, { answers: p.answers }))
+    },
     attachImageBytes: async () => ({}),
     attachFile: async () => ({}),
     close: async sessionId => {

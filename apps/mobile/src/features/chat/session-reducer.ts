@@ -6,17 +6,18 @@
 
 import type {
   ActivateResult,
-  ApprovalReceivedPayload,
-  ApprovalRequestPayload,
+  ApprovalRequestParams,
   BackgroundCompletePayload,
-  ClarifyExpirePayload,
-  ClarifyRequestPayload,
+  ClarifyRequestParams,
   ErrorPayload,
   GatewayEventFrame,
   HistoryMessage,
   MessageCompletePayload,
   MessageInterimPayload,
+  OpenServerRequest,
   ReplayResult,
+  RequestCancelPayload,
+  ServerRequestFrame,
   SessionInfoPayload,
   StatusUpdatePayload,
   TextPayload,
@@ -37,8 +38,11 @@ export type { ChatItem, DeliveryState } from './history'
  */
 export type TurnOwnership = 'local' | 'foreign' | 'unknown'
 
-/** The fields of a resume payload the idle snapshot reads (methods_session.py:684-770). */
-export interface ResumeSnapshot { status: string; running: boolean; inflight?: unknown; hydrating?: boolean; auto_continue?: unknown }
+/**
+ * The fields of a resume payload the reducer reads: the idle snapshot (methods_session.py:684-770)
+ * and the server requests still open (`open_requests`, left out when empty).
+ */
+export interface ResumeSnapshot { status: string; running: boolean; inflight?: unknown; hydrating?: boolean; auto_continue?: unknown; open_requests?: OpenServerRequest[] }
 
 /**
  * Spec 12.3: the last turn may fold on idle evidence only under a snapshot confirmed against
@@ -99,6 +103,8 @@ export type SessionAction =
   | { type: 'history/loaded'; messages: HistoryMessage[]; revision?: number }
   | { type: 'connection/state'; state: SessionState['connection'] }
   | { type: 'event'; event: GatewayEventFrame; at?: number }
+  /** A server request from the connection, live or re-delivered from `open_requests`. */
+  | { type: 'request/received'; request: ServerRequestFrame }
   | { type: 'submit/started'; localId: string; text: string; at: number }
   | { type: 'submit/acknowledged'; localId: string }
   /** The gateway parked it behind the running turn (`prompt.submit` → `{status:'queued'}`). */
@@ -159,8 +165,6 @@ const INVALIDATING_EVENTS = new Set([
   'status.update',
   'tool.start',
   'tool.complete',
-  'clarify.request',
-  'approval.request',
   'background.complete',
   'error',
   'session.resume_progress'
@@ -191,10 +195,10 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         replay: { ...state.replay, epoch: action.epoch ?? state.replay.epoch }
       }
     case 'session/activated':
-      return applyActivate(state, action.result, action.at)
+      return expireUnlisted(applyActivate(state, action.result, action.at), action.result.open_requests)
     case 'session/resumed':
       return {
-        ...state,
+        ...expireUnlisted(state, action.snapshot.open_requests),
         idleSnapshot: confirmIdle(action.snapshot, {
           hydrating: action.snapshot.hydrating === true,
           autoContinue: action.snapshot.auto_continue !== undefined && action.snapshot.auto_continue !== null
@@ -308,9 +312,66 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return { ...state, lastError: null }
     case 'event':
       return applyEvent(state, action.event, action.at)
+    case 'request/received':
+      return receiveRequest(state, action.request)
     default:
       return state
   }
+}
+
+/** The card a server request shows, or null for a method the phone shows no card for. */
+function requestCard(request: ServerRequestFrame): Extract<ChatItem, { kind: 'approval' | 'clarify' }> | null {
+  if (request.method === 'approval') {
+    return { kind: 'approval', id: `approval-${request.id}`, requestId: request.id, payload: request.params as ApprovalRequestParams, state: 'pending' }
+  }
+  if (request.method === 'clarify') {
+    const asked = (request.params as Partial<ClarifyRequestParams>).questions
+    const questions = (Array.isArray(asked) ? asked : []).map(q => ({ qid: q.qid, question: q.question, choices: Array.isArray(q.choices) ? q.choices : [], multi_select: q.multi_select ?? false }))
+    return { kind: 'clarify', id: `clarify-${request.id}`, requestId: request.id, questions, state: 'pending' }
+  }
+  return null
+}
+
+/**
+ * One card per request id. A pending card stays as it is. A card in any other state goes back to
+ * pending: Hermes delivers a request again only while it still waits for the answer, so the answer
+ * the card shows never arrived. Hermes Desktop also keys its cards on the id and lets a
+ * re-delivery replace the entry (apps/desktop/src/store/server-requests.ts:12-14).
+ */
+function receiveRequest(state: SessionState, request: ServerRequestFrame): SessionState {
+  if (!state.liveSessionId || request.params.session_id !== state.liveSessionId) {
+    return state
+  }
+  const card = requestCard(request)
+  if (!card) {
+    return state
+  }
+  const index = state.items.findIndex(i => i.kind === card.kind && i.requestId === request.id)
+  const existing = index >= 0 ? state.items[index] : undefined
+  if (existing && (existing.kind === 'approval' || existing.kind === 'clarify') && existing.state === 'pending') {
+    return state
+  }
+  const items = existing ? state.items.map((i, at) => (at === index ? card : i)) : [...state.items, card]
+  // The turn now waits on the user: no working line, and the idle snapshot is stale.
+  return invalidateIdle({ ...state, items, live: { ...state.live, statusLine: null } })
+}
+
+/**
+ * A reconnect or resume payload lists every server request Hermes still waits on (`open_requests`,
+ * left out when empty). A pending card it does not list is over, even when its `request.cancel` was
+ * lost to a truncated replay or a restart.
+ */
+function expireUnlisted(state: SessionState, open: OpenServerRequest[] | undefined): SessionState {
+  const listed = new Set((open ?? []).map(r => r.id))
+  let changed = false
+  const items = state.items.map(i => {
+    if ((i.kind === 'approval' || i.kind === 'clarify') && i.state === 'pending' && !listed.has(i.requestId)) {
+      changed = true
+      return { ...i, state: 'expired' as const }
+    }
+    return i
+  })
+  return changed ? { ...state, items, revision: state.revision + 1 } : state
 }
 
 /**
@@ -737,45 +798,16 @@ function applyEvent(state: SessionState, event: GatewayEventFrame, at?: number):
         tailWanted: p.name === 'message_agent' ? next.tailWanted + 1 : next.tailWanted
       }
     }
-    case 'clarify.request': {
-      const p = raw as ClarifyRequestPayload
-      if (!p.request_id || next.items.some(i => i.kind === 'clarify' && i.requestId === p.request_id)) {
-        return next
-      }
-      const questions = Array.isArray(p.questions) && p.questions.length > 0
-        ? p.questions
-        : [{ qid: 'q0', question: String((payload as { question?: unknown }).question ?? ''), choices: Array.isArray((payload as { choices?: unknown }).choices) ? ((payload as { choices: string[] }).choices) : [], multi_select: Boolean((payload as { multi_select?: unknown }).multi_select) }]
-      return {
-        ...next,
-        items: [...next.items, { kind: 'clarify', id: `clarify-${p.request_id}`, requestId: p.request_id, questions, state: 'pending' }],
-        live: { ...next.live, statusLine: null }
-      }
-    }
-    case 'clarify.expire': {
-      const p = raw as ClarifyExpirePayload
-      return {
-        ...next,
-        revision: next.revision + 1,
-        items: next.items.map(i => (i.kind === 'clarify' && i.requestId === p.request_id && i.state === 'pending' ? { ...i, state: 'expired' } : i))
-      }
-    }
-    case 'approval.request': {
-      const p = raw as ApprovalRequestPayload
-      if (!p.request_id || next.items.some(i => i.kind === 'approval' && i.requestId === p.request_id)) {
+    case 'request.cancel': {
+      // Hermes stopped waiting for this request: expire its card only (server_requests.py:145-146).
+      const p = raw as Partial<RequestCancelPayload>
+      if (typeof p.id !== 'string') {
         return next
       }
       return {
         ...next,
-        items: [...next.items, { kind: 'approval', id: `approval-${p.request_id}`, requestId: p.request_id, payload: p, state: 'pending' }],
-        live: { ...next.live, statusLine: null }
-      }
-    }
-    case 'approval.received': {
-      const p = raw as ApprovalReceivedPayload
-      return {
-        ...next,
         revision: next.revision + 1,
-        items: next.items.map(i => (i.kind === 'approval' && i.requestId === p.request_id && i.state === 'pending' ? { ...i, state: 'resolved', choice: typeof p.choice === 'string' ? p.choice : i.choice } : i))
+        items: next.items.map(i => ((i.kind === 'approval' || i.kind === 'clarify') && i.requestId === p.id && i.state === 'pending' ? { ...i, state: 'expired' as const } : i))
       }
     }
     case 'session.info':

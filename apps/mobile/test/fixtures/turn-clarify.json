@@ -52,25 +52,6 @@
     "seq": 15
   },
   {
-    "type": "clarify.request",
-    "session_id": "live0001",
-    "payload": {
-      "questions": [
-        {
-          "qid": "q0",
-          "question": "Which do you choose?",
-          "choices": [
-            "A) tea (Recommended)",
-            "B) coffee"
-          ],
-          "multi_select": false
-        }
-      ],
-      "request_id": "e75e6b23"
-    },
-    "seq": 16
-  },
-  {
     "type": "message.complete",
     "session_id": "live0001",
     "seq": 17,

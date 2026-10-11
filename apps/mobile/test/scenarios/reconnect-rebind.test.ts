@@ -3,8 +3,9 @@
  *
  * The backend parks a disconnected session's transport on a drop sink, so a
  * reconnect that only replays leaves the socket open and permanently silent.
- * Every reconnect must call `session.activate` FIRST (the transport rebind),
- * and it is also the only call that reports the pending approval/clarify cards.
+ * Every reconnect must call `session.activate` FIRST (the transport rebind).
+ * Its `open_requests` bring back the approval and clarify requests Hermes
+ * still waits on.
  */
 import { describe, expect, it } from 'vitest'
 
@@ -12,6 +13,7 @@ import { createSessionController } from '@/features/chat/session-controller'
 import type { GatewayEventFrame } from '@/gateway/types'
 
 import { flush } from '@test/fake-gateway/fake-websocket'
+import sessionCreate from '@test/fixtures/session-create.json'
 
 import { FakeGateway, type FakeScript } from '../fake-gateway/fake-gateway'
 import { memoryOutbox } from '../fake-gateway/memory-outbox'
@@ -20,9 +22,15 @@ const noSleep = async (): Promise<void> => undefined
 
 describe('reconnect rebind', () => {
   it('activates before replaying and restores the pending approval card', async () => {
+    // Hermes wrote the request while the socket was detached, so it reaches the
+    // phone only through `open_requests` (server.py:781-794).
     const script: FakeScript = {
       activate: {
-        pending_approval: { request_id: 'ap1', command: 'rm -rf build', description: 'dangerous command', choices: ['once', 'session', 'always', 'deny'] }
+        open_requests: [{
+          id: 'srq-0000000000a1',
+          method: 'approval',
+          params: { session_id: sessionCreate.session_id, request_id: 'ap1', command: 'rm -rf build', description: 'dangerous command', choices: ['once', 'session', 'always', 'deny'] }
+        }]
       }
     }
     const gateway = new FakeGateway(script)
@@ -39,7 +47,7 @@ describe('reconnect rebind', () => {
     expect(rebind).toBeGreaterThanOrEqual(0)
     expect(replay).toBeGreaterThan(rebind)
     expect(gateway.calls.activate).toBe(1)
-    expect(controller.getView().state.items.find(i => i.kind === 'approval')).toMatchObject({ requestId: 'ap1', state: 'pending' })
+    expect(controller.getView().state.items.find(i => i.kind === 'approval')).toMatchObject({ requestId: 'srq-0000000000a1', state: 'pending' })
   })
 
   it('retries a 4009 "settling" activate once, then rebinds', async () => {

@@ -1,12 +1,12 @@
 # 06 - Hermes Client Contract
 
-Version: 0.3. Date: 2026-09-12. Source-reviewed against Hermes 0.21.2, commit `d76856cc6971b6e0e1903b5369498bcc4bb83a60`, the pin until 2026-10-11. The pin is now 0.21.6 (`818c13be1dc4fd28987e1e881a9408224afd4535`); entries that name v0.21.6 were rechecked there. v0.21.6 sends approval, clarify, sudo and secret prompts as server-to-client requests, so the prompt entries below still describe 0.21.2. Implementation/live fixtures: pending Phase 0.
+Version: 0.3. Date: 2026-09-12. Source-reviewed against Hermes 0.21.2, commit `d76856cc6971b6e0e1903b5369498bcc4bb83a60`, the pin until 2026-10-11. The pin is now 0.21.6 (`818c13be1dc4fd28987e1e881a9408224afd4535`); entries that name v0.21.6 were rechecked there, and the server-to-client requests (approval, clarify and the other prompts) are described as v0.21.6 sends them. Implementation/live fixtures: pending Phase 0.
 
 This is the app's intended dependency surface. **Source-confirmed** entries below were checked in handlers/types. Examples use illustrative ids and paths, not captured traffic. Additional feature handlers are an inventory until their complete bodies, errors and lifecycle are recorded. Ergates-specific operations in 11 are proposed integration APIs, never upstream Hermes methods.
 
 ## 1. Transport and scope
 
-Use `hermes serve` REST plus newline-delimited JSON-RPC 2.0 over `/api/ws`. Vendor `apps/shared/src/json-rpc-gateway.ts` at the backend pin and adapt the native socket/HTTP/cookie edges. Every request/response and event is routed by its owning connection, profile and session. Add a trailing newline to the frames below when writing directly; normally the client library handles framing.
+Use `hermes serve` REST plus newline-delimited JSON-RPC 2.0 over `/api/ws`. Vendor `apps/shared/src/json-rpc-gateway.ts` and the files it imports (`json-rpc-channel.ts`, `gateway-events.ts`, `gateway-contract.generated.ts`) at the backend pin and adapt the native socket/HTTP/cookie edges. Every request/response and event is routed by its owning connection, profile and session. Add a trailing newline to the frames below when writing directly; normally the client library handles framing.
 
 `gateway.ready` announces readiness and `replay_epoch`; its `skin` field carries the resolved skin payload. A socket profile is selected with `?profile=<encoded-name>`. Do not infer REST scoping from that socket: use the specific router's profile parameter, body field or managed-file policy. The endpoint inventory below is not permission to read arbitrary host files.
 
@@ -54,8 +54,7 @@ Source: `tui_gateway/methods_prompt.py`, `methods_session.py`, `methods_profiles
 | `image.attach` | `session_id`, **`path`** | Server-visible existing path; rejects a bytes-only `data` call |
 | `image.attach_bytes` | `session_id`, **`content_base64`**; optional `filename`, `ext` | Remote bytes path; `data` is an alias; server validates type and its own byte cap |
 | `file.attach` | `session_id`, `path` or `data_url` (+ `name`) | Verified at v0.21.6 (`tui_gateway/methods_prompt.py:976-996`, `tui_gateway/prompt_attachments.py:187-192`): the handler accepts either an existing gateway path or a data URL that it stages under the session's `attachments/`; the phone sends `data_url` + `name` and puts the returned `ref_text` in the prompt. The REST upload route stays the path for large files |
-| `approval.respond` | `session_id`, `request_id`, `choice` | `once`, `session`, `always`, `deny`; include identity even when fallback lookup is possible |
-| `clarify.respond` | Owning session/request plus answer in the advertised single/batch shape | Capture actual variants before implementing multi-select; expiry is authoritative |
+| `approval`, `clarify` (server requests) | Answered with a response frame that carries the request `id`, on the socket the request came in on | `approval` takes `{choice: "once"\|"session"\|"always"\|"deny", all?}`, and an error answer withdraws the approval (`tui_gateway/contracts/server_requests.py:100-129`, `tui_gateway/server.py:833-846`). `clarify` takes `{answers: {<qid>: string \| null}}` for the whole set, with `null` for a skipped question; `{}` cancels them all (`contracts/server_requests.py:34-55`, `server_requests.py:276-289`) |
 | `profiles.list` | Gateway profile inventory | Includes `ui_meta`, `ui_meta_revisions`, `has_avatar` |
 | `profiles.describe` | `name` | Editor snapshot: model/provider, SOUL, skills, toolsets and MCP servers; record the complete shape in P1 fixtures |
 | `profiles.create` | `name`, optional `description`, `soul`, `model`, `provider`, clone options, `no_alias`, **`mirror_credentials`**, `share_auth` | For fresh Ergates provisioning set `mirror_credentials:false`; defaults can copy launch secrets |
@@ -89,11 +88,29 @@ Attach a phone image, then submit only after the attachment response succeeds. T
 {"jsonrpc":"2.0","id":19,"method":"prompt.submit","params":{"session_id":"session-example","text":"Summarize this photo."}}
 ```
 
+Hermes asks for an approval, and the app answers it with a response frame on the same socket:
+
 ```json
-{"jsonrpc":"2.0","id":20,"method":"approval.respond","params":{"session_id":"session-example","request_id":"approval-from-backend","choice":"once"}}
+{"jsonrpc":"2.0","id":"srq-0123456789ab","method":"approval","params":{"session_id":"session-example","request_id":"approval-from-backend","command":"rm -rf build","choices":["once","session","always","deny"]}}
 ```
 
-Do not replay the submit on timeout. Persist its uncertain state and reconcile history (05). Approval retries refetch the request's current state; an expired/resolved request must not become a new action.
+```json
+{"jsonrpc":"2.0","id":"srq-0123456789ab","result":{"choice":"once"}}
+```
+
+Do not replay the submit on timeout. Persist its uncertain state and reconcile history (05). Hermes drops a response for an id that is no longer open (`tui_gateway/server_requests.py:262-268`), so a late answer to an expired or answered request never becomes a new action.
+
+### Server-to-client requests (v0.21.6)
+
+Hermes asks the app a question with a JSON-RPC request in the other direction, `{"jsonrpc":"2.0","id":"srq-<12 hex>","method":<method>,"params":{"session_id",...}}`, and waits for a response frame with that id (`tui_gateway/server_requests.py:55`, `:70-72`, `:163-199`). A socket receives these requests only after it sends `client.capabilities {server_requests: true}` (`tui_gateway/methods_voice.py:442-450`). The vendored client sends it once per socket when `gateway.ready` arrives, before its handlers see that event (`apps/shared/src/json-rpc-channel.ts:489-492`, `:508-518`). When no socket on the session ever sent it, Hermes writes nothing: it withdraws the approval, the clarify tool gets `undelivered`, and sudo and secret get an empty answer. When no socket is attached, Hermes keeps the request for the reconnect (`server_requests.py:30-34`, `:137-142`; `session_transports.py:38-47`; `server.py:819-851`, `:1418-1428`).
+
+The app shows `approval` and `clarify` as cards. It declines `preview.act`, `preview.read`, `terminal.read`, `window.read` and `tour` with error `4404`, which settles a request only once every answering client declined (`server_requests.py:221-250`). It leaves `sudo`, `secret`, the vault prompts and `setup_choose` unanswered. Hermes's own deadline ends each of them (sudo, secret and the vault prompts then get an empty answer, `server.py:1398-1404`), and a Hermes Desktop window on the same chat can still answer before that.
+
+Deadlines: approval waits `approvals.timeout` (the shipped Ergates profiles set 1800 s, `deploy/profiles/concierge/config.yaml:33`, `deploy/profiles/specialist-template/config.yaml:29`), clarify waits the configured clarify timeout (default 300 s), sudo 120 s and secret 300 s (`server.py:1398`, `:1408-1415`; `agent_callbacks.py:256-257`). A request that ends without the app's answer (timeout, interrupt, session close, or an answer from another surface) emits the session event `request.cancel {id, method, reason}`, which the replay ring keeps (`server_requests.py:145-146`, `:195-196`, `:212-218`, `:316-334`).
+
+`session.resume`, `session.activate` and `session.events.since` list the requests still open as `open_requests` (resume and activate leave the field out when it is empty). The vendored client delivers each one again, with the same id and `replayed: true`, before the call resolves (`server.py:781-794`, `:3191-3196`; `methods_session.py:2345-2348`; `json-rpc-channel.ts:413-426`, `:474-483`). The app keeps one card per id. A card that is no longer pending goes back to pending when its request comes back, and a pending card that a resume or activate payload no longer lists expires.
+
+`approval.respond`, `clarify.lock` and `request.answer` remain for other surfaces, and the app uses none of them (`tui_gateway/methods_prompt.py:1146-1218`).
 
 ## 4. REST feature surface
 
@@ -183,8 +200,7 @@ Read before editing, submit only changed sections and inspect each result. Metad
 | `session.info`, `session.usage` | Update session state and measured usage |
 | `tool.start`, `tool.progress`, `tool.complete`, `tool.generating` | Quiet Activity view; recognize only validated integration tool results as proposal candidates |
 | `status.update`, `todo.updated` | Working/status line or task detail. `kind: "process"` carries a full background-process receipt (`tui_gateway/session_notifications.py:436`): the app routes it to the receipt pipeline and never to the working line |
-| `clarify.request`, `clarify.expire` | Request card; expire only matching request |
-| `approval.request`, `approval.pending`, `approval.received` | Request/current-state changes; query/reconcile after reconnect |
+| `request.cancel` | Hermes stopped waiting for the server request `id`; expire only that card (section 3, server-to-client requests) |
 | `background.complete` | Side-agent completion; payload is `{task_id, text}` only (`tui_gateway/methods_prompt.py:920-941`), no author or source field. The app renders it as a neutral notice and keeps `text` in Activity |
 | `notification.show`, `notification.clear` | In-app attention. They are not automatically mobile pushes |
 | `cron.changed` | Invalidate the owning routines list; refetch authoritative state |

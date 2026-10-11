@@ -1,58 +1,69 @@
-import { describe, expect, it } from 'vitest'
+/**
+ * Scenario: Hermes v0.21.6 asks for an approval or a clarify answer with a
+ * server-to-client request (tui_gateway/server_requests.py) and waits for one
+ * response frame with the request's id.
+ */
+import { beforeEach, describe, expect, it } from 'vitest'
 
-import { createSessionController } from '@/features/chat/session-controller'
+import { createSessionController, type SessionController } from '@/features/chat/session-controller'
 
-import { FakeGateway } from '../fake-gateway/fake-gateway'
+import { flush } from '@test/fake-gateway/fake-websocket'
+
+import { FakeGateway, type FakeConnection } from '../fake-gateway/fake-gateway'
 import { memoryOutbox } from '../fake-gateway/memory-outbox'
 
 describe('approval and clarify requests', () => {
-  it('resolves an approval request once answered with "once"', async () => {
+  let controller: SessionController
+  let conn: FakeConnection
+  let live: string
+  const card = (id: string) => controller.getView().state.items.find(i => (i.kind === 'approval' || i.kind === 'clarify') && i.requestId === id)
+
+  beforeEach(async () => {
     const gateway = new FakeGateway()
-    const controller = createSessionController({ port: gateway, profile: 'thijs', connectionId: 'c-test', outbox: memoryOutbox() })
+    controller = createSessionController({ port: gateway, profile: 'thijs', connectionId: 'c-test', outbox: memoryOutbox() })
     await controller.open()
-    const conn = gateway.connectionFor('thijs')
-    const live = controller.getView().state.liveSessionId
-    if (!live) throw new Error('no live session id')
-
-    conn.emit({
-      type: 'approval.request',
-      session_id: live,
-      seq: 1,
-      payload: { request_id: 'ap1', command: 'rm -rf /tmp/x', description: 'delete temp files', choices: ['once', 'session', 'always', 'deny'] }
-    })
-    expect(controller.getView().state.items.find(i => i.kind === 'approval')).toMatchObject({ requestId: 'ap1', state: 'pending' })
-
-    await controller.answerApproval('ap1', 'once')
-
-    expect(controller.getView().state.items.find(i => i.kind === 'approval')).toMatchObject({ requestId: 'ap1', state: 'resolved', choice: 'once' })
+    conn = gateway.connectionFor('thijs')
+    const id = controller.getView().state.liveSessionId
+    if (!id) throw new Error('no live session id')
+    live = id
   })
 
-  it('answers a clarify request and expires only the matching request id', async () => {
-    const gateway = new FakeGateway()
-    const controller = createSessionController({ port: gateway, profile: 'thijs', connectionId: 'c-test', outbox: memoryOutbox() })
-    await controller.open()
-    const conn = gateway.connectionFor('thijs')
-    const live = controller.getView().state.liveSessionId
-    if (!live) throw new Error('no live session id')
+  it('answers an approval request with one {choice} response frame', async () => {
+    conn.serverRequest({ id: 'srq-000000000001', method: 'approval', params: { session_id: live, request_id: 'ap1', command: 'rm -rf /tmp/x', choices: ['once', 'session', 'always', 'deny'] } })
+    expect(card('srq-000000000001')).toMatchObject({ kind: 'approval', state: 'pending' })
+    await controller.answerApproval('srq-000000000001', 'once')
+    expect(conn.responses).toEqual([{ id: 'srq-000000000001', result: { choice: 'once' } }])
+    expect(card('srq-000000000001')).toMatchObject({ state: 'resolved', choice: 'once' })
+  })
 
-    conn.emit({
-      type: 'clarify.request',
-      session_id: live,
-      seq: 1,
-      payload: { request_id: 'c1', questions: [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'], multi_select: false }] }
-    })
-    conn.emit({
-      type: 'clarify.request',
-      session_id: live,
-      seq: 2,
-      payload: { request_id: 'c2', questions: [{ qid: 'q0', question: 'Sugar?', choices: ['A) yes', 'B) no'], multi_select: false }] }
-    })
+  it('answers a clarify card with one {answers} frame; free text answers the first question and skips the rest', async () => {
+    const questions = [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'] }, { qid: 'q1', question: 'Sugar?', choices: ['A) yes', 'B) no'] }]
+    conn.serverRequest({ id: 'srq-000000000002', method: 'clarify', params: { session_id: live, questions } })
+    conn.serverRequest({ id: 'srq-000000000003', method: 'clarify', params: { session_id: live, questions } })
+    await controller.answerClarify('srq-000000000002', { q0: 'A', q1: 'B' })
+    await controller.dismissClarify('srq-000000000003', 'Water, please')
+    expect(conn.responses).toEqual([
+      { id: 'srq-000000000002', result: { answers: { q0: 'A', q1: 'B' } } },
+      { id: 'srq-000000000003', result: { answers: { q0: 'Water, please', q1: null } } }
+    ])
+  })
 
-    await controller.answerClarify('c1', { q0: 'A' })
-    conn.emit({ type: 'clarify.expire', session_id: live, seq: 3, payload: { request_id: 'c2' } })
+  it('expires the card Hermes cancels and keeps one card for a request re-delivered after a reconnect', async () => {
+    conn.serverRequest({ id: 'srq-000000000004', method: 'approval', params: { session_id: live, request_id: 'ap4' } })
+    conn.serverRequest({ id: 'srq-000000000005', method: 'approval', params: { session_id: live, request_id: 'ap5' } })
+    conn.cancelRequest('srq-000000000005', 'timeout')
+    conn.simulateDrop()
+    await flush(20)
+    expect(conn.methods()).toContain('session.activate')
+    expect(controller.getView().state.items.filter(i => i.kind === 'approval')).toMatchObject([{ requestId: 'srq-000000000004', state: 'pending' }, { requestId: 'srq-000000000005', state: 'expired' }])
+  })
 
-    const state = controller.getView().state
-    expect(state.items.find(i => i.kind === 'clarify' && i.requestId === 'c1')).toMatchObject({ state: 'answered', answers: { q0: 'A' } })
-    expect(state.items.find(i => i.kind === 'clarify' && i.requestId === 'c2')).toMatchObject({ state: 'expired' })
+  it('keeps the card open and says so when the answer cannot be sent', async () => {
+    conn.serverRequest({ id: 'srq-000000000006', method: 'approval', params: { session_id: live, request_id: 'ap6' } })
+    conn.simulateOffline()
+    await controller.answerApproval('srq-000000000006', 'once')
+    expect(conn.responses).toEqual([])
+    expect(card('srq-000000000006')).toMatchObject({ state: 'pending' })
+    expect(controller.getView().state.lastError).toBe('No connection to the gateway.')
   })
 })

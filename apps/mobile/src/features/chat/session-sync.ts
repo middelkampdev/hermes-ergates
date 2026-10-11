@@ -2,22 +2,23 @@
  * Reconnect resynchronisation for one bound session.
  *
  * A WebSocket disconnect parks the session's transport on a drop sink
- * (`_detached_ws_transport`, tui_gateway/session_lifecycle.py:654), and exactly
+ * (`_detached_ws_transport`, tui_gateway/session_lifecycle.py:1039), and exactly
  * three RPCs rebind it: `session.resume`'s reuse-live branch, `session.activate`
  * and `prompt.submit`. `session.events.since` reads an in-process ring and needs
  * no transport, so replaying alone leaves the socket open and silent: every later
  * delta, completion, clarify and approval for the open chat goes to the sink.
  *
- * So every reconnect runs `session.activate` FIRST — it rebinds the transport and
- * is the only call that reports `pending_approval` / `pending_clarify` (wire
- * contract section B.4) — and only then replays the gap.
+ * So every reconnect runs `session.activate` FIRST and only then replays the
+ * gap. Activate rebinds the transport, and the connection re-delivers the
+ * server requests its `open_requests` lists before the call resolves
+ * (json-rpc-channel.ts:474-483).
  *
  * Pure adapter logic: no React, no React Native (ADR-029 rule 1).
  */
 
 import { isGatewayError, userMessage } from '@/gateway/errors'
 import type { GatewayConnection, GatewayPort } from '@/gateway/port'
-import type { ActivateResult, ApprovalRequestPayload, ClarifyRequestPayload } from '@/gateway/types'
+import type { ActivateResult } from '@/gateway/types'
 
 import type { SessionAction } from './session-reducer'
 
@@ -96,7 +97,7 @@ export interface ResyncResult {
 }
 
 /**
- * Rebind the transport, fold the reconnect-time snapshot (pending cards, inflight
+ * Rebind the transport, fold the reconnect-time snapshot (open requests, inflight
  * turn, run status), then replay the event gap.
  */
 export async function resyncSession(options: ResyncOptions): Promise<ResyncResult> {
@@ -108,9 +109,6 @@ export async function resyncSession(options: ResyncOptions): Promise<ResyncResul
     const activated = await activateSession(port, liveSessionId, options.sleep)
     result.activated = true
     dispatch({ type: 'session/activated', result: activated, at })
-    for (const action of pendingCardActions(liveSessionId, activated)) {
-      dispatch(action)
-    }
   } catch (err) {
     result.stale = isStale(err)
     result.error = userMessage(err)
@@ -126,22 +124,4 @@ export async function resyncSession(options: ResyncOptions): Promise<ResyncResul
     result.error = result.error ?? userMessage(err)
   }
   return result
-}
-
-/**
- * The pending approval/clarify cards an activate (or resume) reported, as events
- * the reducer already knows how to fold. They carry no `seq`, so they never move
- * the replay watermark.
- */
-export function pendingCardActions(liveSessionId: string, snapshot: { pending_approval?: unknown; pending_clarify?: unknown }): SessionAction[] {
-  const actions: SessionAction[] = []
-  const approval = snapshot.pending_approval as ApprovalRequestPayload | undefined
-  if (approval?.request_id) {
-    actions.push({ type: 'event', event: { type: 'approval.request', session_id: liveSessionId, payload: approval } })
-  }
-  const clarify = snapshot.pending_clarify as ClarifyRequestPayload | undefined
-  if (clarify?.request_id) {
-    actions.push({ type: 'event', event: { type: 'clarify.request', session_id: liveSessionId, payload: clarify } })
-  }
-  return actions
 }

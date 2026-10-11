@@ -30,6 +30,13 @@ export interface GatewayConnection {
   readonly lastError: ConnectionFailure | null
   request<R>(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<R>
   onEvent(handler: (event: T.GatewayEventFrame) => void): () => void
+  /**
+   * The `approval` and `clarify` requests Hermes sends this socket, live and
+   * again from `open_requests` after a reconnect (`replayed: true`). The
+   * connection keeps each one open until `sessions.respondApproval` or
+   * `sessions.respondClarify` answers it, or Hermes cancels it.
+   */
+  onRequest(handler: (request: T.ServerRequestFrame) => void): () => void
   onState(handler: (state: ConnectionState) => void): () => void
   replay(sessionId: string, lastSeen: number): Promise<T.ReplayResult>
   close(): void
@@ -69,10 +76,11 @@ export interface SessionsApi {
   resume(params: { session_id: string; profile?: string }): Promise<T.SessionResumeResult>
   /**
    * Rebinds the live session's event transport to the current socket and reports
-   * the pending approval/clarify cards, the inflight turn and the run status. Must
-   * be called after every reconnect: a disconnect parks the session's transport on
-   * a drop sink (session_lifecycle.py:654), and only resume/activate/prompt.submit
-   * rebind it.
+   * the inflight turn, the run status and the server requests still open
+   * (`open_requests`). The connection delivers each open request again, with
+   * `replayed: true`, before this resolves. Must be called after every reconnect:
+   * a disconnect parks the session's transport on a drop sink
+   * (session_lifecycle.py:1039), and only resume/activate/prompt.submit rebind it.
    */
   activate(liveSessionId: string, opts?: { omit_messages?: boolean }): Promise<T.ActivateResult>
   /**
@@ -91,8 +99,15 @@ export interface SessionsApi {
   /** `{status:'queued'}` when accepted, `{status:'rejected'}` when the agent refused. */
   steer(sessionId: string, text: string): Promise<T.SteerResult>
   usage(sessionId: string): Promise<T.UsagePayload>
+  /**
+   * Answer the server request `request_id` (`srq-<12 hex>`) with one response
+   * frame on the session's socket. Rejects with `network` when the socket is
+   * down (the request stays open) and with `not_found` when Hermes no longer
+   * waits for it.
+   */
   respondApproval(p: { session_id: string; request_id: string; choice: T.ApprovalChoice }): Promise<void>
-  respondClarify(p: { session_id: string; request_id: string; answer: string; question_id?: string }): Promise<{ status: string; remaining?: string[] }>
+  /** Answers every question of a `clarify` request at once; `null` skips a question. Rejects like `respondApproval`. */
+  respondClarify(p: { session_id: string; request_id: string; answers: Record<string, string | null> }): Promise<void>
   attachImageBytes(p: { session_id: string; content_base64: string; filename?: string; ext?: string }): Promise<unknown>
   /** Either a server `path` or a `data_url` + `name` (the gateway stores it and returns `ref_text`). */
   attachFile(p: { session_id: string; path?: string; data_url?: string; name?: string }): Promise<{ attached?: boolean; name?: string; path?: string; ref_text?: string; [k: string]: unknown }>

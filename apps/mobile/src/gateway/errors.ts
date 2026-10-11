@@ -126,6 +126,24 @@ export function mapRpcError(err: unknown): GatewayError {
   return new GatewayError('unknown', redact(message), { cause: err })
 }
 
+/**
+ * What answering a server request did: `sent` put the response frame on the
+ * socket, `offline` sent nothing because the socket is down (Hermes keeps the
+ * request for the reconnect), `unknown` sent nothing because the connection
+ * holds no open request with that id.
+ */
+export type RespondOutcome = 'sent' | 'offline' | 'unknown'
+
+/** Rejects unless the answer went out. */
+export function requireSent(outcome: RespondOutcome): void {
+  if (outcome === 'offline') {
+    throw new GatewayError('network', 'No connection to the gateway.')
+  }
+  if (outcome === 'unknown') {
+    throw new GatewayError('not_found', 'Hermes no longer waits for this answer.')
+  }
+}
+
 export function mapSocketClose(code: number, reason = ''): GatewayError {
   switch (code) {
     case 4401:

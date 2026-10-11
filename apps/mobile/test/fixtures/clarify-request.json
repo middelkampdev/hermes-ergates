@@ -1,0 +1,20 @@
+{
+  "source": "tui_gateway/contracts/server_requests.py:34-55 at 818c13be",
+  "jsonrpc": "2.0",
+  "id": "srq-5c1e9a0b7d42",
+  "method": "clarify",
+  "params": {
+    "session_id": "live0001",
+    "questions": [
+      {
+        "qid": "q0",
+        "question": "Which do you choose?",
+        "choices": [
+          "A) tea (Recommended)",
+          "B) coffee"
+        ],
+        "multi_select": false
+      }
+    ]
+  }
+}

@@ -153,17 +153,16 @@ describe('createSessionController', () => {
     const controller = controllerFor(gateway)
     await controller.open()
     const live = controller.getView().state.liveSessionId ?? ''
-    gateway.connectionFor('thijs').emit({
-      type: 'clarify.request',
-      session_id: live,
-      seq: 1,
-      payload: { request_id: 'c1', questions: [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'], multi_select: false }] }
+    gateway.connectionFor('thijs').serverRequest({
+      id: 'srq-0000000000c1',
+      method: 'clarify',
+      params: { session_id: live, questions: [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'], multi_select: false }] }
     })
 
-    await controller.dismissClarify('c1', 'water, please')
+    await controller.dismissClarify('srq-0000000000c1', 'water, please')
 
-    expect(respond).toHaveBeenCalledWith({ session_id: live, request_id: 'c1', answer: 'water, please' })
-    expect(controller.getView().state.items.find(i => i.kind === 'clarify')).toMatchObject({ requestId: 'c1', state: 'dismissed' })
+    expect(respond).toHaveBeenCalledWith({ session_id: live, request_id: 'srq-0000000000c1', answers: { q0: 'water, please' } })
+    expect(controller.getView().state.items.find(i => i.kind === 'clarify')).toMatchObject({ requestId: 'srq-0000000000c1', state: 'dismissed' })
   })
 
   it('keeps a clarify card open when the answer fails', async () => {
@@ -172,16 +171,15 @@ describe('createSessionController', () => {
     const controller = controllerFor(gateway)
     await controller.open()
     const live = controller.getView().state.liveSessionId ?? ''
-    gateway.connectionFor('thijs').emit({
-      type: 'clarify.request',
-      session_id: live,
-      seq: 1,
-      payload: { request_id: 'c1', questions: [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'], multi_select: false }] }
+    gateway.connectionFor('thijs').serverRequest({
+      id: 'srq-0000000000c1',
+      method: 'clarify',
+      params: { session_id: live, questions: [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'], multi_select: false }] }
     })
 
-    await controller.answerClarify('c1', { q0: 'A' })
+    await controller.answerClarify('srq-0000000000c1', { q0: 'A' })
 
-    expect(controller.getView().state.items.find(i => i.kind === 'clarify')).toMatchObject({ requestId: 'c1', state: 'pending' })
+    expect(controller.getView().state.items.find(i => i.kind === 'clarify')).toMatchObject({ requestId: 'srq-0000000000c1', state: 'pending' })
   })
 
   it('injects a development frame only when allowed', async () => {

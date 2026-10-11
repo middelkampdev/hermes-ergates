@@ -10,7 +10,7 @@ Version: 0.3. Date: 2026-09-12. Status: documentation corrected after source rev
 
 | Requirement | Verified Hermes support | App / integration work | Acceptance gate |
 |---|---|---|---|
-| Chat, image intake, approvals (FR-103, 190, 202) | JSON-RPC handlers; path attachment and separate byte attachment; approval events | Native cookie/ticket transport, rendering, byte encoding | P0: real phone connects, uploads image, streams, answers approval, reconnects |
+| Chat, image intake, approvals (FR-103, 190, 202) | JSON-RPC handlers; path attachment and separate byte attachment; `approval` server requests (`818c13be`) | Native cookie/ticket transport, rendering, byte encoding | P0: real phone connects, uploads image, streams, answers approval, reconnects |
 | Replay (FR-113) | `session.events.since(last_seen)`; bounded in-process ring and epoch | History recovery on truncation/restart; dedup by owning session and row | P0: disconnect mid-stream; restart backend; no duplicated bubbles |
 | Safe offline send (NFR-05) | No durable submit-idempotency contract established for this WebSocket route | Outbox states and uncertain-delivery UI | P0: drop connection after submit before acknowledgement; no automatic replay of that submit |
 | Agents (FR-130–136) | Profiles and Bot Chat conventions; create/configure are separate operations | Typed proposal tool, user confirmation, safe provisioning and receipt | P1: create by chat; reject invalid proposal; recover after every provisioning step |

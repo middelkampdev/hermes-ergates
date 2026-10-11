@@ -53,7 +53,7 @@ Run one job with `scripts/ci-local.sh mobile`, several with `scripts/ci-local.sh
 - `cd integrations/ergates && uv run --python 3.11 --with pytest --with pytest-cov --with pyyaml pytest`
 - Live backend smoke: `ERGATES_LIVE=1 ERGATES_TOKEN=… npx vitest run test/live` (from `apps/mobile`)
 
-Hermes pin: `818c13be1dc4fd28987e1e881a9408224afd4535` (v0.21.6). The vendored theme sources come from that commit; the vendored gateway client is still the v0.21.2 copy, because v0.21.6 sends approval and clarify prompts as server-to-client requests, which the app does not answer yet (`apps/mobile/vendor/hermes/PIN.md`). Re-verify the vendored client against [06 - Client contract](docs/06-hermes-api-contract.md) on every upgrade; `scripts/ci-local.sh contract` checks the pinned integration automatically.
+Hermes pin: `818c13be1dc4fd28987e1e881a9408224afd4535` (v0.21.6). The vendored gateway client and theme sources come from that commit (`apps/mobile/vendor/hermes/PIN.md`). Re-verify the vendored client against [06 - Client contract](docs/06-hermes-api-contract.md) on every upgrade; `scripts/ci-local.sh contract` checks the pinned integration automatically.
 
 ## Contributing
 
