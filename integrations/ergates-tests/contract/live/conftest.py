@@ -22,6 +22,7 @@ starts its own server in a child process with ``serve_hermes``
 from __future__ import annotations
 
 import os
+import secrets
 import select
 import shutil
 import subprocess
@@ -38,7 +39,8 @@ from pinned import check_pin, expected_ref
 from plugin_tree import NO_HOOKS, PLUGIN_DIR, copy_tracked_files
 
 # The dashboard session token `hermes serve` expects (hermes_cli/web_server.py reads the variable at import).
-SESSION_TOKEN = "ergates-contract-live-token"
+# A new one for every test session: pytest imports this file once.
+SESSION_TOKEN = secrets.token_urlsafe(16)
 SERVE_SCRIPT = Path(__file__).with_name("hermes_serve.py")
 # A first plugin install on a Hermes that runs from a source checkout prepares Hermes's own
 # dependency runtime first (downloads included), which takes about a minute.
