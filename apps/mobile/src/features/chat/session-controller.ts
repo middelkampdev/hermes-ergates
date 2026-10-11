@@ -52,7 +52,7 @@ export interface SessionCommands {
   /** Pull-to-refresh: force a full durable refetch. Rejects when the gateway refuses. */
   refetchHistory(): Promise<void>
   /** A merged transcript page made these live observations durable; drop the live twins (spec 5.8). */
-  dispatchReconciled(ids: { toolCallIds: string[]; processIds: string[] }): void
+  dispatchReconciled(ids: { toolCallIds: string[] }): void
   /**
    * Development only: pushes one synthetic frame through the normal event path,
    * stamped with the live session so the reducer accepts it. A no-op unless the
@@ -525,7 +525,7 @@ export function createSessionController(options: SessionControllerOptions): Sess
     answerApproval,
     refetchHistory,
     dispatchReconciled(ids) {
-      dispatch({ type: 'transcript/reconciled', toolCallIds: ids.toolCallIds, processIds: ids.processIds })
+      dispatch({ type: 'transcript/reconciled', toolCallIds: ids.toolCallIds })
     },
     devInjectEvent(event) {
       const live = liveId

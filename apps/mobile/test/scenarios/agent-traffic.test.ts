@@ -1,7 +1,7 @@
 /**
  * Scenarios for bot-to-bot traffic: the REST transcript window the chat screen
- * drives (spec 5.5/5.8), live evidence that survives a snapshot which omits it,
- * and the stale-snapshot reschedule.
+ * drives (spec 5.5/5.8), a process notification that adds no item, and the
+ * stale-snapshot reschedule.
  *
  * The session is the real `createSessionController`; the transcript window runs
  * the same pure `window.ts` rules as `use-transcript.ts` (ADR-029 rule 3).
@@ -123,30 +123,31 @@ describe('a v0.21.6 delivery', () => {
   })
 })
 
-describe('a live receipt across a snapshot that omits it', () => {
-  it('survives the refetch and goes only when the transcript reconciles it', async () => {
-    const processId = 'proc_b2c3d4e5f6a7'
-    // An EMPTY snapshot, not the recorded one: the strongest form of "history does
-    // not carry it yet".
-    const gateway = new FakeGateway({ history: () => [] })
+describe('a process notification (status.update {kind: "process"})', () => {
+  it('adds no item, as on Desktop, and the refetch shows the durable row once, where it belongs', async () => {
+    // What v0.21.6 sends for a finished subagent (tools/process_registry_notifications.py:320-321,
+    // tui_gateway/session_notifications.py:546-552), and the row it stands for (:486-487).
+    const title = 'Subagent Task Completed: Review the release notes'
+    const rows: HistoryMessage[] = [
+      { role: 'user', text: 'Review the release notes in the background', row_id: 1, timestamp: 1789203001 },
+      { role: 'assistant', text: 'Started.', row_id: 2, timestamp: 1789203002 },
+      { role: 'user', text: '[ASYNC DELEGATION COMPLETE]', row_id: 3, timestamp: 1789203003, display_kind: 'async_delegation_complete', display_metadata: { display_text: title } },
+      { role: 'user', text: 'Thanks', row_id: 4, timestamp: 1789203004 }
+    ]
+    const gateway = new FakeGateway({ history: () => rows })
     const controller = createSessionController({ port: gateway, profile: 'thijs', connectionId: 'c-test', outbox: memoryOutbox() })
     await controller.open()
     const live = controller.getView().state.liveSessionId ?? ''
+    const before = controller.getView().state.items.map(i => i.id)
 
-    gateway.connectionFor('thijs').emit({ type: 'status.update', session_id: live, seq: 30, payload: { kind: 'process', text: liveJson.text } })
-    const receipts = controller.getView().state.items.filter(i => i.kind === 'receipt')
-    expect(receipts).toHaveLength(1)
-    expect(receipts[0]).toMatchObject({ live: true })
-    // The notification itself is a tail trigger, even for a receipt we already hold.
-    expect(controller.getView().state.tailWanted).toBe(1)
+    gateway.connectionFor('thijs').emit({ type: 'status.update', session_id: live, seq: 30, payload: { kind: 'process', text: title } })
+    gateway.connectionFor('thijs').emit({ type: 'status.update', session_id: live, seq: 31, payload: { kind: 'process', text: liveJson.text } })
+    expect(controller.getView().state.items.map(i => i.id)).toEqual(before)
+    // Each notification is a tail trigger: the REST tail brings the durable row.
+    expect(controller.getView().state.tailWanted).toBe(2)
 
-    // Absence from a snapshot is not evidence of absence: the live receipt is all
-    // that is left after an empty one.
     await controller.refetchHistory()
-    expect(controller.getView().state.items.map(i => i.kind)).toEqual(['receipt'])
-
-    controller.dispatchReconciled({ toolCallIds: [], processIds: [processId] })
-    expect(controller.getView().state.items.filter(i => i.kind === 'receipt')).toHaveLength(0)
+    expect(controller.getView().state.items.map(i => i.kind)).toEqual(['user', 'assistant', 'event', 'user'])
   })
 })
 

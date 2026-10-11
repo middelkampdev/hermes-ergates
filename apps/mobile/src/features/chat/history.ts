@@ -47,8 +47,8 @@ export interface LiveAnchor {
   /** How many reconciliations in a row failed to place this answer. */
   retainedRounds?: number
   /**
-   * The process id of the live receipt item that was appended just before this turn started
-   * (rule g). Hermes writes the receipt as a durable input row and then runs a turn on it, so
+   * The process id of the receipt a `status.update {kind:"process"}` named just before this turn
+   * started (rule g). Hermes writes the receipt as a durable input row and then runs a turn on it, so
    * that row is this turn's input row — found by its hard process id (spec 5.2/5.5), never by
    * order or text.
    */
@@ -57,7 +57,12 @@ export interface LiveAnchor {
 
 export type ChatItem =
   | { kind: 'user'; id: string; rowId?: number; localId?: string; text: string; at?: number; delivery?: DeliveryState }
-  | { kind: 'assistant'; id: string; rowId?: number; text: string; at?: number; reasoning?: string; streaming?: boolean; error?: string; retryable?: boolean; turnOutcome?: TurnOutcome; liveAnchor?: LiveAnchor }
+  /**
+   * `displayKind` is set on the v0.21.6 `failed_turn` row Hermes closes a failed turn with. It stays an
+   * assistant item, the durable row of its turn for reconciliation; the timeline draws it as Desktop's system row.
+   * `errorCard` is set when Desktop also draws an error card, an assistant message, in front of that row.
+   */
+  | { kind: 'assistant'; id: string; rowId?: number; text: string; at?: number; reasoning?: string; streaming?: boolean; error?: string; retryable?: boolean; turnOutcome?: TurnOutcome; liveAnchor?: LiveAnchor; displayKind?: typeof FAILED_TURN_DISPLAY_KIND; errorCard?: true }
   /** Assistant commentary emitted alongside tool calls (`message.interim`), never part of the answer. */
   | { kind: 'commentary'; id: string; text: string; at?: number }
   | { kind: 'tool'; id: string; toolId?: string; name: string; context?: string; args?: Record<string, unknown>; result?: unknown; durationS?: number; done: boolean; error?: string }
@@ -71,7 +76,7 @@ export type ChatItem =
    * One parsed `[IMPORTANT: Background process …]` receipt (spec 5.2). `displayKind` is set when the
    * row was stored as a v0.21.6 `process_complete` row, which Desktop shows as a system row.
    */
-  | { kind: 'receipt'; id: string; rowId?: number; receipt: ParsedReceipt; at?: number; live: boolean; displayKind?: typeof PROCESS_COMPLETE_DISPLAY_KIND }
+  | { kind: 'receipt'; id: string; rowId?: number; receipt: ParsedReceipt; at?: number; displayKind?: typeof PROCESS_COMPLETE_DISPLAY_KIND }
   /** A receipt-shaped row that failed to parse, or another `[IMPORTANT: …]` notice. `displayKind` as on a receipt. */
   | { kind: 'notice'; id: string; rowId?: number; noticeKind: 'delivery_update' | 'process' | 'batch' | 'unknown'; at?: number; detail: string; live?: boolean; displayKind?: typeof PROCESS_COMPLETE_DISPLAY_KIND }
 
@@ -79,6 +84,35 @@ const HIDDEN_KINDS = new Set(['hidden'])
 
 /** Display kinds that render as compact centered rows instead of bubbles. */
 const EVENT_KINDS = new Set(['model_switch', 'personality_switch', 'async_delegation_complete', 'auto_continue'])
+
+/**
+ * The assistant row Hermes v0.21.6 closes a failed turn with (agent/turn_failure_copy.py:39-48,
+ * agent/conversation_loop.py:1848-1850, gateway/run_turn.py:1719-1721). Both history projections type
+ * rows written before that too (tui_gateway/session_history.py:264-271, :358; hermes_cli/web_routers/sessions.py:692-695).
+ */
+export const FAILED_TURN_DISPLAY_KIND = 'failed_turn'
+
+/** The error-surface layers Desktop knows (apps/desktop/src/lib/error-surface.ts:10-19). */
+const ERROR_SURFACE_LAYERS = new Set(['provider', 'endpoint', 'streaming', 'auth', 'billing', 'gateway', 'runtime', 'disk'])
+
+/**
+ * Does Desktop draw an error card in front of a failed_turn row? Only when its `display_metadata`, an
+ * object or the JSON text an older backend serves, holds an `error_surface` with a known layer
+ * (apps/desktop/src/lib/chat-messages/hydration.ts:179-208, :579-591; error-surface.ts:100-122).
+ */
+function hasErrorCard(metadata: unknown): boolean {
+  let parsed = metadata
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed)
+    } catch {
+      return false
+    }
+  }
+  const surface = parsed !== null && typeof parsed === 'object' ? (parsed as { error_surface?: unknown }).error_surface : undefined
+  const layer = surface !== null && typeof surface === 'object' ? (surface as { layer?: unknown }).layer : undefined
+  return typeof layer === 'string' && ERROR_SURFACE_LAYERS.has(layer)
+}
 
 export function historyToItems(messages: HistoryMessage[]): ChatItem[] {
   const items: ChatItem[] = []
@@ -132,7 +166,7 @@ export function historyToItems(messages: HistoryMessage[]): ChatItem[] {
       const typed: { displayKind?: typeof PROCESS_COMPLETE_DISPLAY_KIND } = m.display_kind === PROCESS_COMPLETE_DISPLAY_KIND ? { displayKind: PROCESS_COMPLETE_DISPLAY_KIND } : {}
       if (classified.kind === 'receipts') {
         for (const receipt of classified.receipts) {
-          items.push({ kind: 'receipt', id: `h-receipt-${rowKey}-${receipt.headline.processId}`, rowId: m.row_id, receipt, at: m.timestamp, live: false, ...typed })
+          items.push({ kind: 'receipt', id: `h-receipt-${rowKey}-${receipt.headline.processId}`, rowId: m.row_id, receipt, at: m.timestamp, ...typed })
         }
         continue
       }
@@ -156,7 +190,12 @@ export function historyToItems(messages: HistoryMessage[]): ChatItem[] {
         items.push({ kind: 'event', id: `h-event-${m.row_id ?? items.length}`, text, at: m.timestamp })
         continue
       }
-      items.push({ kind: 'assistant', id: rowIdOf(m, 'assistant', items.length), rowId: m.row_id, text, at: m.timestamp, reasoning })
+      const failedTurn: { displayKind?: typeof FAILED_TURN_DISPLAY_KIND; errorCard?: true } = {}
+      if (m.display_kind === FAILED_TURN_DISPLAY_KIND) {
+        failedTurn.displayKind = FAILED_TURN_DISPLAY_KIND
+        if (hasErrorCard(m.display_metadata)) failedTurn.errorCard = true
+      }
+      items.push({ kind: 'assistant', id: rowIdOf(m, 'assistant', items.length), rowId: m.row_id, text, at: m.timestamp, reasoning, ...failedTurn })
     }
   }
   return items
@@ -404,8 +443,6 @@ const DURABLE_ONCE_SENT = new Set<DeliveryState>(['acknowledged', 'queued', 'unc
  *    can decide. (`queued`, `queued_unsent` and `failed` items are never
  *    re-labelled: those states are known exactly, and history is not expected
  *    to show them yet.)
- *  - live receipts whose process id does not appear among `fresh`'s receipts
- *    (history has not caught up with them yet).
  *  - live notices whose exact `detail` text does not appear among `fresh`'s
  *    notices (a notice has no id to pair on, so the text is the only evidence
  *    the same notification is now durable).
@@ -421,9 +458,6 @@ export function mergeHistory(items: ChatItem[], fresh: ChatItem[]): ChatItem[] {
   // so the survivor must be the returned copy, not the original.
   const retainedById = new Map(retained.map(i => [i.id, i]))
   const freshUserTexts = reconciled.filter(i => i.kind === 'user').map(i => (i as Extract<ChatItem, { kind: 'user' }>).text)
-  const freshReceiptProcessIds = new Set(
-    reconciled.filter((i): i is Extract<ChatItem, { kind: 'receipt' }> => i.kind === 'receipt').map(i => i.receipt.headline.processId)
-  )
   // A notice carries no id of any kind, so its durable twin can only be found by
   // its exact text; the spec forbids text matching only where it names
   // an id to pair on.
@@ -441,10 +475,6 @@ export function mergeHistory(items: ChatItem[], fresh: ChatItem[]): ChatItem[] {
         continue
       }
       survivors.push(item.delivery === 'acknowledged' ? { ...item, delivery: 'unconfirmed' } : item)
-      continue
-    }
-    if (item.kind === 'receipt' && item.live && !freshReceiptProcessIds.has(item.receipt.headline.processId)) {
-      survivors.push(item)
       continue
     }
     if (item.kind === 'notice' && item.live && !freshNoticeDetails.has(item.detail)) {

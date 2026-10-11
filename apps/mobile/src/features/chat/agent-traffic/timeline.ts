@@ -7,7 +7,7 @@
 
 import { formatClock, formatDateSeparator } from '@/lib/time'
 
-import { hasText, isInputRow, type ChatItem } from '../history'
+import { FAILED_TURN_DISPLAY_KIND, hasText, isInputRow, type ChatItem } from '../history'
 import type { LiveTurn } from '../session-reducer'
 
 import { buildExchanges, collectEvidence, exchangeCopy, exchangeIdentities, isOpenable, mergeConsecutive, peerName, type Completion, type Evidence, type Exchange, type WindowBounds } from './exchange'
@@ -138,16 +138,55 @@ interface Turn {
   end: number
 }
 
-/** An input row of any kind starts a turn; everything until the next one belongs to it. */
+/** The `failed_turn` row Hermes v0.21.6 closes a failed turn with. Hermes stores it as an assistant row; it is never an answer. */
+function isFailedTurnRow(item: ChatItem): boolean {
+  return item.kind === 'assistant' && item.displayKind === FAILED_TURN_DISPLAY_KIND
+}
+
+/**
+ * Rows Desktop shows as system rows (apps/desktop/src/lib/chat-messages/hydration.ts:159-175, :452):
+ * events, and on v0.21.6 the receipt or notice of a `process_complete` row and the `failed_turn` row.
+ * Desktop's look-backs from an assistant message skip them. An untyped receipt row, written before
+ * v0.21.6, is a user row on Desktop.
+ */
+function isSystemRow(item: ChatItem): boolean {
+  if (item.kind === 'event' || isFailedTurnRow(item)) return true
+  return (item.kind === 'receipt' || item.kind === 'notice') && item.displayKind !== undefined
+}
+
+/** An assistant row with text that Desktop shows as an assistant message: the turn's answer, if it is the last. */
+function isAnswerRow(item: ChatItem): boolean {
+  return hasText(item) && !isFailedTurnRow(item)
+}
+
+/**
+ * An input row starts a turn and everything until the next one belongs to it. A system row starts one
+ * only when the current turn already holds an assistant, tool, commentary or card row. Hermes Desktop
+ * `interAgentSender` (apps/desktop/src/components/assistant-ui/thread/assistant-message.tsx:133-150 at
+ * v0.21.6) looks back from an answer past system rows to the nearest user or assistant message, so the
+ * answer in [inbound, process_complete, answer] replies to the inbound row, and in [inbound, answer,
+ * process_complete, answer] the second answer replies to nobody. A failed_turn row with an error card
+ * counts as an assistant row: Desktop draws the card as an assistant message (hydration.ts:579-591).
+ */
 function groupTurns(items: ChatItem[]): Turn[] {
   const turns: Turn[] = []
+  let holdsAssistantRow = false
   for (const [index, item] of items.entries()) {
-    if (isInputRow(item) || turns.length === 0) {
+    const system = isSystemRow(item)
+    if (turns.length === 0 || (isInputRow(item) && (holdsAssistantRow || !system))) {
       if (turns.length > 0) turns[turns.length - 1]!.end = index
       turns.push({ start: index, end: items.length })
+      holdsAssistantRow = false
+    } else if (!system || (item.kind === 'assistant' && item.errorCard === true)) {
+      holdsAssistantRow = true
     }
   }
   return turns
+}
+
+/** The row ids of a turn's head and of the system input rows it holds: where the turn's input may be (spec 12.3). */
+function inputRowIds(items: ChatItem[], turn: Turn): (number | undefined)[] {
+  return items.slice(turn.start, turn.end).filter((item, offset) => offset === 0 || isInputRow(item)).map(rowIdOf)
 }
 
 interface Folded {
@@ -164,17 +203,17 @@ interface RetainedAnchor {
   /** The turn that holds the retained answer — the fallback candidate. */
   turnIndex: number
   /**
-   * Whether any turn's head falls in the candidate range. Computed once per retained answer, so the
-   * per-turn check in `mayCorrespondToRetained` does not scan every turn head again for each turn.
+   * Whether any turn's input row falls in the candidate range. Computed once per retained answer, so the
+   * per-turn check in `mayCorrespondToRetained` does not scan every turn again for each turn.
    */
   anyCandidate: boolean
 }
 
-/** Is a turn head a candidate home for a retained answer: inside `(afterRowId, beforeRowId]`? */
-function inCandidateRange(head: number | undefined, live: { afterRowId: number | null; beforeRowId: number | undefined }): boolean {
-  if (head === undefined) return live.afterRowId === null && live.beforeRowId === undefined
-  if (live.afterRowId !== null && head <= live.afterRowId) return false
-  return live.beforeRowId === undefined || head <= live.beforeRowId
+/** Is a turn's input row a candidate home for a retained answer: inside `(afterRowId, beforeRowId]`? */
+function inCandidateRange(rowId: number | undefined, live: { afterRowId: number | null; beforeRowId: number | undefined }): boolean {
+  if (rowId === undefined) return live.afterRowId === null && live.beforeRowId === undefined
+  if (live.afterRowId !== null && rowId <= live.afterRowId) return false
+  return live.beforeRowId === undefined || rowId <= live.beforeRowId
 }
 
 /**
@@ -182,9 +221,8 @@ function inCandidateRange(head: number | undefined, live: { afterRowId: number |
  * that could be its home expanded until a reconciliation places it; one that follows the human's own
  * local send in its turn is explained by that send and retains nothing.
  */
-function retainedLiveAnchors(items: ChatItem[], turns: Turn[]): RetainedAnchor[] {
+function retainedLiveAnchors(items: ChatItem[], turns: Turn[], inputs: (number | undefined)[][]): RetainedAnchor[] {
   const retained: RetainedAnchor[] = []
-  const heads = turns.map(turn => rowIdOf(items[turn.start]!))
   for (const [turnIndex, turn] of turns.entries()) {
     let explained = false
     for (let i = turn.start; i < turn.end; i += 1) {
@@ -193,7 +231,7 @@ function retainedLiveAnchors(items: ChatItem[], turns: Turn[]): RetainedAnchor[]
       if (isInputRow(item) && rowIdOf(item) === undefined) explained = true
       if (item.kind === 'assistant' && item.rowId === undefined && item.turnOutcome !== undefined && item.liveAnchor !== undefined && !explained) {
         const bounds = { afterRowId: item.liveAnchor.afterRowId, beforeRowId: item.liveAnchor.retainedBeforeRowId }
-        retained.push({ ...bounds, turnIndex, anyCandidate: heads.some(head => inCandidateRange(head, bounds)) })
+        retained.push({ ...bounds, turnIndex, anyCandidate: inputs.some(ids => ids.some(id => inCandidateRange(id, bounds))) })
       }
     }
   }
@@ -205,27 +243,17 @@ function retainedLiveAnchors(items: ChatItem[], turns: Turn[]): RetainedAnchor[]
  *
  * The candidates are bounded on both sides by row ids, never by position: a turn older than the
  * live turn's start cannot hold its answer, and neither can one that began after the snapshot that
- * first retained it. When no turn falls in the range, the turn that holds the retained item is the
- * only candidate.
+ * first retained it. Every input row of a turn counts, so a `process_complete` row the turn holds
+ * (`groupTurns`) still makes it a candidate. When no turn falls in the range, the turn that holds the
+ * retained item is the only candidate.
  */
-function mayCorrespondToRetained(items: ChatItem[], turns: Turn[], index: number, retained: RetainedAnchor[]): boolean {
-  const head = rowIdOf(items[turns[index]!.start]!)
-  return retained.some(live => (live.anyCandidate ? inCandidateRange(head, live) : live.turnIndex === index))
+function mayCorrespondToRetained(inputs: (number | undefined)[][], index: number, retained: RetainedAnchor[]): boolean {
+  return retained.some(live => (live.anyCandidate ? inputs[index]!.some(id => inCandidateRange(id, live)) : live.turnIndex === index))
 }
 
 /** `@Dr. Foo`, `scribe@laptop`, `peer/scribe` → `dr. foo` / `scribe`: the routing alias a `message_agent` target and a "Message from" signature share (Desktop `agentKey`). */
 function agentKey(value: unknown): string {
   return typeof value === 'string' ? value.trim().replace(/^@/, '').replace(/@[^@]*$/, '').split('/').pop()!.toLowerCase() : ''
-}
-
-/**
- * Rows Desktop shows as system rows, which `dispatchedTo` scans past: events, and on v0.21.6 the
- * receipt or notice of a `process_complete` row (apps/desktop/src/lib/chat-messages/hydration.ts:159-175,
- * :452). An untyped receipt row, written before v0.21.6, is a user row on Desktop and ends the scan.
- */
-function isSystemRow(item: ChatItem): boolean {
-  if (item.kind === 'event') return true
-  return (item.kind === 'receipt' || item.kind === 'notice') && item.displayKind !== undefined
 }
 
 /**
@@ -308,7 +336,7 @@ function foldTurn(items: ChatItem[], turn: Turn, opts: FoldOptions): Folded | un
 
   let answerIndex = -1
   for (const [index, item] of body.entries()) {
-    if (hasText(item)) answerIndex = index
+    if (isAnswerRow(item)) answerIndex = index
   }
   const answer = answerIndex === -1 ? undefined : body[answerIndex]
   if (answer === undefined || answer.kind !== 'assistant') return undefined
@@ -374,7 +402,7 @@ function hasConfirmedCompletionAfter(items: ChatItem[], turns: Turn[], last: num
     const body = items.slice(turn.start + 1, turn.end)
     let answerIndex = -1
     for (const [bodyIndex, item] of body.entries()) {
-      if (hasText(item)) answerIndex = bodyIndex
+      if (isAnswerRow(item)) answerIndex = bodyIndex
     }
     const answer = answerIndex === -1 ? undefined : body[answerIndex]
     if (answer?.kind === 'assistant' && answer.rowId !== undefined && answer.turnOutcome === 'completed') return true
@@ -384,8 +412,9 @@ function hasConfirmedCompletionAfter(items: ChatItem[], turns: Turn[], last: num
 
 function foldTurns(items: ChatItem[], input: TimelineInput): Map<number, Folded> {
   const turns = groupTurns(items)
+  const inputs = turns.map(turn => inputRowIds(items, turn))
   const folded = new Map<number, Folded>()
-  const retained = retainedLiveAnchors(items, turns)
+  const retained = retainedLiveAnchors(items, turns, inputs)
   const last = lastConversationTurn(items, turns)
   const idleConfirmed = input.idleConfirmed && !input.inflightError
   const lastProvenHistorical = hasConfirmedCompletionAfter(items, turns, last)
@@ -397,7 +426,7 @@ function foldTurns(items: ChatItem[], input: TimelineInput): Map<number, Folded>
       isLast: index === last && !lastProvenHistorical,
       idleConfirmed,
       streaming: input.live.streaming,
-      suspect: mayCorrespondToRetained(items, turns, index, retained)
+      suspect: mayCorrespondToRetained(inputs, index, retained)
     })
     if (fold) folded.set(turn.start, fold)
   }
@@ -624,7 +653,8 @@ function assemble(input: TimelineInput): Assembled {
         // A reasoning-only turn draws no bubble; Activity lists its reasoning (spec 5.9).
         if (!hasText(item)) return
         pushDate(item.at, item.id)
-        pushLine({ key: item.id, kind: 'item', item })
+        // Desktop draws the failed_turn row as a system row (hydration.ts:452).
+        pushLine({ key: item.id, kind: 'item', item: isFailedTurnRow(item) ? { kind: 'event', id: item.id, text: item.text, at: item.at } : item })
         return
       default:
         pushDate(dateAt(item), item.id)

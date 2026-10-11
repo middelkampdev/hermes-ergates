@@ -87,9 +87,9 @@ export interface SessionState {
   /** What the last resume or activate payload says about the session being idle (spec 12.3). */
   idleSnapshot: IdleSnapshot
   /**
-   * The process id of the last live receipt appended while no turn was running (rule g). The next
+   * The process id of the last receipt a `status.update {kind:"process"}` named (rule g). The next
    * turn to start is the one Hermes runs on that receipt row, so the id moves onto its anchor;
-   * cleared when a turn starts (consumed) and when one completes. Only a 0.21.2 server sends a
+   * cleared when a turn starts (consumed) and at a reconnect boundary (rule h). Only a 0.21.2 server sends a
    * receipt live: v0.21.6 sends a title without a process id, so the id stays null there.
    */
   pendingReceiptProcessId: string | null
@@ -133,7 +133,7 @@ export type SessionAction =
   /** A turn was already running when we (re)attached (`opened.running`, `session.activate`). */
   | { type: 'turn/observed-running'; at?: number }
   /** Durable transcript rows arrived for live-only observations; drop the duplicates. */
-  | { type: 'transcript/reconciled'; toolCallIds: string[]; processIds: string[] }
+  | { type: 'transcript/reconciled'; toolCallIds: string[] }
   | { type: 'replay/result'; result: ReplayResult }
   | { type: 'history/refetched' }
   | { type: 'error/cleared' }
@@ -301,13 +301,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return invalidateIdle(startTurn(state, 'unknown', action.at))
     case 'transcript/reconciled': {
       const toolCallIds = new Set(action.toolCallIds)
-      const processIds = new Set(action.processIds)
-      const items = state.items.filter(i => {
-        if (i.kind === 'tool' && i.toolId !== undefined && toolCallIds.has(i.toolId)) {
-          return false
-        }
-        return !(i.kind === 'receipt' && i.live && processIds.has(i.receipt.headline.processId))
-      })
+      const items = state.items.filter(i => !(i.kind === 'tool' && i.toolId !== undefined && toolCallIds.has(i.toolId)))
       return items.length === state.items.length ? state : { ...state, items }
     }
     case 'replay/result':
@@ -488,46 +482,20 @@ function startTurn(state: SessionState, unownedAs: 'foreign' | 'unknown', at: nu
 }
 
 /**
- * A background process wrote a durable row and the backend told us so
- * (`status.update {kind:"process"}`). The text is receipt or notice grammar, so
- * it never reaches the working line (spec 5.9), and the notification itself is
- * the evidence a row exists — the tail is wanted even when the receipt is one we
- * already hold (5.8).
- *
- * Hermes v0.21.6 sends only a one-line title for a completion and keeps the
- * receipt in the durable `process_complete` row (tui_gateway/session_notifications.py:546-552,
- * :598-602). A title adds no item, as on Desktop, which only re-reads its process list
- * (apps/desktop/src/app/session/hooks/use-message-stream/gateway-event/status.ts:116-119); the REST tail brings the receipt.
+ * A background process or a subagent wrote a durable row and the backend told us so
+ * (`status.update {kind:"process"}`). Desktop adds nothing for any of them and only re-reads its
+ * process list (apps/desktop/src/app/session/hooks/use-message-stream/gateway-event/status.ts:116-119),
+ * so no item is added here either: the REST tail brings the durable row (5.8), and the text never
+ * reaches the working line (spec 5.9). v0.21.6 sends a one-line title for a completion or a subagent
+ * and the full text for a watch match (tui_gateway/session_notifications.py:546-552).
  */
-function applyProcessNotification(state: SessionState, text: string, at: number | undefined): SessionState {
-  if (PROCESS_TITLE_RE.test(text)) {
-    return { ...state, tailWanted: state.tailWanted + 1 }
-  }
-  const parsed = parseReceiptRow(text)
-  const when = at ?? Date.now()
-  let items = state.items
-  let pendingReceiptProcessId = state.pendingReceiptProcessId
-  if (parsed.kind === 'receipts') {
-    const known = new Set(
-      state.items.filter((i): i is Extract<ChatItem, { kind: 'receipt' }> => i.kind === 'receipt').map(i => i.receipt.headline.processId)
-    )
-    for (const receipt of parsed.receipts) {
-      const processId = receipt.headline.processId
-      if (known.has(processId)) {
-        continue
-      }
-      known.add(processId)
-      items = [...items, { kind: 'receipt', id: `live-receipt-${processId}`, receipt, at: when, live: true }]
-      // Rule (h): a receipt observed while a turn streams cannot belong to that turn — it already
-      // started — so it is remembered for whichever turn starts next, same as when nothing is
-      // running. Last receipt wins either way.
-      pendingReceiptProcessId = processId
-    }
-  } else {
-    const noticeKind = parsed.kind === 'notice' ? parsed.noticeKind : 'unknown'
-    items = [...items, { kind: 'notice', id: nextId('notice'), noticeKind, detail: text, at: when, live: true }]
-  }
-  return { ...state, items, pendingReceiptProcessId, revision: state.revision + 1, tailWanted: state.tailWanted + 1 }
+function applyProcessNotification(state: SessionState, text: string): SessionState {
+  const parsed = PROCESS_TITLE_RE.test(text) ? null : parseReceiptRow(text)
+  // Rule (h): a receipt observed while a turn streams cannot belong to that turn — it already
+  // started — so its process id is remembered for whichever turn starts next, same as when nothing
+  // is running. Last receipt wins either way.
+  const processId = parsed?.kind === 'receipts' ? parsed.receipts.at(-1)!.headline.processId : null
+  return { ...state, pendingReceiptProcessId: processId ?? state.pendingReceiptProcessId, tailWanted: state.tailWanted + 1 }
 }
 
 /**
@@ -746,7 +714,7 @@ function applyEvent(state: SessionState, event: GatewayEventFrame, at?: number):
     case 'status.update': {
       const p = raw as StatusUpdatePayload
       if (p.kind === 'process') {
-        return applyProcessNotification(next, p.text ?? '', at)
+        return applyProcessNotification(next, p.text ?? '')
       }
       const text = p.text ?? p.message ?? p.status ?? null
       return { ...next, live: { ...next.live, statusLine: text } }
