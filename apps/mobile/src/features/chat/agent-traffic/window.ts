@@ -14,8 +14,6 @@
 
 import type { TranscriptPage, TranscriptRow } from '@/gateway/types'
 
-import { classifyUserRow } from './classify'
-
 /** Chat open: the latest page (spec 5.5). */
 export const FIRST_PAGE_LIMIT = 500
 /** Every tail fetch after a turn, a process notification or a `message_agent` completion (spec 5.8). */
@@ -131,15 +129,14 @@ export function sameBinding(a: FetchBinding, b: FetchBinding): boolean {
 
 /**
  * The live observations this page makes durable (spec 5.8): the tool call ids of
- * its `message_agent` result rows and the process ids of its receipt rows. The
- * reducer drops the live twins of exactly these, and nothing else — absence from
- * a page is never evidence of absence.
+ * its `message_agent` result rows. The reducer drops the live twins of exactly
+ * these, and nothing else — absence from a page is never evidence of absence.
  *
  * A recorded result row may have lost its `tool_name`, so a row is also a
  * `message_agent` result when its tool call id matches a `message_agent` call on
  * an assistant row of the same page (`exchange.ts` pairs results the same way).
  */
-export function reconciledIds(page: TranscriptPage): { toolCallIds: string[]; processIds: string[] } {
+export function reconciledIds(page: TranscriptPage): { toolCallIds: string[] } {
   const sendIds = new Set<string>()
   for (const row of page.rows) {
     for (const call of row.toolCalls ?? []) {
@@ -150,28 +147,10 @@ export function reconciledIds(page: TranscriptPage): { toolCallIds: string[]; pr
   }
 
   const toolCallIds: string[] = []
-  const processIds: string[] = []
   for (const row of page.rows) {
-    if (row.role === 'tool') {
-      if (row.toolCallId !== undefined && (row.toolName === MESSAGE_AGENT || sendIds.has(row.toolCallId)) && !toolCallIds.includes(row.toolCallId)) {
-        toolCallIds.push(row.toolCallId)
-      }
-      continue
-    }
-    if (row.role !== 'user') {
-      continue
-    }
-    // The full 5.1 evidence order, exactly as the timeline classifies the same row:
-    // a stamped or otherwise projected row is not receipt text.
-    const classified = classifyUserRow({ text: row.text, displayKind: row.displayKind, displayMetadata: row.displayMetadata })
-    if (classified.kind !== 'receipts') {
-      continue
-    }
-    for (const receipt of classified.receipts) {
-      if (!processIds.includes(receipt.headline.processId)) {
-        processIds.push(receipt.headline.processId)
-      }
+    if (row.role === 'tool' && row.toolCallId !== undefined && (row.toolName === MESSAGE_AGENT || sendIds.has(row.toolCallId)) && !toolCallIds.includes(row.toolCallId)) {
+      toolCallIds.push(row.toolCallId)
     }
   }
-  return { toolCallIds, processIds }
+  return { toolCallIds }
 }

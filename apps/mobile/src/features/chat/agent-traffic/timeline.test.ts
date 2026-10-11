@@ -831,7 +831,7 @@ describe('completion evidence (spec 12.3)', () => {
   it('a receipt following an active turn does not make it historical', () => {
     const receipt = parseReceiptRow(receiptText('proc_000000000abc', '{"status":"settled","delivery_id":"d1","reply":"ok"}'))
     if (receipt.kind !== 'receipts') throw new Error('fixture')
-    const items: ChatItem[] = [bot(11, 'hi'), answer(12, 'hello'), { kind: 'receipt', id: 'live-receipt-proc_000000000abc', receipt: receipt.receipts[0]!, at: 900, live: true }]
+    const items: ChatItem[] = [bot(11, 'hi'), answer(12, 'hello'), { kind: 'receipt', id: 'h-receipt-13-proc_000000000abc', rowId: 13, receipt: receipt.receipts[0]!, at: 13 }]
     const { lines } = buildTimeline(input({ items, idleConfirmed: false }))
     expect(exchangeLine(lines, 'x-in-h-bot-11')).toBeUndefined()
     expect(keys(lines)).toContain('h-bot-11')
@@ -842,7 +842,7 @@ describe('completion evidence (spec 12.3)', () => {
   it('a later receipt-headed turn with a confirmed completed answer proves the last conversation turn historical', () => {
     const receiptParsed = parseReceiptRow(receiptText('proc_000000000abc', '{"status":"settled","delivery_id":"d1","reply":"ok"}'))
     if (receiptParsed.kind !== 'receipts') throw new Error('fixture')
-    const receiptItem: ChatItem = { kind: 'receipt', id: 'h-receipt-87', rowId: 87, receipt: receiptParsed.receipts[0]!, at: 87, live: false }
+    const receiptItem: ChatItem = { kind: 'receipt', id: 'h-receipt-87', rowId: 87, receipt: receiptParsed.receipts[0]!, at: 87 }
     const items: ChatItem[] = [bot(85, 'hi'), answer(86, 'hello'), receiptItem, answer(88, 'ok', { turnOutcome: 'completed' })]
     const { lines } = buildTimeline(input({ items, idleConfirmed: false }))
     expect(exchangeLine(lines, 'x-in-h-bot-85')).toBeDefined()
@@ -852,7 +852,7 @@ describe('completion evidence (spec 12.3)', () => {
   it('a later input row alone, without a confirmed completed answer, does not make the last conversation turn historical', () => {
     const receiptParsed = parseReceiptRow(receiptText('proc_000000000abc', '{"status":"settled","delivery_id":"d1","reply":"ok"}'))
     if (receiptParsed.kind !== 'receipts') throw new Error('fixture')
-    const receiptItem: ChatItem = { kind: 'receipt', id: 'h-receipt-87', rowId: 87, receipt: receiptParsed.receipts[0]!, at: 87, live: false }
+    const receiptItem: ChatItem = { kind: 'receipt', id: 'h-receipt-87', rowId: 87, receipt: receiptParsed.receipts[0]!, at: 87 }
     const items: ChatItem[] = [bot(85, 'hi'), answer(86, 'hello'), receiptItem, answer(88, 'ok')]
     const { lines } = buildTimeline(input({ items, idleConfirmed: false }))
     expect(exchangeLine(lines, 'x-in-h-bot-85')).toBeUndefined()
@@ -861,7 +861,7 @@ describe('completion evidence (spec 12.3)', () => {
   it('a later confirmed completion never folds a turn whose own answer failed', () => {
     const receiptParsed = parseReceiptRow(receiptText('proc_000000000abc', '{"status":"settled","delivery_id":"d1","reply":"ok"}'))
     if (receiptParsed.kind !== 'receipts') throw new Error('fixture')
-    const receiptItem: ChatItem = { kind: 'receipt', id: 'h-receipt-87', rowId: 87, receipt: receiptParsed.receipts[0]!, at: 87, live: false }
+    const receiptItem: ChatItem = { kind: 'receipt', id: 'h-receipt-87', rowId: 87, receipt: receiptParsed.receipts[0]!, at: 87 }
     const items: ChatItem[] = [bot(85, 'hi'), answer(86, 'hello', { turnOutcome: 'failed' }), receiptItem, answer(88, 'ok', { turnOutcome: 'completed' })]
     const { lines } = buildTimeline(input({ items, idleConfirmed: false }))
     expect(exchangeLine(lines, 'x-in-h-bot-85')).toBeUndefined()

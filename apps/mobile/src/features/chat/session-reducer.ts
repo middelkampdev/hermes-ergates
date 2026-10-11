@@ -128,7 +128,7 @@ export type SessionAction =
   /** A turn was already running when we (re)attached (`opened.running`, `session.activate`). */
   | { type: 'turn/observed-running'; at?: number }
   /** Durable transcript rows arrived for live-only observations; drop the duplicates. */
-  | { type: 'transcript/reconciled'; toolCallIds: string[]; processIds: string[] }
+  | { type: 'transcript/reconciled'; toolCallIds: string[] }
   | { type: 'replay/result'; result: ReplayResult }
   | { type: 'history/refetched' }
   | { type: 'error/cleared' }
@@ -296,13 +296,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return invalidateIdle(startTurn(state, 'unknown', action.at))
     case 'transcript/reconciled': {
       const toolCallIds = new Set(action.toolCallIds)
-      const processIds = new Set(action.processIds)
-      const items = state.items.filter(i => {
-        if (i.kind === 'tool' && i.toolId !== undefined && toolCallIds.has(i.toolId)) {
-          return false
-        }
-        return !(i.kind === 'receipt' && i.live && processIds.has(i.receipt.headline.processId))
-      })
+      const items = state.items.filter(i => !(i.kind === 'tool' && i.toolId !== undefined && toolCallIds.has(i.toolId)))
       return items.length === state.items.length ? state : { ...state, items }
     }
     case 'replay/result':

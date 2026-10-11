@@ -113,21 +113,21 @@ describe('collectEvidence', () => {
       expect(evidence.receipts.some(r => r.processId === processId)).toBe(true)
     }
     expect(evidence.receipts.map(r => r.rowId)).toEqual([91, 99, 107, 121, 125])
-    expect(evidence.receipts.find(r => r.processId === CLI_PROCESS_ID)).toMatchObject({ rowId: 99, live: false, itemId: `h-receipt-99-${CLI_PROCESS_ID}` })
+    expect(evidence.receipts.find(r => r.processId === CLI_PROCESS_ID)).toMatchObject({ rowId: 99, itemId: `h-receipt-99-${CLI_PROCESS_ID}` })
   })
 
-  it('collects live sends, live results and live receipts from chat items', () => {
+  it('collects live sends, live results and receipts from chat items', () => {
     const receipt = parsed(receiptText('proc_0123456789ab', 'completed normally', '0', 'Sure thing.'))
     const items: ChatItem[] = [
       { kind: 'tool', id: 'tool-call_live', toolId: 'call_live', name: 'message_agent', args: { target: 'kevin', message: 'Hi' }, result: { status: 'sent', process_id: 'proc_0123456789ab' }, done: true },
       { kind: 'tool', id: 'tool-call_other', toolId: 'call_other', name: 'terminal', args: { command: 'ls' }, result: { output: '' }, done: true },
-      { kind: 'receipt', id: 'live-receipt-proc_0123456789ab', receipt, live: true },
+      { kind: 'receipt', id: 'h-receipt-i2-proc_0123456789ab', receipt },
     ]
     const evidence = collectEvidence(items, [])
 
     expect(evidence.sends).toEqual([{ toolCallId: 'call_live', target: 'kevin', message: 'Hi', liveItemId: 'tool-call_live', done: true }])
     expect(evidence.results).toEqual([{ toolCallId: 'call_live', result: { status: 'sent', process_id: 'proc_0123456789ab' }, liveItemId: 'tool-call_live' }])
-    expect(evidence.receipts).toEqual([{ processId: 'proc_0123456789ab', receipt, itemId: 'live-receipt-proc_0123456789ab', itemIds: ['live-receipt-proc_0123456789ab'], live: true }])
+    expect(evidence.receipts).toEqual([{ processId: 'proc_0123456789ab', receipt, itemId: 'h-receipt-i2-proc_0123456789ab', itemIds: ['h-receipt-i2-proc_0123456789ab'] }])
   })
 
   it('keeps a live tool item that is still running as a not-done send with no result', () => {
@@ -137,11 +137,11 @@ describe('collectEvidence', () => {
     expect(evidence.results).toEqual([])
   })
 
-  it('dedupes by tool call id and process id: REST wins, the live item id is kept for folding', () => {
+  it('dedupes by tool call id and process id: REST wins, the item ids are kept for folding', () => {
     const receipt = parsed(receiptText(CLI_PROCESS_ID, 'completed normally', '0', 'Reply text'))
     const items: ChatItem[] = [
       { kind: 'tool', id: `tool-${CLI_CALL_ID}`, toolId: CLI_CALL_ID, name: 'message_agent', args: { target: 'kevin', message: 'Hi' }, result: { status: 'sent' }, done: true },
-      { kind: 'receipt', id: `live-receipt-${CLI_PROCESS_ID}`, receipt, live: true },
+      { kind: 'receipt', id: `h-receipt-i1-${CLI_PROCESS_ID}`, receipt },
     ]
     const evidence = collectEvidence(items, senderRows)
 
@@ -156,7 +156,7 @@ describe('collectEvidence', () => {
   it('keeps every item id of one process when the same receipt arrives twice', () => {
     const receipt = parsed(receiptText(CLI_PROCESS_ID, 'completed normally', '0', 'Reply text'))
     // a socket-history receipt on a row without a row_id: its item id cannot be rebuilt from the process id
-    const items: ChatItem[] = [{ kind: 'receipt', id: `h-receipt-i7-${CLI_PROCESS_ID}`, receipt, live: false }]
+    const items: ChatItem[] = [{ kind: 'receipt', id: `h-receipt-i7-${CLI_PROCESS_ID}`, receipt }]
     const evidence = collectEvidence(items, senderRows)
 
     const merged = evidence.receipts.filter(r => r.processId === CLI_PROCESS_ID)
@@ -167,7 +167,6 @@ describe('collectEvidence', () => {
     const cli = exchangeById(build(evidence).exchanges, CLI_CALL_ID)
     expect(cli.members).toContain(`h-receipt-99-${CLI_PROCESS_ID}`)
     expect(cli.members).toContain(`h-receipt-i7-${CLI_PROCESS_ID}`)
-    expect(cli.members).toContain(`live-receipt-${CLI_PROCESS_ID}`)
   })
 
   it('never reads a stamped bot message as a receipt, however its text reads', () => {
@@ -284,7 +283,7 @@ describe('deriveState', () => {
     const { exchanges } = build(evidenceOf({
       sends: [sendEvidence({ toolCallId: 'call_k', anchorRowId: 40 })],
       results: [{ toolCallId: 'call_k', result: fixture.result, rowId: 41 }],
-      receipts: [{ processId, receipt, rowId: 42, itemId: `h-receipt-42-${processId}`, live: false }],
+      receipts: [{ processId, receipt, rowId: 42, itemId: `h-receipt-42-${processId}` }],
     }))
     expect(exchanges[0]?.state).toMatchObject({ delivery: 'settled', reply: { kind: 'excerpt' }, worker: { kind: 'exited', code: 0 } })
     expect(exchanges[0]?.reply?.body).not.toContain('characters cut')
@@ -327,7 +326,6 @@ describe('buildExchanges', () => {
     expect(cli.bodies).toBe(2)
     expect(cli.evidence).toMatchObject({ status: 'sent', processId: CLI_PROCESS_ID, provenance: 'structured' })
     expect(cli.members).toContain(`h-receipt-99-${CLI_PROCESS_ID}`)
-    expect(cli.members).toContain(`live-receipt-${CLI_PROCESS_ID}`)
     expect(exchangeCopy(cli)).toBe('2 messages with Kevin')
   })
 
@@ -363,7 +361,7 @@ describe('buildExchanges', () => {
     const evidence = evidenceOf({
       sends: [sendEvidence({ toolCallId: 'call_r', anchorRowId: 40 })],
       results: [{ toolCallId: 'call_r', result: fixture.result, rowId: 41 }],
-      receipts: [{ processId, receipt, rowId: 42, itemId: `h-receipt-42-${processId}`, live: false }],
+      receipts: [{ processId, receipt, rowId: 42, itemId: `h-receipt-42-${processId}` }],
     })
     const { exchanges } = build(evidence)
     expect(exchanges[0]?.state).toMatchObject({ delivery: 'refused', worker: { kind: 'exited', code: 1 }, reply: { kind: 'none' } })
@@ -387,7 +385,7 @@ describe('buildExchanges', () => {
 
     expect(exchanges[0]?.phase).toBe('settled')
     expect(exchanges[0]?.state).toMatchObject({ delivery: 'admitted', worker: { kind: 'running' }, reply: { kind: 'none' } })
-    expect(exchanges[0]?.members).toEqual(['tool-call_live', 'live-receipt-proc_0123456789ab'])
+    expect(exchanges[0]?.members).toEqual(['tool-call_live'])
     expect(exchangeCopy(exchanges[0]!)).toBe('Messaged Kevin')
   })
 
@@ -396,7 +394,7 @@ describe('buildExchanges', () => {
     const evidence = evidenceOf({
       sends: [sendEvidence({ toolCallId: 'call_1', anchorRowId: 10 })],
       results: [{ toolCallId: 'call_1', result: { status: 'sent', process_id: 'proc_0123456789ab' }, rowId: 11 }],
-      receipts: [{ processId: 'proc_ffffffffffff', receipt, rowId: 12, itemId: 'h-receipt-12-proc_ffffffffffff', live: false }],
+      receipts: [{ processId: 'proc_ffffffffffff', receipt, rowId: 12, itemId: 'h-receipt-12-proc_ffffffffffff' }],
     })
     const { exchanges, unpaired } = build(evidence)
     expect(exchanges[0]?.state.delivery).toBe('admitted')
@@ -406,7 +404,7 @@ describe('buildExchanges', () => {
 
   it('calls a receipt without a send unpaired inside a window that reached the start', () => {
     const receipt = parsed(receiptText('proc_ffffffffffff', 'completed normally', '0', 'Sure.'))
-    const evidence = evidenceOf({ receipts: [{ processId: 'proc_ffffffffffff', receipt, rowId: 12, itemId: 'h-receipt-12-proc_ffffffffffff', live: false }] })
+    const evidence = evidenceOf({ receipts: [{ processId: 'proc_ffffffffffff', receipt, rowId: 12, itemId: 'h-receipt-12-proc_ffffffffffff' }] })
 
     const reached = build(evidence, REACHED_START)
     expect(reached.exchanges).toEqual([])
@@ -457,7 +455,7 @@ describe('buildExchanges', () => {
     const evidence = evidenceOf({
       sends: [sendEvidence({ toolCallId: 'call_1', anchorRowId: 10 })],
       results: [{ toolCallId: 'call_1', result: { status: 'sent', process_id: 'proc_0123456789ab' }, rowId: 11 }],
-      receipts: [{ processId: 'proc_0123456789ab', receipt, rowId: 12, itemId: 'h-receipt-12-proc_0123456789ab', live: false }],
+      receipts: [{ processId: 'proc_0123456789ab', receipt, rowId: 12, itemId: 'h-receipt-12-proc_0123456789ab' }],
     })
     const { exchanges } = build(evidence)
     expect(exchanges[0]?.notice).toBe(true)
@@ -472,7 +470,7 @@ describe('buildExchanges', () => {
     const evidence = evidenceOf({
       sends: [sendEvidence({ toolCallId: 'call_1', anchorRowId: 10 })],
       results: [{ toolCallId: 'call_1', result: { status: 'sent', process_id: 'proc_0123456789ab' }, rowId: 11 }],
-      receipts: [{ processId: 'proc_0123456789ab', receipt, rowId: 12, itemId: 'h-receipt-12-proc_0123456789ab', live: false }],
+      receipts: [{ processId: 'proc_0123456789ab', receipt, rowId: 12, itemId: 'h-receipt-12-proc_0123456789ab' }],
     })
     const { exchanges } = build(evidence)
     expect(exchanges[0]?.state.latestOutcomeUnavailable).toBe(true)
@@ -645,7 +643,7 @@ describe('mergeConsecutive', () => {
     const evidence = evidenceOf({
       sends: [sendEvidence({ toolCallId: `call_${suffix}`, anchorRowId: rowId, message: `Ping ${suffix}` })],
       results: [{ toolCallId: `call_${suffix}`, result: { status: 'sent', process_id: `proc_00000000000${suffix}` }, rowId: rowId + 1 }],
-      receipts: [{ processId: `proc_00000000000${suffix}`, receipt, rowId: rowId + 2, itemId: `h-receipt-${rowId + 2}-proc_00000000000${suffix}`, live: false }],
+      receipts: [{ processId: `proc_00000000000${suffix}`, receipt, rowId: rowId + 2, itemId: `h-receipt-${rowId + 2}-proc_00000000000${suffix}` }],
     })
     return build(evidence).exchanges[0]!
   }
@@ -732,7 +730,7 @@ describe('member states, openability and the merged suffix (spec 12.4)', () => {
     const evidence = evidenceOf({
       sends: [sendEvidence({ toolCallId: `call_${suffix}`, anchorRowId: rowId, message: `Ping ${suffix}` })],
       results: [{ toolCallId: `call_${suffix}`, result: { status: 'sent', process_id: `proc_00000000000${suffix}` }, rowId: rowId + 1 }],
-      receipts: [{ processId: `proc_00000000000${suffix}`, receipt, rowId: rowId + 2, itemId: `h-receipt-${rowId + 2}-proc_00000000000${suffix}`, live: false }],
+      receipts: [{ processId: `proc_00000000000${suffix}`, receipt, rowId: rowId + 2, itemId: `h-receipt-${rowId + 2}-proc_00000000000${suffix}` }],
     })
     return build(evidence).exchanges[0]!
   }
