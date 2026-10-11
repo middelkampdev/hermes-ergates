@@ -28,7 +28,7 @@ from ergates.reminders import (
 )
 from ergates.store import ControlStore
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+PLUGIN_DIR = Path(__file__).resolve().parents[2] / "ergates"
 WORKER = Path(__file__).resolve().with_name("reminder_race_worker.py")
 
 PROFILE = "thijs"
@@ -460,7 +460,7 @@ def test_two_processes_with_the_same_request_create_one_job(tmp_path):
     ControlStore(store_file).close()
     cron_file = tmp_path / "cron.jsonl"
     go = tmp_path / "go"
-    env = {**os.environ, "PYTHONPATH": str(PACKAGE_ROOT)}
+    env = {**os.environ, "PYTHONPATH": str(PLUGIN_DIR)}
     workers = [
         subprocess.Popen(
             [sys.executable, str(WORKER), str(store_file), str(cron_file), str(go)],

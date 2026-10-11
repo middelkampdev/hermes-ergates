@@ -40,22 +40,27 @@ job_mobile() {
   npm run depcruise
 }
 
-# The Global Constraints test command, plus the coverage gate.
-UV_TEST=(uv run --python 3.11 --with pytest --with pytest-cov --with pyyaml)
+# The plugin's tests are their own project, integrations/ergates-tests, so the
+# plugin folder users install holds only runtime code. Its pyproject.toml
+# installs the plugin as an editable dependency, with pytest, pytest-cov and
+# pyyaml.
+TESTS_DIR="$ROOT/integrations/ergates-tests"
+UV_TEST=(uv run --python 3.11)
 
+# The test suite, plus the coverage gate.
 job_integration() {
-  cd "$ROOT/integrations/ergates"
+  cd "$TESTS_DIR"
   "${UV_TEST[@]}" pytest --cov --cov-fail-under=90
 }
 
-# Same pin in integrations/ergates/contract/pinned.py and .github/workflows/ci.yml (contract job `ref`).
+# Same pin in integrations/ergates-tests/contract/pinned.py and .github/workflows/ci.yml (contract job `ref`).
 HERMES_PIN="818c13be1dc4fd28987e1e881a9408224afd4535"
 
 # Fails unless $1 is a Hermes checkout at the expected commit without local
 # changes or untracked files (`git diff` would miss the untracked ones). The
 # expected commit is HERMES_EXPECTED_REF when set and not empty (the CI job
 # `contract-latest` sets it to the newest Hermes release), else the pin. Same
-# rule as `expected_ref()` in integrations/ergates/contract/pinned.py.
+# rule as `expected_ref()` in integrations/ergates-tests/contract/pinned.py.
 # Checks every git exit code itself: `set -e` does not apply inside a function
 # called from an `if`.
 check_pin() {
@@ -117,7 +122,7 @@ prepare_hermes_source() {
 # uv.lock into .cache/ (the export writes nothing in the Hermes checkout).
 job_contract() {
   prepare_hermes_source
-  cd "$ROOT/integrations/ergates"
+  cd "$TESTS_DIR"
   "${UV_TEST[@]}" pytest contract
   contract_live
 }
@@ -132,7 +137,7 @@ job_contract_live() {
 
 # Needs HERMES_SOURCE (prepare_hermes_source).
 contract_live() {
-  cd "$ROOT/integrations/ergates"
+  cd "$TESTS_DIR"
   local requirements="$ROOT/.cache/hermes-requirements.txt"
   mkdir -p "$ROOT/.cache"
   uv export --quiet --frozen --no-dev --no-emit-project --no-hashes --project "$HERMES_SOURCE" -o "$requirements"

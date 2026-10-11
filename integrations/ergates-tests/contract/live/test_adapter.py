@@ -29,8 +29,7 @@ from ergates.paths import hermes_root, store_path
 from ergates.reminders import ReminderService, routine_name
 from ergates.store import ControlStore
 from ergates.tool import create_reminder_handler
-
-PLUGIN_DIR = Path(__file__).resolve().parents[2]
+from plugin_tree import PLUGIN_DIR
 
 
 def test_hermes_runs_inside_the_temporary_root(root):

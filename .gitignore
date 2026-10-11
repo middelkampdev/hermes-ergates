@@ -17,6 +17,10 @@ integrations/ergates/.venv/
 **/coverage.xml
 **/htmlcov/
 
+# The plugin tests' lock file. uv writes it on every run; committed, it would
+# record the plugin version, which .gflow/set-version.sh does not write.
+integrations/ergates-tests/uv.lock
+
 # Mobile coverage output
 apps/mobile/coverage/
 

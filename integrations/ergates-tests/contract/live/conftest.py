@@ -35,8 +35,8 @@ import pytest
 import yaml
 
 from pinned import check_pin, expected_ref
+from plugin_tree import NO_HOOKS, PLUGIN_DIR, copy_tracked_files
 
-PLUGIN_DIR = Path(__file__).resolve().parents[2]
 # The dashboard session token `hermes serve` expects (hermes_cli/web_server.py reads the variable at import).
 SESSION_TOKEN = "ergates-contract-live-token"
 SERVE_SCRIPT = Path(__file__).with_name("hermes_serve.py")
@@ -134,21 +134,13 @@ class PluginRepo:
 def plugin_git_repo(tmp_path_factory) -> PluginRepo:
     """Commits a copy of ``integrations/ergates`` (every file git tracks) to a new repository.
 
-    Untracked files stay out, so a stray local file cannot change the install
-    scan's verdict, and no git hook of this machine runs.
+    Untracked files stay out (``plugin_tree.copy_tracked_files``), so a stray
+    local file cannot change the install scan's verdict, and no git hook of
+    this machine runs.
     """
     path = tmp_path_factory.mktemp("plugin-repo")
-    no_hooks = ["-c", "core.hooksPath=/dev/null"]
-    listed = subprocess.run(
-        ["git", *no_hooks, "-C", str(PLUGIN_DIR), "ls-files", "-z", "--cached", "."],
-        capture_output=True, check=True,
-    ).stdout.decode("utf-8").split("\0")
-    for relative in filter(None, listed):
-        source = PLUGIN_DIR / relative
-        if source.is_file():  # a tracked file deleted in the working tree is listed too
-            (path / relative).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, path / relative)
-    git = ["git", *no_hooks, "-C", str(path), "-c", "user.name=Ergates contract", "-c", "user.email=contract@ergates.invalid",
+    copy_tracked_files(path)
+    git = ["git", *NO_HOOKS, "-C", str(path), "-c", "user.name=Ergates contract", "-c", "user.email=contract@ergates.invalid",
            "-c", "commit.gpgsign=false"]
     subprocess.run([*git, "init", "-q", "-b", "main"], check=True)
     subprocess.run([*git, "add", "-A"], check=True)

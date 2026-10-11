@@ -11,7 +11,8 @@ from pathlib import Path
 
 import ergates
 
-DASHBOARD = Path(__file__).resolve().parents[1] / "dashboard"
+PLUGIN_DIR = Path(__file__).resolve().parents[2] / "ergates"
+DASHBOARD = PLUGIN_DIR / "dashboard"
 
 
 def test_the_manifest_names_the_router_and_a_hidden_tab():

@@ -17,7 +17,7 @@ from conftest import rows
 from ergates import store as store_module
 from ergates.store import MIGRATIONS, SCHEMA_VERSION, ControlStore, StoreError, root_run_would_break
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+PLUGIN_DIR = Path(__file__).resolve().parents[2] / "ergates"
 TABLES = {
     "reminder_receipts", "proposal_receipts", "proposal_steps",
     "attention_events", "attention_outbox", "attention_prefs",
@@ -355,7 +355,7 @@ def test_two_processes_open_a_fresh_store_at_the_same_moment(tmp_path):
         "    time.sleep(0.001)\n"
         "print(ControlStore(sys.argv[1]).schema_version)\n"
     )
-    env = {**os.environ, "PYTHONPATH": str(PACKAGE_ROOT)}
+    env = {**os.environ, "PYTHONPATH": str(PLUGIN_DIR)}
     workers = [
         subprocess.Popen(
             [sys.executable, "-c", script, str(path), str(go)],

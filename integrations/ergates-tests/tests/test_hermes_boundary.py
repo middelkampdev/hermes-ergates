@@ -12,7 +12,7 @@ import ast
 import os
 from pathlib import Path
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+PLUGIN_DIR = Path(__file__).resolve().parents[2] / "ergates"
 
 ALLOWED = frozenset({"ergates/hermes_adapter.py", "dashboard/api.py"})
 
@@ -38,7 +38,7 @@ HERMES_TOP_LEVEL = frozenset({
 })
 
 
-def integration_modules(root: Path = PACKAGE_ROOT) -> list[Path]:
+def integration_modules(root: Path = PLUGIN_DIR) -> list[Path]:
     """Every .py file of the integration, relative paths sorted, skipping SKIPPED_DIRS."""
     found: list[Path] = []
     for directory, subdirs, files in os.walk(root):
@@ -62,7 +62,7 @@ def _imported_names(node: ast.AST) -> list[str]:
     return []
 
 
-def hermes_imports(path: Path, root: Path = PACKAGE_ROOT) -> list[str]:
+def hermes_imports(path: Path, root: Path = PLUGIN_DIR) -> list[str]:
     """`<relative path>:<line>: <module>` for each Hermes import in one file."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     relative = path.relative_to(root).as_posix()
@@ -79,7 +79,7 @@ def test_only_the_adapter_and_the_dashboard_api_import_hermes() -> None:
     offenders = [
         line
         for path in integration_modules()
-        if path.relative_to(PACKAGE_ROOT).as_posix() not in ALLOWED
+        if path.relative_to(PLUGIN_DIR).as_posix() not in ALLOWED
         for line in hermes_imports(path)
     ]
     assert offenders == []
@@ -107,7 +107,7 @@ def test_the_guard_sees_every_import_form(tmp_path: Path) -> None:
 
 
 def test_the_guard_scans_the_entry_point_and_the_package_but_not_tests() -> None:
-    scanned = {path.relative_to(PACKAGE_ROOT).as_posix() for path in integration_modules()}
+    scanned = {path.relative_to(PLUGIN_DIR).as_posix() for path in integration_modules()}
 
     assert {"__init__.py", "ergates/tool.py", "ergates/reminders.py"} <= scanned
     assert not any(name.startswith(("tests/", "contract/", ".venv/")) for name in scanned)
