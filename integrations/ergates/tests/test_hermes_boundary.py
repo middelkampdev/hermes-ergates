@@ -22,15 +22,19 @@ SKIPPED_DIRS = frozenset({"tests", "contract", ".venv", "__pycache__", ".pytest_
 # Every top-level import name Hermes installs at the pin: the packages in its
 # pyproject.toml plus each root module (setup.py ships every root *.py file).
 HERMES_TOP_LEVEL = frozenset({
-    "acp_adapter", "agent", "cron", "gateway", "hermes_cli", "plugins", "providers", "tools", "tui_gateway",
-    "batch_runner", "cli", "hermes_bootstrap", "hermes_constants", "hermes_logging", "hermes_startup_watchdog",
-    "hermes_state", "hermes_state_common", "hermes_state_compression", "hermes_state_dbfile", "hermes_state_errors",
-    "hermes_state_fts", "hermes_state_gateway", "hermes_state_guard", "hermes_state_holders",
-    "hermes_state_maintenance", "hermes_state_messages", "hermes_state_portability", "hermes_state_readpool",
-    "hermes_state_registry", "hermes_state_repair", "hermes_state_schema", "hermes_state_search",
-    "hermes_state_sessions", "hermes_state_telegram", "hermes_state_titles", "hermes_state_usage", "hermes_state_wal",
-    "hermes_time", "mcp_serve", "mini_swe_runner", "model_tools", "model_tools_connectors", "registration_lifecycle",
-    "run_agent", "toolset_distributions", "toolsets", "trajectory_compressor", "utils",
+    "acp_adapter", "agent", "cron", "gateway", "hermes_cli", "hermes_platform", "plugins", "pm", "providers", "tools",
+    "tui_gateway",
+    "batch_runner", "cli", "hermes_bootstrap", "hermes_constants", "hermes_constants_scratch", "hermes_logging",
+    "hermes_startup_watchdog", "hermes_state", "hermes_state_common", "hermes_state_compression",
+    "hermes_state_coverage", "hermes_state_dbfile", "hermes_state_errors", "hermes_state_fts", "hermes_state_gateway",
+    "hermes_state_guard", "hermes_state_health", "hermes_state_holders", "hermes_state_identity", "hermes_state_ids",
+    "hermes_state_lockguard", "hermes_state_lockowners", "hermes_state_maintenance", "hermes_state_messages",
+    "hermes_state_pidns", "hermes_state_portability", "hermes_state_profile_repair", "hermes_state_readpool",
+    "hermes_state_registry", "hermes_state_repair", "hermes_state_rewind", "hermes_state_schema",
+    "hermes_state_search", "hermes_state_sessions", "hermes_state_telegram", "hermes_state_timeline",
+    "hermes_state_titles", "hermes_state_tool_retries", "hermes_state_usage", "hermes_state_user_copy",
+    "hermes_state_wal", "hermes_time", "hermes_yaml", "mcp_serve", "mini_swe_runner", "model_tools",
+    "registration_lifecycle", "run_agent", "toolset_distributions", "toolsets", "trajectory_compressor", "utils",
 })
 
 

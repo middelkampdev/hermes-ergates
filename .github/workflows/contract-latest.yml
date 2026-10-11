@@ -1,0 +1,67 @@
+# The live contract tests (`contract/live`) against the newest stable Hermes
+# release instead of the pin, so a break shows up before the pin moves. The
+# text tests of ci.yml's `contract` job pin exact Hermes line numbers, which
+# move in nearly every release, so they run against the pin only. It lives in
+# its own file so the schedule does not run the other CI jobs and its
+# concurrency group does not collide with the push runs on `develop`. It runs
+# on a schedule (from the default branch) and on manual dispatch, never on a
+# pull request, so it blocks no merge; a break turns the run red.
+# `releases/latest` skips pre-releases; Hermes also tags rc and canary builds.
+name: Live contract tests, newest Hermes
+
+on:
+  # Mondays at 05:23 UTC.
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contract-latest
+  cancel-in-progress: false
+
+jobs:
+  contract-latest:
+    runs-on: ubuntu-latest
+    # The live tests download Hermes's dependency runtime (about 560 MB).
+    timeout-minutes: 25
+    continue-on-error: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Find the newest stable Hermes release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$(gh api repos/NousResearch/hermes-agent/releases/latest --jq .tag_name)"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Expected a vX.Y.Z release tag, got '$tag'"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Check out Hermes at that release
+        uses: actions/checkout@v7
+        with:
+          repository: NousResearch/hermes-agent
+          ref: refs/tags/${{ steps.release.outputs.tag }}
+          path: .cache/hermes-latest
+          persist-credentials: false
+      - name: Find the commit of that release
+        id: commit
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          sha="$(git -C .cache/hermes-latest rev-parse "refs/tags/${TAG}^{commit}")"
+          echo "Hermes $TAG is commit $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.11.19"
+      - run: scripts/ci-local.sh contract-live
+        env:
+          HERMES_SOURCE: ${{ github.workspace }}/.cache/hermes-latest
+          HERMES_EXPECTED_REF: ${{ steps.commit.outputs.sha }}

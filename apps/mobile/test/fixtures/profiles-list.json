@@ -9,6 +9,7 @@
       "description": "Concierge for the household. Creates and briefs specialist assistants.",
       "display_name": "",
       "skill_count": 58,
+      "previous_names": [],
       "last_session": null,
       "worker_session": null,
       "canonical_session": {
@@ -19,7 +20,8 @@
         "preview": "I checked the archive and found three photos.",
         "started_at": 1789203889.126525,
         "last_active": 1789206862.456762,
-        "message_count": 42
+        "message_count": 42,
+        "live_message_count": 42
       },
       "ui_meta_revisions": {
         "hermes-bots": 7
@@ -46,6 +48,7 @@
       "description": "Personal trainer. Plans workouts and tracks progress.",
       "display_name": "",
       "skill_count": 3,
+      "previous_names": [],
       "last_session": null,
       "worker_session": null,
       "canonical_session": {
@@ -56,7 +59,8 @@
         "preview": "Leg day is planned for Tuesday.",
         "started_at": 1789207000.0,
         "last_active": 1789208000.0,
-        "message_count": 12
+        "message_count": 12,
+        "live_message_count": 12
       },
       "ui_meta_revisions": {
         "hermes-bots": 2,
@@ -87,6 +91,7 @@
       "description": "Bookkeeper. Reads invoices.",
       "display_name": "",
       "skill_count": 3,
+      "previous_names": [],
       "last_session": null,
       "worker_session": null,
       "canonical_session": null,
@@ -107,5 +112,6 @@
       "has_avatar": false
     }
   ],
-  "bot_mode_protocol": true
+  "bot_mode_protocol": true,
+  "install_id": "install-fixture"
 }

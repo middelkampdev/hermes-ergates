@@ -1,6 +1,7 @@
 /**
  * Minimal WebSocket double for Node tests. Emits `gateway.ready` on open and
- * lets a test script the server side.
+ * lets a test script the server side, including the server-to-client
+ * requests of Hermes v0.21.6 (tui_gateway/server_requests.py).
  */
 
 type Listener = (event: unknown) => void
@@ -11,6 +12,8 @@ export interface FakeSocketScript {
   readyPayload?: Record<string, unknown>
   /** Close immediately with this code instead of opening. */
   closeOnOpen?: { code: number; reason?: string }
+  /** Open this socket without ever sending `gateway.ready`. */
+  withholdReady?: (socket: FakeWebSocket) => boolean
 }
 
 export class FakeWebSocket {
@@ -41,6 +44,9 @@ export class FakeWebSocket {
     }
     this.readyState = FakeWebSocket.OPEN
     this.emit('open', {})
+    if (script.withholdReady?.(this)) {
+      return
+    }
     this.serverEvent({ type: 'gateway.ready', payload: { heartbeat: true, replay_epoch: 'epoch-fake', ...(script.readyPayload ?? {}) } })
   }
 
@@ -60,7 +66,12 @@ export class FakeWebSocket {
   send(data: string): void {
     const frame = JSON.parse(data) as Record<string, unknown>
     this.sent.push(frame)
-    const method = String(frame.method ?? '')
+    // A frame without `method` is the client's answer to a server request;
+    // Hermes answers nothing back (server_requests.py:253-293).
+    if (frame.method === undefined) {
+      return
+    }
+    const method = String(frame.method)
     if (method === 'gateway.ping') {
       this.serverReply(frame.id, { ok: true })
       return
@@ -94,6 +105,11 @@ export class FakeWebSocket {
 
   serverEvent(params: Record<string, unknown>): void {
     this.serverMessage({ jsonrpc: '2.0', method: 'event', params })
+  }
+
+  /** Server side: a server-to-client request, as `ServerRequest.frame()` writes it (server_requests.py:70-72). */
+  serverRequest(id: string, method: string, params: Record<string, unknown>): void {
+    this.serverMessage({ jsonrpc: '2.0', id, method, params })
   }
 
   serverReply(id: unknown, result: unknown): void {

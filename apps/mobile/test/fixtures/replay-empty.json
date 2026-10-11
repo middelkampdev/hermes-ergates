@@ -3,5 +3,6 @@
   "latest_seq": 0,
   "truncated": false,
   "count": 0,
-  "epoch": "epoch-fixture-1"
+  "epoch": "epoch-fixture-1",
+  "open_requests": []
 }

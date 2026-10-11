@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { jsonRpcErrorFromFrame } from '@vendor/hermes/shared/json-rpc-channel'
+
 import { GatewayError, mapErgatesError, mapHttpError, mapRpcError, mapSocketClose, redact, userMessage } from './errors'
 
 describe('mapHttpError', () => {
@@ -40,6 +42,15 @@ describe('mapRpcError', () => {
   it('maps session-not-found codes', () => {
     const err = Object.assign(new Error('session not found'), { name: 'JsonRpcGatewayError', code: 4007 })
     expect(mapRpcError(err).kind).toBe('not_found')
+  })
+  it('maps the 4001 a session-scoped RPC answers for a runtime id Hermes no longer holds', () => {
+    // A `hermes serve` restart forgets every live id: `_sess_nowait` answers this frame (tui_gateway/server.py:1229-1245).
+    expect(mapRpcError(jsonRpcErrorFromFrame({ code: 4001, message: 'session not found' }))).toMatchObject({ kind: 'not_found', code: 4001 })
+  })
+  it('keeps every other 4001 a plain rpc error', () => {
+    for (const message of ['slug and api_key are required', 'no active session', 'session not found or not owned by this transport']) {
+      expect(mapRpcError(jsonRpcErrorFromFrame({ code: 4001, message })).kind).toBe('rpc')
+    }
   })
   it('maps vendored client timeouts', () => {
     expect(mapRpcError(new Error('request timed out after 120s: prompt.submit')).kind).toBe('timeout')

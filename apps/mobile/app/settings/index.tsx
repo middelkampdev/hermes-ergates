@@ -26,7 +26,7 @@ import { ListRow } from '@/ui/ListRow'
 import { Page } from '@/ui/Page'
 import { Toggle } from '@/ui/SwitchRow'
 
-const HERMES_PIN = 'd76856cc (v0.21.2)'
+const HERMES_PIN = '818c13be (v0.21.6)'
 
 export default function SettingsScreen() {
   const router = useRouter()

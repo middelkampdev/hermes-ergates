@@ -225,13 +225,15 @@ describe('re-opening the chat', () => {
     const controller = createSessionController({ port: gateway, profile: 'thijs', connectionId: 'c-test', outbox: memoryOutbox() })
     await controller.open()
     const live = controller.getView().state.liveSessionId ?? ''
-    // A pending clarify card lives only in the reducer too.
-    gateway.connectionFor('thijs').emit({
-      type: 'clarify.request',
-      session_id: live,
-      seq: 1,
-      payload: { request_id: 'c1', questions: [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'], multi_select: false }] }
+    // A pending clarify card lives only in the reducer too, and so does the
+    // replay watermark the status line moved.
+    const conn = gateway.connectionFor('thijs')
+    conn.serverRequest({
+      id: 'srq-0000000000c1',
+      method: 'clarify',
+      params: { session_id: live, questions: [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'], multi_select: false }] }
     })
+    conn.emit({ type: 'status.update', session_id: live, seq: 1, payload: { text: 'Waiting for your answer' } })
     await controller.send('remember me')
     await flush(20)
     expect(controller.getView().state.items.find(i => i.kind === 'user')).toMatchObject({ text: 'remember me', delivery: 'queued' })
@@ -240,7 +242,7 @@ describe('re-opening the chat', () => {
     await controller.open()
 
     const items = controller.getView().state.items
-    expect(items.filter(i => i.kind === 'clarify')).toMatchObject([{ requestId: 'c1', state: 'pending' }])
+    expect(items.filter(i => i.kind === 'clarify')).toMatchObject([{ requestId: 'srq-0000000000c1', state: 'pending' }])
     expect(items.filter(i => i.kind === 'user')).toMatchObject([{ text: 'remember me', delivery: 'queued' }])
     expect(controller.getView().state.replay.lastSeq).toBe(1)
   })

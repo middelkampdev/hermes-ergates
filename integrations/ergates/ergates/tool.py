@@ -454,10 +454,12 @@ def register(ctx: Any) -> None:
     def handle_pre_tool_call(**kwargs: Any) -> Optional[dict]:
         # Any exception, from here or from the store, is a block (policy.guarded).
         profile = hermes_adapter.current_profile(ctx)
+        proposals = services().proposals
         return policy.decide(
             kwargs.get("tool_name") or "", kwargs.get("args"),
-            admitted=services().proposals.is_admitted(profile),
-            granted_toolsets=hermes_adapter.granted_toolsets(profile),
+            admitted=proposals.is_admitted(profile),
+            # The toolset rule covers only profiles Ergates provisioned (ADR-034).
+            granted_toolsets=hermes_adapter.granted_toolsets(profile) if proposals.provisioned(profile) else None,
             tool_toolset=hermes_adapter.toolset_for_tool(kwargs.get("tool_name") or ""),
         )
 

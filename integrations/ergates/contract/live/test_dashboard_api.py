@@ -31,7 +31,7 @@ ROUTES = [
     ("POST", "/proposals/p-1/reject"),
     ("POST", "/proposals/p-1/steps"),
     ("POST", "/profiles/thijs/plugin"),
-    ("GET", "/attention/prefs?profile=thijs"),
+    ("GET", "/attention/prefs?scope=*"),
     ("PUT", "/attention/prefs"),
 ]
 
@@ -66,7 +66,7 @@ def test_a_request_without_the_token_writes_nothing(web, root, make_profile):
 
     web.post(f"{API}/reminders", json=_reminder("otto"))
 
-    assert not (root / "profiles" / "otto" / "cron").exists()
+    assert not (root / "profiles" / "otto" / "cron" / "jobs.json").exists()
     with ControlStore(store_path(root)).read() as conn:
         assert conn.execute("SELECT COUNT(*) FROM reminder_receipts WHERE profile = 'otto'").fetchone()[0] == 0
 
@@ -189,7 +189,7 @@ def test_a_deeply_nested_body_is_400_not_a_500(web):
     assert asyncio.run(module._body(request)) is None
 
 
-def test_provisioning_through_hermes_serve_ends_complete(web, token_headers, root):
+def test_provisioning_through_hermes_serve_ends_complete(web, token_headers, root, make_profile):
     """The app's steps with the server's only step in the middle: the proposal is
     complete only after Hermes itself reports the profile and the plugin."""
     directory = templates_dir(root)
@@ -206,7 +206,7 @@ def test_provisioning_through_hermes_serve_ends_complete(web, token_headers, roo
     accepted = web.post(f"{base}/accept", json={"proposal": proposal}, headers=token_headers)
     assert (accepted.status_code, accepted.json()["proposal"]["template"]) == (200, TEMPLATE)
 
-    (root / "profiles" / "ruben").mkdir(parents=True)  # what the app's profiles.create does
+    make_profile("ruben")  # Hermes's create_profile, which the app's profiles.create RPC runs
     assert web.post(f"{base}/steps", json={"step": "profile_created", "status": "done"},
                     headers=token_headers).status_code == 200
     enabled = web.post(f"{API}/profiles/ruben/plugin", headers=token_headers)
@@ -221,15 +221,21 @@ def test_provisioning_through_hermes_serve_ends_complete(web, token_headers, roo
 
 
 def test_attention_prefs_round_trip(web, token_headers):
+    """The read names its scope with ``?scope=``. Since v0.21.6 Hermes runs every plugin route in the
+    profile scope of a ``profile`` parameter, so it answers a ``?profile=`` that is no profile name itself,
+    with its own 400 ``{"detail"}``, before Ergates sees the request."""
     prefs = {"profile": "*", "muted": False, "quiet_start": "22:00", "quiet_end": "07:00"}
 
     put = web.put(f"{API}/attention/prefs", json=prefs, headers=token_headers)
-    got = web.get(f"{API}/attention/prefs", params={"profile": "*"}, headers=token_headers)
-    bad = web.get(f"{API}/attention/prefs", params={"profile": "Bad Name"}, headers=token_headers)
+    got = web.get(f"{API}/attention/prefs", params={"scope": "*"}, headers=token_headers)
+    bad_scope = web.get(f"{API}/attention/prefs", params={"scope": "Bad Name"}, headers=token_headers)
+    bad_profile = web.get(f"{API}/attention/prefs", params={"profile": "Bad Name"}, headers=token_headers)
 
     assert (put.status_code, put.json()) == (200, {"prefs": prefs})
     assert (got.status_code, got.json()) == (200, {"prefs": prefs})
-    assert (bad.status_code, bad.json()["error"]["code"]) == (400, "invalid")
+    assert (bad_scope.status_code, bad_scope.json()["error"]["code"]) == (400, "invalid")
+    assert (bad_profile.status_code, list(bad_profile.json())) == (400, ["detail"])
+    assert "is not a valid profile name" in bad_profile.json()["detail"]
 
 
 def test_the_store_is_built_once_per_process(web, token_headers, monkeypatch):
@@ -245,7 +251,7 @@ def test_the_store_is_built_once_per_process(web, token_headers, monkeypatch):
     monkeypatch.setattr(module, "ControlStore", CountingStore)
     for _ in range(3):
         web.get(f"{API}/health", headers=token_headers)
-        web.get(f"{API}/attention/prefs", params={"profile": "*"}, headers=token_headers)
+        web.get(f"{API}/attention/prefs", params={"scope": "*"}, headers=token_headers)
 
     assert len(built) == 1
     assert module.operations() is module.operations()
@@ -303,7 +309,8 @@ def test_enable_plugin_that_hermes_refuses_is_500_internal(web, token_headers, m
     assert not (home / "plugins" / "ergates").is_symlink()
 
 
-def test_a_plugin_check_that_raises_inside_complete_is_500_internal(web, token_headers, root, monkeypatch):
+def test_a_plugin_check_that_raises_inside_complete_is_500_internal(web, token_headers, root, monkeypatch,
+                                                                    make_profile):
     def broken(profile):
         raise RuntimeError("Hermes discovery failed")
 
@@ -314,7 +321,7 @@ def test_a_plugin_check_that_raises_inside_complete_is_500_internal(web, token_h
     proposals.accept(proposal["proposal_id"], proposal, profile_exists=lambda name: False)
     for step in PROVISION_STEPS[:-1]:
         proposals.record_step(proposal["proposal_id"], step, "done")
-    (root / "profiles" / "joost").mkdir(parents=True)
+    make_profile("joost")
     monkeypatch.setattr(_module(), "_operations", _operations_with(root, plugin_enabled=broken))
 
     reply = web.post(f"{API}/proposals/{proposal['proposal_id']}/steps",

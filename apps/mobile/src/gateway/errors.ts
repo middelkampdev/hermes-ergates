@@ -90,11 +90,22 @@ export function mapErgatesError(status: number, body: unknown): GatewayError {
 }
 
 // 4090/4091 are the session-slot and hosted-room refusals; 4009 is the backend's
-// "session busy / disconnect interrupt settling" code (session_lifecycle.py:470-479).
+// "session busy / disconnect interrupt settling" code (methods_prompt.py:768,
+// session_lifecycle.py:825).
 const BUSY_CODES = new Set([4009, 4090, 4091])
-// 4007 is "session not found". 4001 is NOT: the backend reuses it for unrelated
-// validation failures (methods_complete.py:298, methods_config_set.py:150).
+// 4007 is "session not found" (methods_session.py:829, session_lifecycle.py:823).
 const NOT_FOUND_CODES = new Set([4007])
+// 4001 means the same only with exactly this message: every session-scoped RPC
+// on a runtime id Hermes no longer holds (a `hermes serve` restart, a reap)
+// answers it (`_sess_nowait`, server.py:1229-1245). Any other 4001 is an
+// unrelated validation failure (methods_complete.py:384,
+// methods_config_set.py:162, methods_tools.py:151), so the bare code never maps.
+const STALE_SESSION_CODE = 4001
+const STALE_SESSION_MESSAGE = /^session not found$/i
+
+function isNotFound(code: number, message: string): boolean {
+  return NOT_FOUND_CODES.has(code) || (code === STALE_SESSION_CODE && STALE_SESSION_MESSAGE.test(message))
+}
 
 /** Map a rejection from the vendored JSON-RPC client (or any thrown value). */
 export function mapRpcError(err: unknown): GatewayError {
@@ -109,7 +120,7 @@ export function mapRpcError(err: unknown): GatewayError {
     if (code !== undefined && BUSY_CODES.has(code)) {
       return new GatewayError('busy', 'The assistant is busy with another turn.', { code, data: anyErr.data, cause: err })
     }
-    if (code !== undefined && NOT_FOUND_CODES.has(code)) {
+    if (code !== undefined && isNotFound(code, message)) {
       return new GatewayError('not_found', redact(message), { code, data: anyErr.data, cause: err })
     }
     return new GatewayError('rpc', redact(message), { code, data: anyErr.data, cause: err })
@@ -124,6 +135,24 @@ export function mapRpcError(err: unknown): GatewayError {
     return new GatewayError('network', 'No connection to the gateway.', { cause: err })
   }
   return new GatewayError('unknown', redact(message), { cause: err })
+}
+
+/**
+ * What answering a server request did: `sent` put the response frame on the
+ * socket, `offline` sent nothing because the socket is down (Hermes keeps the
+ * request for the reconnect), `unknown` sent nothing because the connection
+ * holds no open request with that id.
+ */
+export type RespondOutcome = 'sent' | 'offline' | 'unknown'
+
+/** Rejects unless the answer went out. */
+export function requireSent(outcome: RespondOutcome): void {
+  if (outcome === 'offline') {
+    throw new GatewayError('network', 'No connection to the gateway.')
+  }
+  if (outcome === 'unknown') {
+    throw new GatewayError('not_found', 'Hermes no longer waits for this answer.')
+  }
 }
 
 export function mapSocketClose(code: number, reason = ''): GatewayError {

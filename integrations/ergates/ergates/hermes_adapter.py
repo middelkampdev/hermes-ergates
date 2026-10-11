@@ -10,12 +10,21 @@ against the pinned Hermes itself.
 Imports happen inside each function, so importing this module never needs
 Hermes: the test suite and ``python -m ergates.flush`` run without it.
 
-Every call about one profile runs the way Hermes's own ``cron.manage`` RPC
-runs for a ``profile`` parameter (``tui_gateway/methods_tools.py`` at the
-pin): ``get_profile_dir(profile)`` becomes the context-local Hermes home
+Every call about one profile binds the home part of the scope Hermes's own
+``cron.manage`` RPC binds for a ``profile`` parameter
+(``tui_gateway/methods_tools.py`` at the pin): ``get_profile_dir(profile)``,
+refused unless it is a folder, becomes the context-local Hermes home
 (``set_hermes_home_override``) for the call and is reset afterwards. Config,
 cron and plugin discovery all resolve ``get_hermes_home()`` at call time, so
 they act on that profile, and no other thread sees the override.
+
+Since v0.21.6 the RPC also binds the profile's secret scope and terminal
+policy (``_session_profile_runtime_scope`` in ``tui_gateway/model_switch.py``).
+This module does not: no setting it reads or writes is a secret, and it
+runs no command. A ``${VAR}`` reference in the profile's ``config.yaml``
+expands against whatever secret scope the caller already holds (the
+request's in a dashboard route, the turn's in a hook), and ``save_config``
+writes the reference back, not the value.
 """
 
 from __future__ import annotations
@@ -25,7 +34,7 @@ import re
 from contextlib import contextmanager
 from datetime import tzinfo
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from .reminders import CronUnavailable
 
@@ -317,16 +326,41 @@ def plugin_enabled(profile: str) -> bool:
 def granted_toolsets(profile: str) -> frozenset[str] | None:
     """The toolsets ``profile``'s configuration grants now, or ``None`` when it pins none.
 
+    The tool gate asks only for a profile Ergates provisioned
+    (``ProposalService.provisioned``, ADR-034): a toolset list that
+    ``hermes tools``, a setup or the Desktop editor wrote for any other
+    profile narrows nothing.
+
     The grant is the toolset pin that ``profiles.configure`` writes, which is
-    how the app configures a new agent from its template:
-    ``tools.enabled_toolsets`` in the profile's ``config.yaml``. At the pin,
-    Hermes reads that pin only to describe the profile and builds a
-    session's tools from ``platform_toolsets``, so the tool gate is what
-    makes a template's toolsets binding. A pinned name whose tools Hermes
-    registers under other toolsets (``browser`` bundles ``browser-cdp``)
-    grants those toolsets too. Every MCP server the profile's config enables
-    adds its toolset, ``mcp-<server>``: enabled for Hermes (``enabled``, true
-    unless set) and not switched off by ``profiles.configure`` (``disabled``).
+    how the app configures a new agent from its template. Since v0.21.6 that
+    is ``platform_toolsets.cli`` in the profile's ``config.yaml``, the list
+    Hermes builds an app session's tools from. Hermes builds a gateway turn's
+    and a cron run's tools from their own platform's list, and most running
+    sessions keep the tools they were built with (only a Bot Chat session is
+    rebuilt, at the start of its next turn, when its capability fingerprint
+    changed: ``tui_gateway/model_switch.py`` ``_sync_bot_capabilities``). So
+    the tool gate is what makes a template's toolsets binding on every
+    platform and at the next call.
+    Before v0.21.6 ``profiles.configure`` wrote ``tools.enabled_toolsets``,
+    which no Hermes surface reads any more; a profile configured then still
+    has that pin, so it counts while the profile has no
+    ``platform_toolsets.cli``. Once it has one (the app configured it again
+    on v0.21.6), the legacy key is ignored.
+
+    For ``platform_toolsets.cli`` the granted names are what Hermes's own
+    reader, ``hermes_cli.tools_config._get_platform_tools(config, "cli")``,
+    resolves the list to, the call an app session is built with: it expands
+    the legacy alias ``hermes``, keeps an explicit ``[]`` as zero toolsets and
+    adds default-on plugin toolsets, ``context_engine`` and platform-native
+    toolsets. The legacy pin is its names as listed. A granted name whose
+    tools Hermes registers under other toolsets (``browser`` bundles
+    ``browser-cdp``) grants those toolsets too.
+    Every MCP server the profile's config enables adds its toolset,
+    ``mcp-<server>``: enabled for Hermes
+    (``tools.mcp_tool_common.mcp_server_enabled``: ``enabled``, true unless
+    set) and not switched off with the legacy ``disabled`` key, which
+    ``profiles.configure`` wrote before v0.21.6 and Hermes's own MCP runtime
+    never read.
 
     ``None`` means the profile pins no toolsets, so Hermes alone decides its
     tools and Ergates cannot tell a narrower grant; outside a Hermes runtime
@@ -338,35 +372,43 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
     present but missing one of the other symbols this reads (renamed or
     moved by an upgrade) raises instead of returning ``None``, so the tool
     gate blocks rather than silently granting every tool. A pin present but
-    not a list (a hand-edited config) raises for the same reason. Any other
-    failure raises too, and the tool gate blocks the call.
+    not a list (a hand-edited config) raises for the same reason; for
+    ``platform_toolsets.cli`` that is a value Hermes's own parser
+    (``hermes_cli.toolset_validation.parse_platform_toolsets_value``) cannot
+    read as a list. Any other failure raises too, and the tool gate blocks
+    the call.
     """
     try:
         from hermes_cli.config import load_config_readonly
     except ImportError:
         return None
+    from hermes_cli.tools_config import _get_platform_tools
+    from hermes_cli.toolset_validation import parse_platform_toolsets_value
     from model_tools import get_toolset_for_tool
-    from tools.mcp_tool_registration import _server_enabled
+    from tools.mcp_tool_common import mcp_server_enabled
     from toolsets import resolve_toolset
     from utils import is_truthy_value
 
+    def toolsets_granted_by(pinned) -> set[str]:
+        names = {str(name).strip() for name in pinned if str(name).strip()}
+        owners = {owner for name in names for tool in resolve_toolset(name) if (owner := get_toolset_for_tool(tool))}
+        return names | owners
+
     with _profile_home(profile):
         config = load_config_readonly() or {}
-        tools = config.get("tools")
-        pinned = tools.get("enabled_toolsets") if isinstance(tools, dict) else None
-        if pinned is None:
+        pin = _toolset_pin(config, parse_platform_toolsets_value)
+        if pin is None:
             return None
-        if not isinstance(pinned, list):
-            raise ValueError(f"{profile!r} config tools.enabled_toolsets is not a list")
-        names = {str(name).strip() for name in pinned if str(name).strip()}
-        granted = set(names)
-        for name in names:
-            granted.update(owner for tool in resolve_toolset(name) if (owner := get_toolset_for_tool(tool)))
+        key, pinned = pin
+        if key == _APP_PIN:
+            # Read-only: _get_platform_tools never writes to the config it is given.
+            pinned = _get_platform_tools(config, _APP_PLATFORM, include_default_mcp_servers=True)
+        granted = toolsets_granted_by(pinned)
         servers = config.get("mcp_servers")
         if isinstance(servers, dict):
             granted.update(
                 f"mcp-{server}" for server, entry in servers.items()
-                if isinstance(entry, dict) and _server_enabled(entry)
+                if isinstance(entry, dict) and mcp_server_enabled(entry)
                 and not is_truthy_value(entry.get("disabled", False))
             )
     return frozenset(granted)
@@ -460,6 +502,40 @@ def _plugin_lists(config: dict[str, Any]) -> tuple[set[str] | None, set[str]]:
         set(enabled) if isinstance(enabled, list) else None,
         set(disabled) if isinstance(disabled, list) else set(),
     )
+
+
+# The platform whose toolset list ``profiles.configure`` writes: the app's sessions.
+_APP_PLATFORM = "cli"
+_APP_PIN = f"platform_toolsets.{_APP_PLATFORM}"
+_LEGACY_PIN = "tools.enabled_toolsets"
+
+
+def _toolset_pin(
+    config: dict[str, Any], parse_platform_list: Callable[[object], list | None],
+) -> tuple[str, list] | None:
+    """``(key, list)`` of the toolset pin in ``config``: ``platform_toolsets.cli`` when present,
+    else the legacy ``tools.enabled_toolsets``; ``None`` when neither is set (or both are ``null``).
+
+    ``parse_platform_list`` is Hermes's parser for a ``platform_toolsets``
+    value. Raises ``ValueError`` for a pin, or a ``platform_toolsets`` section,
+    that is not one Hermes would read as a list.
+    """
+    platforms = config.get("platform_toolsets")
+    if platforms is not None and not isinstance(platforms, dict):
+        raise ValueError("config platform_toolsets is not a mapping")
+    raw = platforms.get(_APP_PLATFORM) if platforms else None
+    if raw is not None:
+        parsed = parse_platform_list(raw)
+        if not isinstance(parsed, list):
+            raise ValueError(f"config {_APP_PIN} is not a list")
+        return _APP_PIN, parsed
+    tools = config.get("tools")
+    legacy = tools.get("enabled_toolsets") if isinstance(tools, dict) else None
+    if legacy is None:
+        return None
+    if not isinstance(legacy, list):
+        raise ValueError(f"config {_LEGACY_PIN} is not a list")
+    return _LEGACY_PIN, legacy
 
 
 def _created_job_id(raw: str) -> str:

@@ -1,13 +1,14 @@
 {
   "shape": "damaged",
   "synthetic": true,
-  "text": "[IMPORTANT: Background process proc_d0e1f2a3b4c5 completed normally (exit code 0).\nCommand: /opt/data/hermes/hermes-agent/venv/bin/python /opt/data/hermes/hermes-agent/tools/bot_mode_dm.py --run-delivery --author '{\"id\":\"bot:default\",\"name\":\"hermes\",\"is_bot\":true}' query-file /opt/data/tmp/hermes-dm-501/dm-fixture.txt --profile-home /opt/data/hermes/profiles/kevin hermes -p kevin chat --in '~' -c 'Bot Chat' --create-if-missing -Q\nOutput:\ny at 18:00 works for me. Bring water.\", \"status\": \"settled\", \"delivery_id\": \"3f9c1d2e4b5a69788796a5b4c3d2e1f00112233445566778899aabbccddeeff0\"}]",
+  "text": "[IMPORTANT: Background process proc_d0e1f2a3b4c5 completed normally (exit code 0).\nCommand: /opt/data/hermes/hermes-agent/venv/bin/python /opt/data/hermes/hermes-agent/tools/bot_mode_dm.py --run-delivery --author '{\"id\":\"bot:default\",\"name\":\"hermes\",\"is_bot\":true}' query-file /opt/data/tmp/hermes-dm-501/dm-fixture.txt --profile-home /opt/data/hermes/profiles/kevin hermes -p kevin chat --in '~' -c 'Bot Chat' --create-if-missing -Q\nOutput:\n...(first 2048 characters cut — process(action=\"log\", session_id=\"proc_d0e1f2a3b4c5\") has the full output)\ny at 18:00 works for me. Bring water.\", \"status\": \"settled\", \"delivery_id\": \"3f9c1d2e4b5a69788796a5b4c3d2e1f00112233445566778899aabbccddeeff0\"}]",
   "result": {
     "status": "queued",
     "delivery_id": "3f9c1d2e4b5a69788796a5b4c3d2e1f00112233445566778899aabbccddeeff0",
     "to": "@kevin",
     "detail": "Durably queued for the live Bot Chat owner. Do NOT wait or resend; finish your turn.",
-    "process_id": "proc_d0e1f2a3b4c5"
+    "process_id": "proc_d0e1f2a3b4c5",
+    "reply_delivery": "notification"
   },
   "expect": {
     "processId": "proc_d0e1f2a3b4c5",

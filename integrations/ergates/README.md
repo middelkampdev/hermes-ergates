@@ -83,9 +83,10 @@ accept route would, then makes `<root>/ergates/templates/` hold exactly
 those files. One invalid template installs nothing. `--check` changes no
 template or plugin setting and reports the same facts; the exit code is 0
 only when every profile would load the plugin and the templates match. Run
-it as the user that owns the Hermes root, inside the Hermes runtime;
-`hermes serve` mounts the routes only when it starts, so restart it after
-the first run.
+it as the user that owns the Hermes root, inside the Hermes runtime, and
+restart `hermes serve` after the first run so it loads the plugin's hooks
+and tools. (On Hermes v0.21.6 the routes alone would mount on their first
+request.)
 
 ## Configuration
 
@@ -140,9 +141,13 @@ An install that ran version 0.1.0 needs three changes by hand:
 ## HTTP API
 
 `hermes serve` mounts `dashboard/api.py` under `/api/plugins/ergates`
-(ADR-031). Hermes's own middleware authenticates every request first: the
-dashboard session token on loopback, the cookie gate when dashboard auth is
-on. JSON in and out; every error is
+(ADR-031), at startup and, on Hermes v0.21.6, also on the first request
+after the plugin was enabled, without a restart. Hermes's own middleware
+authenticates every request first: the dashboard session token on loopback,
+the cookie gate when dashboard auth is on. Hermes also runs each route in the
+profile scope of a `profile` path or query parameter, and answers a name it
+refuses in its own shape (400, or 404 `Profile '<name>' does not exist.`, as
+`{"detail"}`) before the route runs. JSON in and out; every error is
 `{"error": {"code": "<code>", "message": "<safe text>"}}`. One
 `ControlStore` serves every request of the process.
 
@@ -155,7 +160,7 @@ on. JSON in and out; every error is
 | `POST /proposals/{id}/reject` | 200 `{"proposal"}` | 409 `not_acceptable` |
 | `POST /proposals/{id}/steps` `{step, status}` | 200 `{"proposal"}`; `briefing` `done` completes it | 409 `out_of_order` / `not_ready` |
 | `POST /profiles/{profile}/plugin` | 200 `{"profile", "enabled": true}` | 404 `unknown_profile` |
-| `GET /attention/prefs?profile=<name or *>` | 200 `{"prefs"}` | 400 `invalid` |
+| `GET /attention/prefs?scope=<name or *>` (`?profile=<name>` still names one profile) | 200 `{"prefs"}` | 400 `invalid` |
 | `PUT /attention/prefs` `{profile, muted, quiet_start, quiet_end}` | 200 `{"prefs"}` | 400 `invalid` |
 
 Also on every route: 400 `invalid` for a body that is not a JSON object or a
@@ -194,18 +199,24 @@ and answers the same receipt.
   every tool of a profile whose accepted proposal is still being
   provisioned; `cronjob_manage` with `action: create` (agents use
   `ergates_create_reminder`); and a tool whose toolset the profile's
-  configuration no longer grants. Hermes runs a tool when a hook callback
-  raises, so the gate turns any failure of its own into a block.
+  configuration no longer grants. When a hook callback raises, Hermes blocks
+  the tool with a message that quotes the exception text, which can carry
+  tool arguments. So the gate turns any failure of its own into a block with
+  a fixed message.
 - The grant (`hermes_adapter.granted_toolsets`) is the toolset pin that
-  `profiles.configure` writes, `tools.enabled_toolsets` in the profile's
-  `config.yaml` (the app sets it from the template), plus the toolset
-  `mcp-<server>` of every MCP server the profile enables. It is read at
-  every tool call, so a toolset or MCP server taken away is blocked at the
-  next call, in a running session too. At the pin Hermes itself builds a
-  session's tools from `platform_toolsets` and ignores the toolset pin, so
-  the agent can still see a tool the gate refuses. A profile without a pin
-  (the default profile) is not narrowed, and the `ergates` tools are never
-  blocked this way. A template must pin the owner toolset names Hermes
+  `profiles.configure` writes, `platform_toolsets.cli` in the profile's
+  `config.yaml` (the app sets it from the template), resolved with Hermes's
+  own `_get_platform_tools`, plus the toolset `mcp-<server>` of every MCP
+  server the profile enables. The legacy `tools.enabled_toolsets` counts only
+  when `platform_toolsets.cli` is absent. The grant is read at every tool
+  call, so a toolset or MCP server taken away is blocked at the next call, in
+  a running session too. Hermes builds an app session's tools from the same
+  list, but `profiles.configure` rebuilds no running session, and gateway
+  turns and cron runs use their own platform lists, so the agent can still
+  see a tool the gate refuses. The rule applies only to a profile Ergates
+  provisioned (an accepted or complete proposal whose `configured` step was
+  reported), so never to the default profile, and the `ergates` tools are
+  never blocked this way. A template must pin the owner toolset names Hermes
   registers a tool's toolset under (`web`, not a sub-toolset such as
   `search`): pinning a sub-toolset name grants every tool of its owner
   toolset, not only that sub-toolset's own tools.
@@ -266,9 +277,12 @@ Rules the store enforces:
 `ReminderService.create(profile, schedule, timezone, prompt, request_id=..., label=...)`
 returns a `ReminderOutcome` with `status` `created`, `existing`, `conflict`
 or `uncertain`, and the receipt. `hermes_adapter.HermesCron` is its cron:
-each call runs in the profile's own home the way Hermes's `cron.manage` RPC
+each call runs in the profile's own home, as Hermes's `cron.manage` RPC
 does, and a create goes through the same function as the app's Routines
-screen, so Hermes's prompt scan and scheduler registration apply.
+screen, so Hermes's prompt scan and scheduler registration apply. On v0.21.6
+that RPC also binds the profile's secrets and terminal policy; a reminder
+create reads no secret and runs no command, so the adapter takes the home
+only.
 
 - **The receipt id** is the caller's `request_id` (the app's per-attempt
   outbox id) when given, else the payload hash. The same id with a
@@ -288,11 +302,12 @@ screen, so Hermes's prompt scan and scheduler registration apply.
   `uncertain`; without a request id, completed jobs do not count. A create
   whose answer was lost, or a `creating` receipt older than 60 s, is
   reconciled the same way.
-- **Timezone is advisory.** Hermes 0.21.2 has no per-job timezone, so the
+- **Timezone is advisory.** Hermes v0.21.6 has no per-job timezone, so the
   zone stays in the idempotency key and comes back as `timezone_advisory`;
-  a reminder fires in the time zone Hermes is configured for
-  (`HERMES_TIMEZONE`, else `timezone` in `config.yaml`; the machine's local
-  time when neither is set).
+  a reminder fires in the time zone Hermes resolves for the profile
+  (`HERMES_TIMEZONE`, which the multiplexed gateway ignores, else `timezone`
+  in the profile's `config.yaml`; the machine's local time when neither is
+  set).
 
 ## Proposals
 
@@ -364,11 +379,12 @@ fails. The sweep refuses to start as root when another user owns the Hermes
 root. If a root process opened the store anyway, repair it inside the
 container with `chown -R hermes:hermes /opt/data/ergates`.
 
-Quiet hours are read in the time zone Hermes cron uses: `HERMES_TIMEZONE`,
-else `timezone` in the `config.yaml` of the process's Hermes home (the
-root's for the sweep, the profile's for a hook), else the server's local
-time. Give every profile the same zone: a hook holds a completion push by
-its profile's zone, and the sweep schedules the retries by the root's.
+Quiet hours are read in the time zone Hermes cron uses: `HERMES_TIMEZONE`
+(which the multiplexed gateway ignores), else `timezone` in the
+`config.yaml` of the process's Hermes home (the root's for the sweep, the
+profile's for a hook), else the server's local time. Give every profile the
+same zone: a hook holds a completion push by its profile's zone, and the
+sweep schedules the retries by the root's.
 
 ## Development
 
@@ -394,5 +410,9 @@ and runs two suites: `contract/` reads the pinned files as text, and
 `contract/live/` imports the pinned Hermes, with its locked dependencies
 exported from the pin's `uv.lock`, in a temporary Hermes root. Or point
 `HERMES_SOURCE` at a clean checkout of
-`d76856cc6971b6e0e1903b5369498bcc4bb83a60`. Never point either suite at a
-real `~/.hermes`: the live suite makes its own.
+`818c13be1dc4fd28987e1e881a9408224afd4535` (v0.21.6). Never point either
+suite at a real `~/.hermes`: the live suite makes its own. The live
+hot-mount test installs the plugin through Hermes's install route, which on
+a source checkout first prepares Hermes's own dependency runtime (about
+560 MB in the temporary root, downloads included): it needs the network and
+takes about a minute.

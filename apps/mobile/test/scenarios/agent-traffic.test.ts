@@ -1,7 +1,7 @@
 /**
  * Scenarios for bot-to-bot traffic: the REST transcript window the chat screen
- * drives (spec 5.5/5.8), live evidence that survives a snapshot which omits it,
- * and the stale-snapshot reschedule.
+ * drives (spec 5.5/5.8), a process notification that adds no item, and the
+ * stale-snapshot reschedule.
  *
  * The session is the real `createSessionController`; the transcript window runs
  * the same pure `window.ts` rules as `use-transcript.ts` (ADR-029 rule 3).
@@ -16,7 +16,9 @@ import type { GatewayEventFrame, HistoryMessage, TranscriptQuery, TranscriptRawP
 
 import { flush } from '@test/fake-gateway/fake-websocket'
 import historyFixture from '@test/fixtures/history.json'
+import receiptCliCut from '@test/fixtures/agent-traffic/receipt-cli-cut.json'
 import liveJson from '@test/fixtures/agent-traffic/receipt-live-json.json'
+import transcriptSender from '@test/fixtures/agent-traffic/transcript-sender.json'
 
 import { FakeGateway, type FakeScript } from '../fake-gateway/fake-gateway'
 import { memoryOutbox } from '../fake-gateway/memory-outbox'
@@ -68,30 +70,84 @@ describe('a refused send with no process', () => {
   })
 })
 
-describe('a live receipt across a snapshot that omits it', () => {
-  it('survives the refetch and goes only when the transcript reconciles it', async () => {
-    const processId = 'proc_b2c3d4e5f6a7'
-    // An EMPTY snapshot, not the recorded one: the strongest form of "history does
-    // not carry it yet".
-    const gateway = new FakeGateway({ history: () => [] })
+/** What v0.21.6 sends in `status.update {kind: "process"}` for a completion (session_notifications.py:546-552). */
+const TITLE = 'Background Process Finished: /opt/data/hermes/hermes-agent/venv/bin/python /opt/data/hermes/hermes-agent/tools/bot_mo...'
+
+/** A send to Kevin whose long reply Hermes cut (receipt-cli-cut.json), as v0.21.6 streams it. */
+const KEVIN_ARGS = { target: 'kevin', message: 'When can you train?' }
+const V0216_TURN: GatewayEventFrame[] = [
+  { type: 'message.start', seq: 1 },
+  { type: 'tool.start', seq: 2, payload: { tool_id: 'call_k', name: 'message_agent', args: KEVIN_ARGS } },
+  { type: 'tool.complete', seq: 3, payload: { tool_id: 'call_k', name: 'message_agent', args: KEVIN_ARGS, result: receiptCliCut.result } },
+  { type: 'message.complete', seq: 4, payload: { text: 'I asked Kevin.', status: 'complete' } },
+  { type: 'status.update', seq: 5, payload: { kind: 'process', text: TITLE } }
+]
+
+/** The recorded sender rows plus the three durable rows of that send; the last one is the v0.21.6 receipt row. */
+const V0216_ROWS: unknown[] = [
+  ...(transcriptSender.messages as unknown[]),
+  { id: 127, role: 'assistant', content: '', timestamp: 1789376000, tool_calls: [{ id: 'call_k', type: 'function', function: { name: 'message_agent', arguments: JSON.stringify(KEVIN_ARGS) } }] },
+  { id: 128, role: 'tool', content: JSON.stringify(receiptCliCut.result), timestamp: 1789376001, tool_call_id: 'call_k', tool_name: 'message_agent' },
+  { id: 129, role: 'user', content: receiptCliCut.text, timestamp: 1789376060, display_kind: 'process_complete', display_metadata: { display_text: TITLE } }
+]
+
+/** `rows` paged like the REST route: counted from the newest end for `order: 'latest'`, returned ascending. */
+function pageOf(rows: unknown[], q: TranscriptQuery & { sessionId: string }): TranscriptRawPage {
+  const fromNewest = [...rows].reverse().slice(q.offset ?? 0, (q.offset ?? 0) + q.limit)
+  const messages = q.order === 'latest' ? fromNewest.reverse() : rows.slice(q.offset ?? 0, (q.offset ?? 0) + q.limit)
+  return { session_id: q.sessionId, messages, pagination: { limit: q.limit, offset: q.offset ?? 0, order: q.order, returned: messages.length } }
+}
+
+describe('a v0.21.6 delivery', () => {
+  it('folds from the process_complete row the REST tail brings; the live title adds no item', async () => {
+    const gateway = new FakeGateway({ onSubmit: () => V0216_TURN, transcript: q => pageOf(V0216_ROWS, q) })
+    const controller = createSessionController({ port: gateway, profile: 'thijs', connectionId: 'c-test', outbox: memoryOutbox() })
+    await controller.open()
+    const transcript = transcriptWindow(gateway, controller, 'thijs')
+
+    await controller.send('Ask Kevin when he can train')
+    await flush(20)
+
+    // The `message_agent` completion, the local turn's completion and the process title (spec 5.8).
+    expect(controller.getView().state.tailWanted).toBe(3)
+
+    await transcript.fetchInitial()
+    await transcript.fetchTail()
+
+    expect(controller.getView().state.items.filter(i => i.kind === 'notice')).toEqual([])
+    const build = buildExchanges(collectEvidence(controller.getView().state.items, transcript.current().rows), { roster, window: transcript.current() })
+    const kevin = build.exchanges.find(x => x.anchor.toolCallId === 'call_k')
+    expect(kevin).toMatchObject({ phase: 'settled', state: { delivery: 'settled', reply: { kind: 'excerpt' } } })
+    expect(exchangeCopy(kevin!)).toBe('2 messages with Kevin · shortened by Hermes')
+    expect(build.unpaired).toEqual([])
+  })
+})
+
+describe('a process notification (status.update {kind: "process"})', () => {
+  it('adds no item, as on Desktop, and the refetch shows the durable row once, where it belongs', async () => {
+    // What v0.21.6 sends for a finished subagent (tools/process_registry_notifications.py:320-321,
+    // tui_gateway/session_notifications.py:546-552), and the row it stands for (:486-487).
+    const title = 'Subagent Task Completed: Review the release notes'
+    const rows: HistoryMessage[] = [
+      { role: 'user', text: 'Review the release notes in the background', row_id: 1, timestamp: 1789203001 },
+      { role: 'assistant', text: 'Started.', row_id: 2, timestamp: 1789203002 },
+      { role: 'user', text: '[ASYNC DELEGATION COMPLETE]', row_id: 3, timestamp: 1789203003, display_kind: 'async_delegation_complete', display_metadata: { display_text: title } },
+      { role: 'user', text: 'Thanks', row_id: 4, timestamp: 1789203004 }
+    ]
+    const gateway = new FakeGateway({ history: () => rows })
     const controller = createSessionController({ port: gateway, profile: 'thijs', connectionId: 'c-test', outbox: memoryOutbox() })
     await controller.open()
     const live = controller.getView().state.liveSessionId ?? ''
+    const before = controller.getView().state.items.map(i => i.id)
 
-    gateway.connectionFor('thijs').emit({ type: 'status.update', session_id: live, seq: 30, payload: { kind: 'process', text: liveJson.text } })
-    const receipts = controller.getView().state.items.filter(i => i.kind === 'receipt')
-    expect(receipts).toHaveLength(1)
-    expect(receipts[0]).toMatchObject({ live: true })
-    // The notification itself is a tail trigger, even for a receipt we already hold.
-    expect(controller.getView().state.tailWanted).toBe(1)
+    gateway.connectionFor('thijs').emit({ type: 'status.update', session_id: live, seq: 30, payload: { kind: 'process', text: title } })
+    gateway.connectionFor('thijs').emit({ type: 'status.update', session_id: live, seq: 31, payload: { kind: 'process', text: liveJson.text } })
+    expect(controller.getView().state.items.map(i => i.id)).toEqual(before)
+    // Each notification is a tail trigger: the REST tail brings the durable row.
+    expect(controller.getView().state.tailWanted).toBe(2)
 
-    // Absence from a snapshot is not evidence of absence: the live receipt is all
-    // that is left after an empty one.
     await controller.refetchHistory()
-    expect(controller.getView().state.items.map(i => i.kind)).toEqual(['receipt'])
-
-    controller.dispatchReconciled({ toolCallIds: [], processIds: [processId] })
-    expect(controller.getView().state.items.filter(i => i.kind === 'receipt')).toHaveLength(0)
+    expect(controller.getView().state.items.map(i => i.kind)).toEqual(['user', 'assistant', 'event', 'user'])
   })
 })
 

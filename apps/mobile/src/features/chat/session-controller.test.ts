@@ -5,7 +5,8 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 
-import { GatewayError } from '@/gateway/errors'
+import { GatewayError, mapRpcError } from '@/gateway/errors'
+import { jsonRpcErrorFromFrame } from '@vendor/hermes/shared/json-rpc-channel'
 
 import { flush } from '@test/fake-gateway/fake-websocket'
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
@@ -63,6 +64,22 @@ describe('createSessionController', () => {
     expect(controller.getView().state.liveSessionId).toBe('live0001')
   })
 
+  it('re-opens the chat when a reconnect after a Hermes restart answers 4001 "session not found"', async () => {
+    const gateway = new FakeGateway()
+    const controller = controllerFor(gateway)
+    await controller.open()
+    expect(gateway.calls.title).toHaveLength(1)
+
+    // A restarted `hermes serve` holds no live ids: every session-scoped RPC on the old one answers
+    // this frame (tui_gateway/server.py:1229-1245), and the socket maps it like any RPC error.
+    vi.spyOn(gateway.sessions, 'activate').mockRejectedValueOnce(mapRpcError(jsonRpcErrorFromFrame({ code: 4001, message: 'session not found' })))
+    await controller.reconnect()
+    await flush(20)
+
+    expect(gateway.calls.title).toHaveLength(2)
+    expect(controller.getView().phase).toBe('ready')
+  })
+
   it('never re-opens a closed controller when a reconnect resolves to a reaped session late', async () => {
     const gateway = new FakeGateway()
     const connectSpy = vi.spyOn(gateway, 'connect')
@@ -97,6 +114,24 @@ describe('createSessionController', () => {
     // no second `session.title` mint, and so no second shared-outbox flush.
     expect(gateway.calls.title).toHaveLength(1)
     expect(connectSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves the resync to the next open when a foreground reconnect finds the socket not open', async () => {
+    const gateway = new FakeGateway()
+    const controller = controllerFor(gateway)
+    await controller.open()
+    const conn = gateway.connectionFor('thijs')
+    conn.simulateOffline()
+    const before = gateway.calls.activate
+
+    // An activate sent before the socket reports open could go out ahead of
+    // client.capabilities on the new socket.
+    await controller.reconnect()
+    expect(gateway.calls.activate).toBe(before)
+
+    conn.simulateOnline()
+    await flush(20)
+    expect(gateway.calls.activate).toBe(before + 1)
   })
 
   it('offers a new sign-in when the socket closes for good', async () => {
@@ -153,17 +188,16 @@ describe('createSessionController', () => {
     const controller = controllerFor(gateway)
     await controller.open()
     const live = controller.getView().state.liveSessionId ?? ''
-    gateway.connectionFor('thijs').emit({
-      type: 'clarify.request',
-      session_id: live,
-      seq: 1,
-      payload: { request_id: 'c1', questions: [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'], multi_select: false }] }
+    gateway.connectionFor('thijs').serverRequest({
+      id: 'srq-0000000000c1',
+      method: 'clarify',
+      params: { session_id: live, questions: [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'], multi_select: false }] }
     })
 
-    await controller.dismissClarify('c1', 'water, please')
+    await controller.dismissClarify('srq-0000000000c1', 'water, please')
 
-    expect(respond).toHaveBeenCalledWith({ session_id: live, request_id: 'c1', answer: 'water, please' })
-    expect(controller.getView().state.items.find(i => i.kind === 'clarify')).toMatchObject({ requestId: 'c1', state: 'dismissed' })
+    expect(respond).toHaveBeenCalledWith({ session_id: live, request_id: 'srq-0000000000c1', answers: { q0: 'water, please' } })
+    expect(controller.getView().state.items.find(i => i.kind === 'clarify')).toMatchObject({ requestId: 'srq-0000000000c1', state: 'dismissed' })
   })
 
   it('keeps a clarify card open when the answer fails', async () => {
@@ -172,16 +206,15 @@ describe('createSessionController', () => {
     const controller = controllerFor(gateway)
     await controller.open()
     const live = controller.getView().state.liveSessionId ?? ''
-    gateway.connectionFor('thijs').emit({
-      type: 'clarify.request',
-      session_id: live,
-      seq: 1,
-      payload: { request_id: 'c1', questions: [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'], multi_select: false }] }
+    gateway.connectionFor('thijs').serverRequest({
+      id: 'srq-0000000000c1',
+      method: 'clarify',
+      params: { session_id: live, questions: [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'], multi_select: false }] }
     })
 
-    await controller.answerClarify('c1', { q0: 'A' })
+    await controller.answerClarify('srq-0000000000c1', { q0: 'A' })
 
-    expect(controller.getView().state.items.find(i => i.kind === 'clarify')).toMatchObject({ requestId: 'c1', state: 'pending' })
+    expect(controller.getView().state.items.find(i => i.kind === 'clarify')).toMatchObject({ requestId: 'srq-0000000000c1', state: 'pending' })
   })
 
   it('injects a development frame only when allowed', async () => {

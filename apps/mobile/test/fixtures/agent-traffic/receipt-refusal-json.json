@@ -3,11 +3,13 @@
   "synthetic": true,
   "text": "[IMPORTANT: Background process proc_a1b2c3d4e5f6 exited (exit code 1).\nCommand: /opt/data/hermes/hermes-agent/venv/bin/python /opt/data/hermes/hermes-agent/tools/bot_mode_dm.py --run-delivery --author '{\"id\":\"bot:default\",\"name\":\"hermes\",\"is_bot\":true}' query-file /opt/data/tmp/hermes-dm-501/dm-fixture.txt --profile-home /opt/data/hermes/profiles/kevin hermes -p kevin chat --in '~' -c 'Bot Chat' --create-if-missing -Q\nOutput:\n{\"error\": \"Delivery failed: @kevin's Bot Chat is open on another surface right now, so your message was NOT delivered. Try again later.\", \"reason\": \"target_busy\"}]",
   "result": {
-    "status": "sent",
+    "status": "queued",
+    "delivery_id": "a8f482ea74542a9c4125e11c0220ea4f203f3193fc2c89dff9d40073ea9fd861",
     "to": "@kevin",
-    "detail": "Message dispatched to @kevin. This is asynchronous — do NOT wait or poll. Finish your turn now; when the delivery completes, its notification carries the reply — relay it then, attributed to that agent.",
+    "reply_delivery": "notification",
+    "detail": "Message queued for @kevin: this acknowledges the hand-off to a background delivery process, not a delivery receipt — do NOT wait or poll. Finish your turn now; that process's completion notification carries the delivery outcome — the reply (relay it then, attributed to that agent) or the delivery failure (report it; the message was NOT delivered).",
     "process_id": "proc_a1b2c3d4e5f6",
-    "sent_at": 1789375767
+    "queued_at": 1789375767
   },
   "expect": {
     "processId": "proc_a1b2c3d4e5f6",

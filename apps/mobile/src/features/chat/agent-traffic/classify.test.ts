@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { classifyUserRow } from './classify'
+import { classifyUserRow, PROCESS_COMPLETE_DISPLAY_KIND } from './classify'
 
+import receiptBatchTwo from '@test/fixtures/agent-traffic/receipt-batch-two.json'
+import receiptCli from '@test/fixtures/agent-traffic/receipt-cli.json'
 import liveJson from '@test/fixtures/agent-traffic/receipt-live-json.json'
+
+/** The one-line title v0.21.6 stores in a process_complete row's display_metadata (process_registry_notifications.py:335-349). */
+const TITLE = 'Background Process Finished: /opt/data/hermes/hermes-agent/venv/bin/python /opt/data/hermes/hermes-agent/tools/bot_mo...'
 
 describe('classifyUserRow', () => {
   it('prefers a validated a2a_message stamp, falling through to plain when metadata is invalid', () => {
@@ -61,6 +66,25 @@ describe('classifyUserRow', () => {
     expect(classifyUserRow({ text: "[Message from agent 'Kevin'] hi" })).toMatchObject({ kind: 'bot_message', handle: 'kevin', text: 'hi' })
     expect(classifyUserRow({ text: 'Message from 🤖 kevin (@kevin): hi', localId: 'l1' })).toEqual({ kind: 'plain' })
     expect(classifyUserRow({ text: 'Tell me about Message from Kevin: no' })).toEqual({ kind: 'plain' })
+  })
+
+  it('reads a process_complete row with the receipt grammar', () => {
+    expect(classifyUserRow({ text: receiptCli.text, displayKind: 'process_complete', displayMetadata: { display_text: TITLE } }))
+      .toMatchObject({ kind: 'receipts', receipts: [{ headline: { processId: 'proc_782bd84d7f2a' } }] })
+    expect(PROCESS_COMPLETE_DISPLAY_KIND).toBe('process_complete')
+  })
+
+  it('reads a process_complete batch row as one receipt per process, and never as a bot message or a plain bubble', () => {
+    expect(classifyUserRow({ text: receiptBatchTwo.text, displayKind: 'process_complete', displayMetadata: { display_text: '2 Background Processes Finished' } }))
+      .toMatchObject({ kind: 'receipts', receipts: [{ headline: { processId: 'proc_69dec248dc4e' } }, { headline: { processId: 'proc_8a312511b81e' } }] })
+    const malformed = '[IMPORTANT: Background process proc_deadbeef0000 not a real receipt'
+    expect(classifyUserRow({ text: malformed, displayKind: 'process_complete' })).toEqual({ kind: 'notice', noticeKind: 'process', detail: malformed })
+    const unexpected = 'Message from 🤖 kevin (@kevin): hi'
+    expect(classifyUserRow({ text: unexpected, displayKind: 'process_complete' })).toEqual({ kind: 'notice', noticeKind: 'process', detail: unexpected })
+  })
+
+  it('accepts a relayed sender stamp that names a connection', () => {
+    expect(classifyUserRow({ text: 'Message from 🤖 kevin (@kevin@laptop): Tuesday works.' })).toMatchObject({ kind: 'bot_message', handle: 'kevin', text: 'Tuesday works.' })
   })
 
   it('treats near-miss legacy shapes as plain under the verbatim regex', () => {

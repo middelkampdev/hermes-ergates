@@ -72,7 +72,8 @@
       "banner_logo": "",
       "banner_hero": "",
       "tool_prefix": "\u250a",
-      "help_header": "(^_^)? Available Commands"
+      "help_header": "(^_^)? Available Commands",
+      "customCSS": ""
     },
     "change_events": true,
     "heartbeat": true,

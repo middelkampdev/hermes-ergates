@@ -76,7 +76,7 @@ Organizing works offline, as before. Every pin and section change shows on Home 
 | Session | Owning connection + profile + durable Hermes session id |
 | Message | Owning session + durable `row_id` |
 | Replay event | Owning session + replay `epoch` + `seq`; transient, not a durable message id |
-| Approval/clarify | Owning session + backend `request_id` |
+| Approval/clarify | Owning session + server request `id` (`srq-<12 hex>`) |
 | Proposal/job-create request | Integration-generated id + approved payload hash |
 | Local send | App-generated UUID for local tracking only; not a proven upstream dedup key |
 | Room/job | Owning gateway/profile as applicable + Hermes id |

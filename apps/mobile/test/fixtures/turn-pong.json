@@ -11,6 +11,7 @@
       "model": "gpt-5.6-sol",
       "provider": "openai-codex",
       "reasoning_effort": "medium",
+      "reasoning_effort_wire": "medium",
       "service_tier": "",
       "fast": false,
       "yolo": false,
@@ -277,7 +278,16 @@
         "avg_tps": 0.6,
         "active_subagents": 0
       },
-      "status": "complete"
+      "status": "complete",
+      "persisted_turn": {
+        "row_ids": [
+          1,
+          2
+        ],
+        "complete": true,
+        "user_row_id": 1,
+        "final_assistant_row_id": 2
+      }
     },
     "seq": 10
   },
@@ -288,6 +298,7 @@
       "model": "gpt-5.6-sol",
       "provider": "openai-codex",
       "reasoning_effort": "medium",
+      "reasoning_effort_wire": "medium",
       "service_tier": "",
       "fast": false,
       "yolo": false,

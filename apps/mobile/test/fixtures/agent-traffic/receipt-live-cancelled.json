@@ -1,0 +1,19 @@
+{
+  "shape": "live-json",
+  "synthetic": true,
+  "text": "[IMPORTANT: Background process proc_d6e7f8a9b0c1 exited (exit code 1).\nCommand: /opt/data/hermes/hermes-agent/venv/bin/python /opt/data/hermes/hermes-agent/tools/bot_mode_dm.py --run-delivery --author '{\"id\":\"bot:default\",\"name\":\"hermes\",\"is_bot\":true}' query-file /opt/data/tmp/hermes-dm-501/dm-fixture.txt --profile-home /opt/data/hermes/profiles/kevin hermes -p kevin chat --in '~' -c 'Bot Chat' --create-if-missing -Q\nOutput:\n{\"error\": \"Live Bot Chat owner is no longer available\", \"reason\": \"runtime_offline\", \"status\": \"cancelled\", \"delivery_id\": \"3f9c1d2e4b5a69788796a5b4c3d2e1f00112233445566778899aabbccddeeff0\"}]",
+  "result": {
+    "status": "queued",
+    "delivery_id": "3f9c1d2e4b5a69788796a5b4c3d2e1f00112233445566778899aabbccddeeff0",
+    "to": "@kevin",
+    "detail": "Durably queued for the live Bot Chat owner. Do NOT wait or resend; finish your turn.",
+    "process_id": "proc_d6e7f8a9b0c1",
+    "reply_delivery": "notification"
+  },
+  "expect": {
+    "processId": "proc_d6e7f8a9b0c1",
+    "delivery": "cancelled",
+    "reply": "none",
+    "worker": "exited"
+  }
+}

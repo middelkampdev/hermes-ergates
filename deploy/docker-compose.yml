@@ -48,10 +48,12 @@ x-through-the-egress-proxy: &through-the-egress-proxy
 
 services:
   hermes-serve:
-    # v2026.9.11 is the newest Hermes release image that predates the
-    # integration's contract pin (d76856cc, 155 commits later); no image is
-    # built from the pin itself. deploy/VERIFY.md has the owner's check.
-    image: nousresearch/hermes-agent:v2026.9.11@sha256:9469b3e78b9545b6d576eb8887a95352e9a0ea83730eaf31431cf862ca1010e1
+    # Hermes v0.21.6 (818c13be), the commit the integration's contract tests
+    # run against. The registry's plain `v0.21.6` tag is an older build from an
+    # abandoned release candidate; `rc.4-v0.21.6` is the release's own image
+    # (the `stable` and `latest` tags point at it too). The digest is what
+    # Docker pulls. deploy/VERIFY.md has the owner's check.
+    image: nousresearch/hermes-agent:rc.4-v0.21.6@sha256:9774f4f39a9bb8c2f68ce728ed5e99ddbad282163be56764afacf88ed952b784
     container_name: ergates-hermes-serve
     restart: unless-stopped
     # Do not override the image's default entrypoint (s6-overlay's /init):
@@ -100,14 +102,14 @@ services:
     depends_on:
       - egress-proxy
     # The image's own setup adds the `hermes` user to the socket's group at
-    # boot (docker/stage2-hook.sh in Hermes v2026.9.11); group_add stays as a
+    # boot (docker/stage2-hook.sh in Hermes v0.21.6); group_add stays as a
     # second route. deploy/VERIFY.md checks it on the VPS.
     group_add:
       - "${DOCKER_SOCK_GID:?set DOCKER_SOCK_GID in .env -- see .env.example}"
 
   hermes-gateway:
     # The same image as hermes-serve: both controllers run from one data root.
-    image: nousresearch/hermes-agent:v2026.9.11@sha256:9469b3e78b9545b6d576eb8887a95352e9a0ea83730eaf31431cf862ca1010e1
+    image: nousresearch/hermes-agent:rc.4-v0.21.6@sha256:9774f4f39a9bb8c2f68ce728ed5e99ddbad282163be56764afacf88ed952b784
     container_name: ergates-hermes-gateway
     restart: unless-stopped
     command: ["hermes", "gateway", "run"]

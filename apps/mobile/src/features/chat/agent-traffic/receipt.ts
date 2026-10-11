@@ -17,7 +17,10 @@ export interface ParsedReceipt {
   attribution: string[]
   command: string
   body: string
+  /** The subagent trim marker led the body (process_registry_notifications.py:443-447). */
   trimmed: boolean
+  /** How many leading characters Hermes cut, from the v0.21.6 cut marker (process_registry_notifications.py:448-451); null without one. */
+  cut: number | null
   raw: string
 }
 
@@ -61,6 +64,18 @@ export const HEADLINE_RE = /^\[IMPORTANT: Background process (proc_[0-9a-f]{12})
 export const BATCH_HEADER_RE = /^\[IMPORTANT: (\d+) background processes completed\./
 export const BATCH_SPLIT = ']\n\n[IMPORTANT: Background process '
 export const TRIM_MARKER_RE = /^\.\.\.\(output trimmed — subagent-owned process;[^\n]*\)\n/
+/**
+ * Hermes v0.21.6 keeps the tail of a long completion and says so in front of it
+ * (process_registry_notifications.py:448-451). A delivery run keeps `MESSAGE_MAX_CHARS + 2000`
+ * characters, 18,000 (tools/bot_mode_dm.py:43-46, :711; process_registry.py:526-534).
+ */
+export const CUT_MARKER_RE = /^\.\.\.\(first (\d+) characters cut \u2014 process\(action="log", session_id="proc_[0-9a-f]{12}"\) has the full output\)\n/
+/**
+ * The one-line title v0.21.6 sends in `status.update {kind: "process"}` for a completion, in place of
+ * the receipt (`process_completion_display_text`, process_registry_notifications.py:335-349;
+ * tui_gateway/session_notifications.py:546-552). The receipt itself is only in the durable row.
+ */
+export const PROCESS_TITLE_RE = /^Background Process (?:Finished|Failed|Terminated|Lost|Failed to Start)(?: \(exit [^)]+\))?(?:: [\s\S]+)?$/
 
 const SINGLE_RECEIPT_PREFIX = '[IMPORTANT: Background process '
 const IMPORTANT_PREFIX = '[IMPORTANT:'
@@ -104,11 +119,14 @@ export function parseSingleReceipt(text: string): ParsedReceipt | null {
   if (!remainder.endsWith(']')) return null
   const rawBody = remainder.slice(0, -1)
 
+  // Hermes writes one marker or the other, never both (process_registry_notifications.py:443-451).
   const trimMarkerMatch = TRIM_MARKER_RE.exec(rawBody)
-  const trimmed = trimMarkerMatch !== null
-  const body = trimmed ? rawBody.slice(trimMarkerMatch![0].length) : rawBody
+  const cutMarkerMatch = trimMarkerMatch === null ? CUT_MARKER_RE.exec(rawBody) : null
+  const marker = trimMarkerMatch ?? cutMarkerMatch
+  const body = marker ? rawBody.slice(marker[0].length) : rawBody
+  const cut = cutMarkerMatch ? Number(cutMarkerMatch[1]) : null
 
-  return { headline, attribution, command, body, trimmed, raw: text }
+  return { headline, attribution, command, body, trimmed: trimMarkerMatch !== null, cut, raw: text }
 }
 
 /** Splits an accepted batch row into its receipt pieces, or returns null if malformed or miscounted. */
@@ -226,23 +244,28 @@ function readNoReplyBody(body: string): BodyReading | undefined {
   return reading
 }
 
-/** A `text` reply becomes an excerpt when the receipt body was trimmed by the backend. */
-function replyFromRelayText(text: string, trimmed: boolean): Reply {
+/** A receipt whose output Hermes shortened: the subagent trim or the v0.21.6 cut. */
+function shortened(receipt: ParsedReceipt): boolean {
+  return receipt.trimmed || receipt.cut !== null
+}
+
+/** A `text` reply becomes an excerpt when the backend shortened the receipt body. */
+function replyFromRelayText(text: string, excerpt: boolean): Reply {
   if (text === '(empty reply)') return { kind: 'empty' }
-  return trimmed ? { kind: 'excerpt', body: text } : { kind: 'text', body: text, completeness: 'unknown' }
+  return excerpt ? { kind: 'excerpt', body: text } : { kind: 'text', body: text, completeness: 'unknown' }
 }
 
 /** Branch 4: `Reply from … on …:\n<text>` or `(empty reply)`. */
-function readReplyFromBody(body: string, trimmed: boolean): BodyReading | undefined {
+function readReplyFromBody(body: string, excerpt: boolean): BodyReading | undefined {
   if (!body.startsWith('Reply from ')) return undefined
   const newlineIndex = body.indexOf('\n')
   const rest = newlineIndex === -1 ? '' : body.slice(newlineIndex + 1)
   if (rest.trim().length === 0) return outcomeReading('settled', { kind: 'empty' })
-  return outcomeReading('settled', replyFromRelayText(rest, trimmed))
+  return outcomeReading('settled', replyFromRelayText(rest, excerpt))
 }
 
 /** Branch 6: plain CLI stdout. Drops the resumed-session/session_id lines, then trims. */
-function readCliTextBody(body: string, exitCode: number | 'unknown', trimmed: boolean): BodyReading {
+function readCliTextBody(body: string, exitCode: number | 'unknown', excerpt: boolean): BodyReading {
   const cleaned = body
     .split('\n')
     .filter(line => !SESSION_ID_LINE_RE.test(line) && !RESUMED_SESSION_LINE_RE.test(line))
@@ -250,7 +273,7 @@ function readCliTextBody(body: string, exitCode: number | 'unknown', trimmed: bo
     .trim()
 
   if (cleaned.length > 0) {
-    const reply: Reply = trimmed ? { kind: 'excerpt', body: cleaned } : { kind: 'text', body: cleaned, completeness: 'unknown' }
+    const reply: Reply = excerpt ? { kind: 'excerpt', body: cleaned } : { kind: 'text', body: cleaned, completeness: 'unknown' }
     return outcomeReading('settled', reply)
   }
   return exitCode === 0 ? outcomeReading('settled', { kind: 'empty' }) : outcomeReading('unknown', { kind: 'none' })
@@ -260,9 +283,15 @@ function readCliTextBody(body: string, exitCode: number | 'unknown', trimmed: bo
  * Reads a parsed receipt's body per the grammar's ordered branches (spec 5.2). A JSON `failed`
  * status that carries a `reason` takes its delivery from the reason table; CLI text with nothing
  * left reads as settled on exit code 0 and as unknown otherwise.
+ *
+ * `pairedResultIsLiveOwner`: the paired `message_agent` result is the live-owner ack, which carries a
+ * `delivery_id` and no `queued_at` (tools/bot_mode_dm.py:675-689). Only that transport's receipt body
+ * is always a JSON payload. On v0.21.6 the spawn ack of a CLI or relay delivery carries a
+ * `delivery_id` too, but always with `queued_at` (bot_mode_dm.py:748-756).
  */
-export function readBody(receipt: ParsedReceipt, opts: { pairedResultHasDeliveryId: boolean }): BodyReading {
-  const { body, trimmed } = receipt
+export function readBody(receipt: ParsedReceipt, opts: { pairedResultIsLiveOwner: boolean }): BodyReading {
+  const { body } = receipt
+  const excerpt = shortened(receipt)
 
   const jsonReading = readJsonBody(body)
   if (jsonReading) return jsonReading
@@ -273,10 +302,10 @@ export function readBody(receipt: ParsedReceipt, opts: { pairedResultHasDelivery
   const noReplyReading = readNoReplyBody(body)
   if (noReplyReading) return noReplyReading
 
-  const replyFromReading = readReplyFromBody(body, trimmed)
+  const replyFromReading = readReplyFromBody(body, excerpt)
   if (replyFromReading) return replyFromReading
 
-  if (body.startsWith('{') || opts.pairedResultHasDeliveryId) return outcomeReading('unknown', { kind: 'damaged' })
+  if (body.startsWith('{') || opts.pairedResultIsLiveOwner) return outcomeReading('unknown', { kind: 'damaged' })
 
-  return readCliTextBody(body, receipt.headline.exitCode, trimmed)
+  return readCliTextBody(body, receipt.headline.exitCode, excerpt)
 }

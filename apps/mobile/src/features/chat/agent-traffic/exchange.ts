@@ -45,7 +45,6 @@ export interface ReceiptEvidence {
    * from the process id, so the whole set is carried here and folded into `members`.
    */
   itemIds?: string[]
-  live: boolean
 }
 
 export interface Evidence {
@@ -179,12 +178,12 @@ function resultsFromItems(items: ChatItem[]): ResultEvidence[] {
   return results
 }
 
-/** Receipt chat items: one per parsed `[IMPORTANT: Background process …]` row, live or from socket history. */
+/** Receipt chat items: one per parsed `[IMPORTANT: Background process …]` row of socket history. */
 function receiptsFromItems(items: ChatItem[]): ReceiptEvidence[] {
   const receipts: ReceiptEvidence[] = []
   for (const item of items) {
     if (item.kind !== 'receipt') continue
-    const evidence: ReceiptEvidence = { processId: item.receipt.headline.processId, receipt: item.receipt, itemId: item.id, itemIds: [item.id], live: item.live }
+    const evidence: ReceiptEvidence = { processId: item.receipt.headline.processId, receipt: item.receipt, itemId: item.id, itemIds: [item.id] }
     if (item.rowId !== undefined) evidence.rowId = item.rowId
     if (item.at !== undefined) evidence.at = item.at
     receipts.push(evidence)
@@ -204,7 +203,7 @@ function receiptsFromRows(rows: TranscriptRow[]): ReceiptEvidence[] {
     for (const receipt of classified.receipts) {
       const processId = receipt.headline.processId
       const itemId = `h-receipt-${row.id}-${processId}`
-      const evidence: ReceiptEvidence = { processId, receipt, rowId: row.id, itemId, itemIds: [itemId], live: false }
+      const evidence: ReceiptEvidence = { processId, receipt, rowId: row.id, itemId, itemIds: [itemId] }
       if (row.at !== undefined) evidence.at = row.at
       receipts.push(evidence)
     }
@@ -213,15 +212,15 @@ function receiptsFromRows(rows: TranscriptRow[]): ReceiptEvidence[] {
 }
 
 /**
- * Receipts dedupe by process id: the same completion can arrive live (`status.update`), through
- * socket history and through the REST page. The durable row wins the fields, but every duplicate's
+ * Receipts dedupe by process id: the same completion arrives through socket history and through
+ * the REST page. The durable row wins the fields, but every duplicate's
  * item id survives in `itemIds` — a socket-history receipt on a row without a `row_id` is called
  * `h-receipt-i<index>-<processId>` and cannot be reconstructed from the process id, so dropping it
  * would leave that item unfolded beside the exchange.
  */
-function mergeReceipts(rest: ReceiptEvidence[], live: ReceiptEvidence[]): ReceiptEvidence[] {
+function mergeReceipts(rest: ReceiptEvidence[], fromItems: ReceiptEvidence[]): ReceiptEvidence[] {
   const byProcess = new Map<string, ReceiptEvidence>()
-  for (const receipt of [...rest, ...live]) {
+  for (const receipt of [...rest, ...fromItems]) {
     const existing = byProcess.get(receipt.processId)
     if (existing === undefined) {
       byProcess.set(receipt.processId, receipt)
@@ -257,6 +256,8 @@ interface ResultFields {
   error?: string
   deliveryId?: string
   processId?: string
+  /** Only the spawn ack carries it (tools/bot_mode_dm.py:748-756); the live-owner ack never does (:675-689). */
+  queuedAt?: number
 }
 
 function readResult(result: unknown): ResultFields {
@@ -268,6 +269,7 @@ function readResult(result: unknown): ResultFields {
   if (typeof obj.error === 'string') fields.error = obj.error
   if (typeof obj.delivery_id === 'string') fields.deliveryId = obj.delivery_id
   if (typeof obj.process_id === 'string') fields.processId = obj.process_id
+  if (typeof obj.queued_at === 'number') fields.queuedAt = obj.queued_at
   return fields
 }
 
@@ -318,7 +320,8 @@ export function deriveState(input: { result?: unknown; receipt?: ParsedReceipt; 
 
   if (input.receipt) {
     if (evidence.processId === undefined) evidence.processId = input.receipt.headline.processId
-    const reading = readBody(input.receipt, { pairedResultHasDeliveryId: fields.deliveryId !== undefined })
+    // Spec 5.2 rule 5: a `delivery_id` without `queued_at` is the live-owner ack, whose receipt is always JSON.
+    const reading = readBody(input.receipt, { pairedResultIsLiveOwner: fields.deliveryId !== undefined && fields.queuedAt === undefined })
     if (reading.kind === 'outcome') {
       delivery = reading.delivery
       reply = reading.reply
@@ -391,7 +394,6 @@ function buildExchange(send: SendEvidence, result: ResultEvidence | undefined, r
   if (receipt !== undefined) input.receipt = receipt.receipt
   const derived = deriveState(input)
 
-  const processId = derived.evidence.processId
   const exchange: Exchange = {
     kind: 'exchange',
     id: `x-${send.toolCallId}`,
@@ -407,7 +409,6 @@ function buildExchange(send: SendEvidence, result: ResultEvidence | undefined, r
       result?.liveItemId,
       receipt?.itemId,
       ...(receipt?.itemIds ?? []),
-      processId !== undefined ? `live-receipt-${processId}` : undefined,
       receipt?.rowId !== undefined ? `h-receipt-${receipt.rowId}-${receipt.processId}` : undefined,
     ]),
     identities: [],

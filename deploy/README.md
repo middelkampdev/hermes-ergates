@@ -163,8 +163,8 @@ HTTP, other ports, IP addresses and unlisted hosts are all denied.
 2. In `proxy/allowed-domains.txt`, remove the `#` in front of the hosts
    your model provider and connectors use. The file ships with `ntfy.sh`
    active (the iOS wake-up upstream) and one commented block per common
-   built-in provider, the same hosts in the Hermes image (v2026.9.11) and
-   at the contract pin:
+   built-in provider, with the hosts of Hermes v0.21.6 (the image and the
+   contract pin are the same commit):
 
    | Provider | Hosts |
    |---|---|
@@ -278,8 +278,9 @@ already done above, before first start.
    (04 section 6; 11 section 4.1).
 
 4. **Install the plugin into every profile, and the templates**, as the
-   `hermes` user, then restart the controllers: `hermes serve` mounts the
-   plugin's routes only when it starts.
+   `hermes` user, then restart the controllers so both load the plugin's
+   hooks and tools. (On Hermes v0.21.6 `hermes serve` would mount the
+   plugin's routes on their first request without a restart.)
 
    ```bash
    docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-serve python -m ergates.install
@@ -383,10 +384,15 @@ docker compose restart hermes-serve hermes-gateway
 docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-serve python -m ergates.install --check
 ```
 
-A new Hermes image is a new Hermes: the integration's contract tests are
-pinned to one Hermes commit (`HERMES_PIN` in `scripts/ci-local.sh`), and
-that commit is not the image's. Move both together, and rerun
-`scripts/ci-local.sh contract` before you deploy.
+A new Hermes image is a new Hermes. The integration's contract tests are
+pinned to one Hermes commit (`HERMES_PIN` in `scripts/ci-local.sh`), and the
+image in `docker-compose.yml` is built from that same commit, v0.21.6. Move
+both together: change `HERMES_PIN`, put the digest of the new commit's image
+in `docker-compose.yml`, and rerun `scripts/ci-local.sh contract` before you
+deploy. Take the digest from the release's final candidate tag, here
+`rc.4-v0.21.6`, or from `stable` while the release is the newest. The
+registry's plain `v0.21.6` tag is an older build from an abandoned
+candidate.
 
 Both `hermes-serve` and `hermes-gateway` read from the same `/opt/data`
 volume, so no separate data migration step is expected for a same-major

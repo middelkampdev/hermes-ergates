@@ -1,15 +1,19 @@
 /**
  * One socket per (connection, profile), wrapping the vendored
  * JsonRpcGatewayClient. Adds: wait-for-ready, fresh credential on every
- * (re)connect, bounded reconnect backoff, close-code mapping and error
- * mapping. The vendored client replays per-session watermarks itself.
+ * (re)connect, bounded reconnect backoff, close-code mapping, error mapping,
+ * and the open server requests Hermes waits on. The vendored client replays
+ * per-session watermarks itself, re-delivers `open_requests`, and tells
+ * Hermes once per socket that it answers server requests
+ * (json-rpc-channel.ts:489-492, 508-518).
  */
 
+import type { ServerRequest } from '@vendor/hermes/shared/json-rpc-channel'
 import { JsonRpcGatewayClient, type ConnectionState as ClientState, type GatewayEvent, type WebSocketLike } from '@vendor/hermes/shared/json-rpc-gateway'
 
-import { GatewayError, mapRpcError, mapSocketClose, userMessage } from '../errors'
+import { GatewayError, mapRpcError, mapSocketClose, userMessage, type RespondOutcome } from '../errors'
 import type { ConnectionFailure, ConnectionState, GatewayConnection } from '../port'
-import type { GatewayEventFrame, GatewayReadyPayload, ReplayResult } from '../types'
+import type { GatewayEventFrame, GatewayReadyPayload, ReplayResult, ServerRequestFrame } from '../types'
 import { buildSocketUrl } from './auth'
 
 export interface SocketCredential {
@@ -48,6 +52,12 @@ function toFailure(error: GatewayError, terminal: boolean): ConnectionFailure {
 const DEFAULT_READY_TIMEOUT_MS = 15_000
 const DEFAULT_BACKOFF = [1_000, 2_000, 5_000, 10_000]
 
+/** The server requests the phone shows as a card. */
+const CARD_METHODS = new Set(['approval', 'clarify'])
+/** Requests only the Hermes Desktop window showing the chat can answer (tui_gateway/server_requests.py:24-28). */
+const WINDOW_METHODS = new Set(['preview.act', 'preview.read', 'terminal.read', 'window.read', 'tour'])
+const NOT_SHOWN_MESSAGE = 'This phone shows no preview, terminal, window or tour.'
+
 export class SocketSession implements GatewayConnection {
   readonly profile: string
   ready: GatewayReadyPayload = {}
@@ -65,6 +75,11 @@ export class SocketSession implements GatewayConnection {
   /** Non-null once this session is beyond repair without a new credential. */
   private terminalError: GatewayError | null = null
   private terminalReported = false
+  /** The approval and clarify requests Hermes still waits on, by id. */
+  private readonly openRequests = new Map<string, ServerRequest>()
+  /** The ids answered on the current socket; a new socket starts with none. */
+  private readonly answeredHere = new Set<string>()
+  private readonly requestHandlers = new Set<(request: ServerRequestFrame) => void>()
 
   private constructor(options: SocketSessionOptions) {
     this.options = options
@@ -83,11 +98,69 @@ export class SocketSession implements GatewayConnection {
       }
     })
     this.client.onState(state => this.handleClientState(state))
+    // Registered before the first dial, so the `open_requests` of the first
+    // `session.resume` find a handler. It never returns false: the channel
+    // would answer -32601, and Hermes withdraws an approval on any error
+    // answer (server.py:833-846).
+    this.client.onRequest(request => this.takeRequest(request))
+    this.client.on('request.cancel', event => {
+      const id = event.payload?.id
+      if (typeof id === 'string') {
+        this.openRequests.delete(id)
+      }
+    })
+  }
+
+  /**
+   * Approval and clarify become cards. A window-owned request gets the 4404
+   * decline, which settles only when every answering client declined
+   * (server_requests.py:221-250). Everything else (sudo, secret, vault
+   * prompts, setup_choose) stays unanswered: Hermes's own deadline ends it
+   * (the one-string prompts then get an empty answer, server.py:1398-1404),
+   * and a Hermes Desktop window on the same chat can still answer it first.
+   */
+  private takeRequest(request: ServerRequest): void {
+    if (WINDOW_METHODS.has(request.method)) {
+      request.decline?.(NOT_SHOWN_MESSAGE)
+      return
+    }
+    if (!CARD_METHODS.has(request.method)) {
+      return
+    }
+    // Hermes handles the frames of one socket in arrival order, and session.activate and
+    // session.events.since run inline (server.py:181-196, rpc_dispatch.py:54-58). So an
+    // `open_requests` snapshot that answers a call sent before our answer still lists the
+    // id, and arrives after we answered. Hermes then sends no `request.cancel`
+    // (server_requests.py:262-293): drop that delivery, or the card reopens and a second tap
+    // shows a choice Hermes never applied. On a later socket the answer may have been lost
+    // with the old one, so a delivery there counts.
+    if (request.replayed === true && this.answeredHere.has(request.id)) {
+      return
+    }
+    // A re-delivery after a reconnect reuses the id and replaces the entry.
+    this.openRequests.set(request.id, request)
+    const frame: ServerRequestFrame = { id: request.id, method: request.method, params: request.params, replayed: request.replayed === true }
+    try {
+      for (const handler of [...this.requestHandlers]) {
+        handler(frame)
+      }
+    } catch (err) {
+      // The channel answers -32603 for a throwing handler, so Hermes stops waiting: forget it too.
+      this.openRequests.delete(request.id)
+      throw err
+    }
   }
 
   static async open(options: SocketSessionOptions): Promise<SocketSession> {
     const session = new SocketSession(options)
-    await session.dial()
+    try {
+      await session.dial()
+    } catch (err) {
+      // Nobody holds a session whose first open failed (RealGateway builds a new
+      // one on the next connect), so it must not keep redialing in the background.
+      session.close()
+      throw err
+    }
     return session
   }
 
@@ -168,7 +241,7 @@ export class SocketSession implements GatewayConnection {
         }
         fn()
       }
-      offReady = this.client.on<GatewayReadyPayload>('gateway.ready', event => finish(() => resolve(event.payload ?? {})))
+      offReady = this.client.on('gateway.ready', event => finish(() => resolve((event.payload ?? {}) as GatewayReadyPayload)))
       timer = setTimeout(() => finish(() => reject(new GatewayError('timeout', 'The gateway did not announce readiness.'))), readyTimeout)
       // Subscribe after the handshake starts so the synchronous initial callback sees 'connecting'.
       queueMicrotask(() => {
@@ -191,15 +264,39 @@ export class SocketSession implements GatewayConnection {
     } catch (err) {
       throw this.lastCloseError ?? (err instanceof GatewayError ? err : mapRpcError(err))
     }
-    this.ready = await readyPromise
+    try {
+      this.ready = await readyPromise
+    } catch (err) {
+      // Hermes sends gateway.ready once per connection, so a socket that opened
+      // without it never will: drop it, or the next dial waits on it again.
+      this.client.invalidate('The gateway did not announce readiness.')
+      throw err
+    }
     this.reconnectAttempt = 0
+    // Only now is the connection `open`. The channel sends client.capabilities
+    // when gateway.ready arrives (json-rpc-channel.ts:489-492), and Hermes reads
+    // the frames of a socket in order. A handler that rebinds a session on
+    // `open` (the chat's reconnect) must not get ahead of it: Hermes would bind
+    // the session to a socket that has not said it answers requests, and
+    // withdraw an approval raised meanwhile (session_transports.py:38-48,
+    // server.py:833-846).
+    if (this.client.connectionState === 'open') {
+      this.setState('open')
+    }
   }
 
   private handleClientState(state: ClientState): void {
     if (state === 'idle') {
       return
     }
-    const mapped: ConnectionState = state === 'open' ? 'open' : state === 'connecting' ? 'connecting' : state === 'error' ? 'error' : 'closed'
+    if (state === 'open') {
+      // A new socket: an answer sent on an older one no longer holds back a
+      // delivery. Cleared before any frame of this socket is read, and `respond`
+      // sends nothing until `dialOnce` reports `open` after gateway.ready.
+      this.answeredHere.clear()
+      return
+    }
+    const mapped: ConnectionState = state === 'connecting' ? 'connecting' : state === 'error' ? 'error' : 'closed'
     this.setState(mapped)
     if ((state === 'closed' || state === 'error') && !this.closedByUser) {
       this.scheduleReconnect()
@@ -263,6 +360,33 @@ export class SocketSession implements GatewayConnection {
 
   onEvent(handler: (event: GatewayEventFrame) => void): () => void {
     return this.client.onAny((event: GatewayEvent) => handler(event as GatewayEventFrame))
+  }
+
+  onRequest(handler: (request: ServerRequestFrame) => void): () => void {
+    this.requestHandlers.add(handler)
+    return () => {
+      this.requestHandlers.delete(handler)
+    }
+  }
+
+  /**
+   * Answer an open server request with one response frame. Checked first:
+   * the vendored `respond` drops the frame on a socket that is down and still
+   * counts the request as answered (json-rpc-channel.ts:355-367), so while
+   * the socket is down nothing is sent and the request stays open.
+   */
+  respond(requestId: string, result: Record<string, unknown>): RespondOutcome {
+    if (this.stateValue !== 'open') {
+      return 'offline'
+    }
+    const request = this.openRequests.get(requestId)
+    if (!request) {
+      return 'unknown'
+    }
+    this.openRequests.delete(requestId)
+    this.answeredHere.add(requestId)
+    request.respond(result)
+    return 'sent'
   }
 
   onState(handler: (state: ConnectionState) => void): () => void {

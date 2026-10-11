@@ -7,17 +7,26 @@ import historyReceiver from '@test/fixtures/agent-traffic/history-receiver.json'
 import historySender from '@test/fixtures/agent-traffic/history-sender.json'
 import liveJson from '@test/fixtures/agent-traffic/receipt-live-json.json'
 import receiptBatchThree from '@test/fixtures/agent-traffic/receipt-batch-three.json'
+import receiptCliCut from '@test/fixtures/agent-traffic/receipt-cli-cut.json'
 import receiptWatchMatch from '@test/fixtures/agent-traffic/receipt-watch-match.json'
+import clarifyRequest from '@test/fixtures/clarify-request.json'
 import turnClarify from '@test/fixtures/turn-clarify.json'
 import turnPong from '@test/fixtures/turn-pong.json'
 
 import { parseReceiptRow } from './agent-traffic/receipt'
 import { historyToItems, mergeHistory, type ChatItem } from './history'
-import { initialSessionState, localTurnPending, sessionReducer, type SessionAction, type SessionState } from './session-reducer'
+import { initialSessionState, localTurnPending, pendingRequestIds, sessionReducer, type SessionAction, type SessionState } from './session-reducer'
 
 const liveReceiptParse = parseReceiptRow(liveJson.text)
 if (liveReceiptParse.kind !== 'receipts') throw new Error('receipt-live-json fixture did not parse as a receipt')
 const liveReceipt = liveReceiptParse.receipts[0]!
+
+/** What v0.21.6 sends in `status.update {kind: "process"}` for a completion (session_notifications.py:546-552). */
+const TITLE = 'Background Process Finished: /opt/data/hermes/hermes-agent/venv/bin/python /opt/data/hermes/hermes-agent/tools/bot_mo...'
+/** What v0.21.6 sends there for a finished subagent (tools/process_registry_notifications.py:320-321; session_notifications.py:546-552). */
+const SUBAGENT_TITLE = 'Subagent Task Completed: Review the release notes'
+/** The row Hermes v0.21.6 closes a failed turn with (agent/turn_failure_copy.py:39-41, :48; agent/conversation_loop.py:1848-1850). */
+const FAILED_TURN_NOTICE = 'Your request was not processed. Send it again if you still want me to carry it out.'
 
 const LIVE = 'live0001'
 const STORED = '20260913_170000_fixture'
@@ -31,6 +40,23 @@ function run(state: SessionState, actions: SessionAction[]): SessionState {
 }
 
 const ev = (event: Partial<GatewayEventFrame> & { type: string }): SessionAction => ({ type: 'event', event: { session_id: LIVE, ...event } })
+
+const activateResult = (over: Partial<ActivateResult> = {}): ActivateResult => ({
+  session_id: LIVE,
+  session_key: STORED,
+  status: 'idle',
+  running: false,
+  message_count: 0,
+  messages: [],
+  messages_omitted: true,
+  info: {},
+  ...over
+})
+
+const req = (id: string, method: string, params: Record<string, unknown>, replayed = false, sid = LIVE): SessionAction =>
+  ({ type: 'request/received', request: { id, method, params: { session_id: sid, ...params }, replayed } })
+const APPROVAL = { request_id: 'ap1', command: 'rm -rf build', choices: ['once', 'deny'] }
+const clarify = (id: string) => req(id, 'clarify', { questions: [{ qid: 'q0', question: `${id}?` }] })
 
 describe('recorded turns', () => {
   it('renders the pong turn as one user bubble and one assistant bubble', () => {
@@ -52,15 +78,18 @@ describe('recorded turns', () => {
   })
 
   it('renders the clarify turn with a pending card, then answers it', () => {
-    const end = run(bound(), (turnClarify as GatewayEventFrame[]).map(e => ({ type: 'event', event: e }) as SessionAction))
+    // v0.21.6 asks the question as a server request, not as an event in the turn (server.py:2288-2289).
+    const events = (turnClarify as GatewayEventFrame[]).map(e => ({ type: 'event', event: e }) as SessionAction)
+    const asked: SessionAction = { type: 'request/received', request: { id: clarifyRequest.id, method: clarifyRequest.method, params: clarifyRequest.params, replayed: false } }
+    const end = run(bound(), [...events.slice(0, -1), asked, ...events.slice(-1)])
     const card = end.items.find(i => i.kind === 'clarify')
-    expect(card).toMatchObject({ kind: 'clarify', requestId: 'e75e6b23', state: 'pending' })
+    expect(card).toMatchObject({ kind: 'clarify', requestId: 'srq-5c1e9a0b7d42', state: 'pending' })
     if (card?.kind !== 'clarify') throw new Error('no card')
     expect(card.questions[0]?.choices).toEqual(['A) tea (Recommended)', 'B) coffee'])
     const tools = end.items.filter(i => i.kind === 'tool')
     expect(tools).toHaveLength(1)
     expect(tools[0]).toMatchObject({ name: 'clarify', done: false })
-    const answered = sessionReducer(end, { type: 'clarify/responded', requestId: 'e75e6b23', answers: { q0: 'A' } })
+    const answered = sessionReducer(end, { type: 'clarify/responded', requestId: 'srq-5c1e9a0b7d42', answers: { q0: 'A' } })
     expect(answered.items.find(i => i.kind === 'clarify')).toMatchObject({ state: 'answered', answers: { q0: 'A' } })
   })
 })
@@ -145,61 +174,62 @@ describe('streaming rules', () => {
 })
 
 describe('requests', () => {
-  it('adds an approval card once and resolves it', () => {
-    const req = ev({ type: 'approval.request', seq: 1, payload: { request_id: 'a1', command: 'rm -rf build', description: 'dangerous command' } })
-    const s = run(bound(), [req, { ...req, event: { ...(req as { event: GatewayEventFrame }).event, seq: 2 } } as SessionAction])
-    expect(s.items.filter(i => i.kind === 'approval')).toHaveLength(1)
-    const r = sessionReducer(s, { type: 'approval/responded', requestId: 'a1', choice: 'once' })
-    expect(r.items[0]).toMatchObject({ state: 'resolved', choice: 'once' })
+  it('opens one card per request id, reopens an answered card Hermes delivers again, and ignores other sessions', () => {
+    const s = run(bound(), [req('srq-000000000001', 'approval', APPROVAL), req('srq-000000000001', 'approval', APPROVAL, true), req('srq-000000000009', 'approval', APPROVAL, false, 'other')])
+    expect(s.items.filter(i => i.kind === 'approval')).toMatchObject([{ requestId: 'srq-000000000001', state: 'pending' }])
+    const again = run(s, [{ type: 'approval/responded', requestId: 'srq-000000000001', choice: 'once' }, req('srq-000000000001', 'approval', APPROVAL, true)])
+    expect(again.items.filter(i => i.kind === 'approval')).toMatchObject([{ state: 'pending' }])
   })
 
-  it('expires only the matching clarify request', () => {
-    const s = run(bound(), [
-      ev({ type: 'clarify.request', seq: 1, payload: { request_id: 'c1', questions: [{ qid: 'q0', question: 'A?', choices: ['A) x'], multi_select: false }] } }),
-      ev({ type: 'clarify.request', seq: 2, payload: { request_id: 'c2', questions: [{ qid: 'q0', question: 'B?', choices: ['A) y'], multi_select: false }] } }),
-      ev({ type: 'clarify.expire', seq: 3, payload: { request_id: 'c1' } })
+  it('expires only the cancelled card, and every pending card session.activate no longer lists', () => {
+    const s = run(bound(), [clarify('srq-00000000000a'), clarify('srq-00000000000b'), clarify('srq-00000000000c'),
+      ev({ type: 'request.cancel', seq: 1, payload: { id: 'srq-00000000000a', method: 'clarify', reason: 'timeout' } }),
+      { type: 'session/activated', result: activateResult({ open_requests: [{ id: 'srq-00000000000b', method: 'clarify', params: { session_id: LIVE } }] }), pendingWhenSent: ['srq-00000000000b', 'srq-00000000000c'] }])
+    const cards = s.items.filter(i => i.kind === 'clarify')
+    expect(cards).toMatchObject([{ state: 'expired' }, { state: 'pending', questions: [{ qid: 'q0', choices: [], multi_select: false }] }, { state: 'expired' }])
+  })
+
+  it('expires only the cards that were pending when activate went out', () => {
+    const before = run(bound(), [clarify('srq-000000000012')])
+    const pendingWhenSent = pendingRequestIds(before)
+    // A live request reaches the phone just before the answer to an activate whose
+    // snapshot Hermes took before it raised that request: the snapshot cannot list it.
+    const s = run(before, [req('srq-000000000013', 'approval', APPROVAL), { type: 'session/activated', result: activateResult(), pendingWhenSent }])
+    expect(s.items.filter(i => i.kind === 'clarify' || i.kind === 'approval')).toMatchObject([
+      { requestId: 'srq-000000000012', state: 'expired' },
+      { requestId: 'srq-000000000013', state: 'pending' }
     ])
-    expect(s.items.find(i => i.kind === 'clarify' && i.requestId === 'c1')).toMatchObject({ state: 'expired' })
-    expect(s.items.find(i => i.kind === 'clarify' && i.requestId === 'c2')).toMatchObject({ state: 'pending' })
   })
 
-  it('accepts the single-question clarify shape too', () => {
-    const s = run(bound(), [ev({ type: 'clarify.request', seq: 1, payload: { request_id: 'c3', question: 'Tea?', choices: ['A) yes', 'B) no'], multi_select: true } })])
-    const card = s.items[0]
-    if (card?.kind !== 'clarify') throw new Error('no card')
-    expect(card.questions).toEqual([{ qid: 'q0', question: 'Tea?', choices: ['A) yes', 'B) no'], multi_select: true }])
+  it('expires every pending card a resume payload no longer lists', () => {
+    const s = run(bound(), [clarify('srq-00000000000d'), req('srq-00000000000e', 'approval', APPROVAL),
+      { type: 'session/resumed', snapshot: { status: 'waiting', running: false, open_requests: [{ id: 'srq-00000000000e', method: 'approval', params: { session_id: LIVE } }] } }])
+    expect(s.items.filter(i => i.kind === 'clarify' || i.kind === 'approval')).toMatchObject([{ state: 'expired' }, { state: 'pending' }])
+  })
+
+  it('takes no card for a method the phone does not show', () => {
+    const s = run(bound(), [req('srq-00000000000f', 'sudo', { command: 'apt install x' })])
+    expect(s).toEqual(bound())
   })
 })
 
 describe('reconnect snapshot (session.activate)', () => {
-  const activateResult = (over: Partial<ActivateResult> = {}): ActivateResult => ({
-    session_id: LIVE,
-    session_key: STORED,
-    status: 'idle',
-    running: false,
-    message_count: 0,
-    messages: [],
-    messages_omitted: true,
-    info: {},
-    ...over
-  })
-
   it('restores the partial answer from a running turn', () => {
     const s = run(bound(), [ev({ type: 'message.start', seq: 1 }), ev({ type: 'message.delta', seq: 2, payload: { text: 'half' } })])
-    const activated = sessionReducer(s, { type: 'session/activated', result: activateResult({ running: true, status: 'streaming', inflight: { user: 'q', assistant: 'half an answer', streaming: true } }), at: 5 })
+    const activated = sessionReducer(s, { type: 'session/activated', result: activateResult({ running: true, status: 'streaming', inflight: { user: 'q', assistant: 'half an answer', streaming: true } }), at: 5, pendingWhenSent: [] })
     expect(activated.live).toMatchObject({ streaming: true, assistantText: 'half an answer' })
     expect(activated.replay.needsHistoryRefetch).toBe(false)
   })
 
   it('asks for history when the turn ended while the socket was down', () => {
     const s = run(bound(), [ev({ type: 'message.start', seq: 1 }), ev({ type: 'message.delta', seq: 2, payload: { text: 'half' } })])
-    const activated = sessionReducer(s, { type: 'session/activated', result: activateResult(), at: 5 })
+    const activated = sessionReducer(s, { type: 'session/activated', result: activateResult(), at: 5, pendingWhenSent: [] })
     expect(activated.live).toMatchObject({ streaming: false, assistantText: '' })
     expect(activated.replay.needsHistoryRefetch).toBe(true)
   })
 
   it('leaves an idle session alone', () => {
-    const activated = sessionReducer(bound(), { type: 'session/activated', result: activateResult(), at: 5 })
+    const activated = sessionReducer(bound(), { type: 'session/activated', result: activateResult(), at: 5, pendingWhenSent: [] })
     expect(activated.replay.needsHistoryRefetch).toBe(false)
     expect(activated.live.streaming).toBe(false)
   })
@@ -332,7 +362,7 @@ describe('delivery states and history merge', () => {
   })
 
   it('keeps pending request cards across a history reload', () => {
-    const s = run(bound(), [ev({ type: 'approval.request', seq: 1, payload: { request_id: 'a1', command: 'ls' } }), { type: 'history/loaded', messages: [] }])
+    const s = run(bound(), [req('srq-000000000010', 'approval', { request_id: 'a1', command: 'ls' }), { type: 'history/loaded', messages: [] }])
     expect(s.items.filter(i => i.kind === 'approval')).toHaveLength(1)
   })
 })
@@ -346,16 +376,13 @@ describe('agent traffic rows', () => {
     expect(receiver.find(i => i.kind === 'bot_message')).toMatchObject({ handle: 'hermes', provenance: 'inferred' })
   })
 
-  it('keeps live receipts, live notices and live message_agent tool items across a snapshot that omits them', () => {
+  it('keeps live message_agent tool items across a snapshot that omits them', () => {
     const live: ChatItem[] = [
-      { kind: 'receipt', id: 'live-receipt-proc_0123456789ab', receipt: liveReceipt, live: true },
       { kind: 'tool', id: 'tool-call_9', toolId: 'call_9', name: 'message_agent', done: true, result: { status: 'sent', process_id: 'proc_0123456789ab' } },
       { kind: 'tool', id: 'tool-call_8', toolId: 'call_8', name: 'terminal', done: true }
     ]
     const merged = mergeHistory(live, [{ kind: 'user', id: 'h-user-1', rowId: 1, text: 'hi', delivery: 'acknowledged' }])
-    expect(merged.map(i => i.id)).toEqual(['h-user-1', 'live-receipt-proc_0123456789ab', 'tool-call_9'])
-    const reconciled = mergeHistory(live, [{ kind: 'receipt', id: 'h-receipt-5-proc_0123456789ab', rowId: 5, receipt: liveReceipt, live: false }])
-    expect(reconciled.filter(i => i.kind === 'receipt')).toHaveLength(1)
+    expect(merged.map(i => i.id)).toEqual(['h-user-1', 'tool-call_9'])
   })
 
   it('drops a live notice the snapshot now carries, and keeps one it does not', () => {
@@ -383,6 +410,33 @@ describe('agent traffic rows', () => {
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({ kind: 'notice', noticeKind: 'process', detail: receiptWatchMatch.text })
     expect(items.filter(i => i.kind === 'user')).toHaveLength(0)
+  })
+
+  it('projects a v0.21.6 process_complete row into a receipt item, never a user bubble', () => {
+    const items = historyToItems([{ role: 'user', text: receiptCliCut.text, row_id: 203, display_kind: 'process_complete', display_metadata: { display_text: TITLE } }])
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ kind: 'receipt', id: 'h-receipt-203-proc_c1d2e3f4a5b6', rowId: 203, displayKind: 'process_complete', receipt: { cut: 3072 } })
+    expect(items.filter(i => i.kind === 'user')).toHaveLength(0)
+  })
+
+  it('projects a v0.21.6 failed_turn row into an assistant item that keeps its display kind', () => {
+    // Hermes writes it as an assistant row (gateway/run_turn.py:1719-1721); Desktop draws it as a
+    // system row (apps/desktop/src/lib/chat-messages/hydration.ts:163-171, :452).
+    const items = historyToItems([{ role: 'assistant', text: FAILED_TURN_NOTICE, row_id: 204, display_kind: 'failed_turn' }])
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ kind: 'assistant', id: 'h-assistant-204', rowId: 204, text: FAILED_TURN_NOTICE, displayKind: 'failed_turn' })
+    expect(items[0]).not.toHaveProperty('errorCard')
+  })
+
+  it('marks a failed_turn row whose error surface Desktop draws an error card from, as an object or as JSON text', () => {
+    // agent/conversation_loop.py:1772-1788 stores it; hydration.ts:179-208 and error-surface.ts:100-122 read it.
+    const surface = { error: 'HTTP 529: overloaded', error_surface: { layer: 'provider', code: 'overloaded', retryable: true } }
+    const row = (displayMetadata: unknown): HistoryMessage => ({ role: 'assistant', text: FAILED_TURN_NOTICE, row_id: 205, display_kind: 'failed_turn', display_metadata: displayMetadata })
+    expect(historyToItems([row(surface)])[0]).toMatchObject({ displayKind: 'failed_turn', errorCard: true })
+    expect(historyToItems([row(JSON.stringify(surface))])[0]).toMatchObject({ errorCard: true })
+    for (const noCard of [{ error: 'boom' }, { error_surface: { layer: 'weather', code: 'x' } }, { error_surface: 'provider' }, '{not json', null]) {
+      expect(historyToItems([row(noCard)])[0]).not.toHaveProperty('errorCard')
+    }
   })
 
   it('gives a receipt item a positional id, never "undefined", when the row has no row_id', () => {
@@ -428,21 +482,47 @@ describe('ownership, revisions, receipts', () => {
     expect(fresh.items.filter(i => i.kind === 'assistant' && i.text === 'new answer')).toHaveLength(2)
   })
 
-  it('turns a process status.update into a live receipt, never into the working line, and asks for the tail', () => {
-    const s = run(bound(), [ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text: liveJson.text } })])
-    expect(s.live.statusLine).toBeNull()
-    expect(s.items.at(-1)).toMatchObject({ kind: 'receipt', live: true })
-    expect(s.tailWanted).toBe(1)
-    const again = sessionReducer(s, ev({ type: 'status.update', seq: 2, payload: { kind: 'process', text: liveJson.text } }))
-    expect(again.items.filter(i => i.kind === 'receipt')).toHaveLength(1)
-    const other = sessionReducer(s, ev({ type: 'status.update', seq: 3, payload: { kind: 'status', text: 'Thinking' } }))
+  it('adds nothing for any process status.update, as Desktop, never touches the working line, and asks for the tail', () => {
+    // Desktop only re-reads its process list for kind "process" (gateway-event/status.ts:116-119).
+    for (const text of [SUBAGENT_TITLE, liveJson.text, receiptWatchMatch.text]) {
+      const s = run(bound(), [ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text } })])
+      expect(s.items).toEqual([])
+      expect(s.live.statusLine).toBeNull()
+      expect(s.tailWanted).toBe(1)
+    }
+    const other = sessionReducer(bound(), ev({ type: 'status.update', seq: 3, payload: { kind: 'status', text: 'Thinking' } }))
     expect(other.live.statusLine).toBe('Thinking')
+  })
+
+  it('keeps the process id a receipt text names, for the anchor of the turn that runs on it (rules g and h)', () => {
+    const s = run(bound(), [ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text: liveJson.text } })])
+    expect(s.pendingReceiptProcessId).toBe(liveReceipt.headline.processId)
+    expect(run(bound(), [ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text: SUBAGENT_TITLE } })]).pendingReceiptProcessId).toBeNull()
+  })
+
+  it('a subagent title never lingers after a refresh: its durable twin is the async_delegation_complete row', () => {
+    const s = run(bound(), [ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text: SUBAGENT_TITLE } })])
+    const fresh: HistoryMessage[] = [
+      { role: 'user', text: 'review the release notes in the background', row_id: 1 },
+      { role: 'assistant', text: 'Started.', row_id: 2 },
+      { role: 'user', text: '[ASYNC DELEGATION COMPLETE]', row_id: 3, display_kind: 'async_delegation_complete', display_metadata: { display_text: SUBAGENT_TITLE } }
+    ]
+    const merged = sessionReducer(s, { type: 'history/loaded', messages: fresh, revision: s.revision })
+    expect(merged.items.map(i => i.kind)).toEqual(['user', 'assistant', 'event'])
+  })
+
+  it('adds nothing for the v0.21.6 process title and asks for the REST tail', () => {
+    const s = run(bound(), [ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text: TITLE } })])
+    expect(s.items).toEqual([])
+    expect(s.tailWanted).toBe(1)
+    expect(s.live.statusLine).toBeNull()
+    expect(s.pendingReceiptProcessId).toBeNull()
   })
 
   it('a message_agent tool.complete and a reconciled transcript row', () => {
     const s = run(bound(), [ev({ type: 'tool.start', seq: 1, payload: { tool_id: 'call_1', name: 'message_agent', args: { target: 'kevin', message: 'hi' } } }), ev({ type: 'tool.complete', seq: 2, payload: { tool_id: 'call_1', name: 'message_agent', result: { status: 'sent', process_id: 'proc_0123456789ab' } } })])
     expect(s.tailWanted).toBe(1); expect(s.revision).toBe(1)
-    const r = sessionReducer(s, { type: 'transcript/reconciled', toolCallIds: ['call_1'], processIds: [] })
+    const r = sessionReducer(s, { type: 'transcript/reconciled', toolCallIds: ['call_1'] })
     expect(r.items.some(i => i.kind === 'tool')).toBe(false)
   })
 
@@ -473,10 +553,8 @@ describe('the recorded send-and-reply turn (events-sender fixture)', () => {
     expect((afterLocalTurn.items.find(i => i.kind === 'user') as { localId?: string }).localId).toBeUndefined()
     expect(afterLocalTurn.replay.needsHistoryRefetch).toBe(false)
 
-    const receipts = s.items.filter((i): i is Extract<ChatItem, { kind: 'receipt' }> => i.kind === 'receipt')
-    expect(receipts).toHaveLength(1)
-    expect(receipts[0]).toMatchObject({ live: true })
-    expect(receipts[0]?.receipt.headline.processId).toBe('proc_782bd84d7f2a')
+    // The process notification adds no item, as on Desktop; the REST tail brings the receipt row.
+    expect(s.items.some(i => i.kind === 'receipt' || i.kind === 'notice')).toBe(false)
 
     // The second turn was started by the delivery notification, not by this
     // device: only the durable transcript can say what it wrote.
@@ -484,6 +562,8 @@ describe('the recorded send-and-reply turn (events-sender fixture)', () => {
     // The local completion, the `message_agent` result and the process notification.
     expect(s.tailWanted).toBe(3)
     expect(s.items.filter(i => i.kind === 'assistant')).toHaveLength(2)
+    // Rule (g): the notification turn still anchors on the receipt's process id.
+    expect(s.items.at(-1)).toMatchObject({ kind: 'assistant', liveAnchor: { processId: 'proc_782bd84d7f2a' } })
     expect(s.live.streaming).toBe(false)
   })
 })
@@ -693,7 +773,7 @@ describe('turn anchor and outcome (spec 12.3)', () => {
   it('rule (g): the receipt-anchored simulator sequence places both live answers, driven through events', () => {
     // Kevin's chat on the simulator. Durable rows: 61 inbound bot message, 62 its answer, 63 the
     // receipt row for process P, 64 the receipt-driven turn's answer. Live order: turn A seals
-    // (L1), the process notification creates a live receipt for P while nothing is running, turn B
+    // (L1), the process notification names P while nothing is running, turn B
     // starts and seals (L2). B's anchor records P, so L2 resolves to row 63 (hard-id pairing,
     // spec 5.2/5.5) and transfers onto 64; L1 then anchors on 61 by exclusion (rule d).
     const processId = liveReceipt.headline.processId
@@ -723,7 +803,6 @@ describe('turn anchor and outcome (spec 12.3)', () => {
     expect(merged.items.find(i => i.kind === 'assistant' && i.rowId === 62)).toMatchObject({ turnOutcome: 'completed' })
     expect(merged.items.find(i => i.kind === 'assistant' && i.rowId === 64)).toMatchObject({ turnOutcome: 'completed' })
     expect(merged.items.some(i => i.kind === 'assistant' && i.rowId === undefined)).toBe(false)
-    expect(merged.items.some(i => i.kind === 'receipt' && i.live)).toBe(false)
     expect(merged.pendingReceiptProcessId).toBeNull()
   })
 
@@ -768,7 +847,8 @@ describe('turn anchor and outcome (spec 12.3)', () => {
     const activated: SessionAction = {
       type: 'session/activated',
       result: { session_id: LIVE, session_key: STORED, status: 'streaming', running: true, message_count: 0, messages: [], messages_omitted: true, info: {} },
-      at: 10
+      at: 10,
+      pendingWhenSent: []
     }
     const result = sessionReducer(withPending, activated)
     expect(result.pendingReceiptProcessId).toBeNull()
@@ -781,7 +861,8 @@ describe('turn anchor and outcome (spec 12.3)', () => {
     const activated: SessionAction = {
       type: 'session/activated',
       result: { session_id: LIVE, session_key: STORED, status: 'idle', running: false, message_count: 0, messages: [], messages_omitted: true, info: {} },
-      at: 10
+      at: 10,
+      pendingWhenSent: []
     }
     const result = sessionReducer(withPending, activated)
     expect(result.pendingReceiptProcessId).toBeNull()
@@ -833,6 +914,37 @@ describe('turn anchor and outcome (spec 12.3)', () => {
     expect(merged.items.some(i => i.kind === 'assistant' && i.rowId === undefined)).toBe(false)
   })
 
+  it('rules (d) and (g) on v0.21.6 rows: the failed_turn row takes the failed outcome, the notification turn after it its own', () => {
+    // Durable rows: 61 an inbound row whose turn failed, 62 the failed_turn row Hermes closed it with
+    // (agent/conversation_loop.py:1848-1850), 63 the process_complete row for P
+    // (tui_gateway/session_notifications.py:598-602), 64 the answer of the turn that ran on it. The
+    // timeline draws 61 to 64 as one turn, as Desktop does; reconciliation still pairs by Hermes's turns.
+    const processId = liveReceipt.headline.processId
+    const loaded = run(bound(), [{ type: 'history/loaded', messages: [durable(59, 'user', 'hi'), durable(60, 'assistant', 'hello')] }])
+    const afterB = run(loaded, [
+      ev({ type: 'message.start', seq: 1 }),
+      ev({ type: 'message.delta', seq: 2, payload: { text: 'checking' } }),
+      ev({ type: 'message.complete', seq: 3, payload: { status: 'error', error: 'boom' } }),
+      ev({ type: 'status.update', seq: 4, payload: { kind: 'process', text: liveJson.text } }),
+      ev({ type: 'message.start', seq: 5 }),
+      ev({ type: 'message.delta', seq: 6, payload: { text: 'yes' } }),
+      ev({ type: 'message.complete', seq: 7, payload: { text: 'yes', status: 'ok' } })
+    ])
+    expect(afterB.items.at(-1)).toMatchObject({ kind: 'assistant', text: 'yes', liveAnchor: { afterRowId: 60, processId } })
+
+    const fresh: HistoryMessage[] = [
+      durable(59, 'user', 'hi'), durable(60, 'assistant', 'hello'),
+      inbound(61, 'is the build green?'),
+      { role: 'assistant', text: FAILED_TURN_NOTICE, row_id: 62, timestamp: 62, display_kind: 'failed_turn' },
+      { role: 'user', text: liveJson.text, row_id: 63, timestamp: 63, display_kind: 'process_complete' },
+      durable(64, 'assistant', 'yes')
+    ]
+    const merged = sessionReducer(afterB, { type: 'history/loaded', messages: fresh, revision: afterB.revision })
+    expect(merged.items.find(i => i.kind === 'assistant' && i.rowId === 62)).toMatchObject({ turnOutcome: 'failed', displayKind: 'failed_turn' })
+    expect(merged.items.find(i => i.kind === 'assistant' && i.rowId === 64)).toMatchObject({ turnOutcome: 'completed' })
+    expect(merged.items.some(i => i.kind === 'assistant' && i.rowId === undefined)).toBe(false)
+  })
+
   it('rule (e) boundary: a candidate turn with two answers (not zero) still leaves the live item retained', () => {
     const loaded = run(bound(), [{ type: 'history/loaded', messages: [inbound(11, 'hi'), durable(12, 'assistant', 'hello')] }])
     const done = run(loaded, [ev({ type: 'message.start', seq: 1 }), ev({ type: 'message.delta', seq: 2, payload: { text: 'sure' } }), ev({ type: 'message.complete', seq: 3, payload: { text: 'sure', status: 'ok' } })])
@@ -845,7 +957,7 @@ describe('turn anchor and outcome (spec 12.3)', () => {
 
 describe('idle snapshot (spec 12.3)', () => {
   const resumed = (over: Partial<import('./session-reducer').ResumeSnapshot> = {}): SessionAction => ({ type: 'session/resumed', snapshot: { status: 'idle', running: false, inflight: null, ...over } })
-  const activate = (over: Partial<ActivateResult> = {}): SessionAction => ({ type: 'session/activated', result: { session_id: LIVE, session_key: STORED, status: 'idle', running: false, message_count: 0, messages: [], messages_omitted: true, info: {}, ...over }, at: 5 })
+  const activate = (over: Partial<ActivateResult> = {}): SessionAction => ({ type: 'session/activated', result: { session_id: LIVE, session_key: STORED, status: 'idle', running: false, message_count: 0, messages: [], messages_omitted: true, info: {}, ...over }, at: 5, pendingWhenSent: [] })
 
   it('is confirmed by an idle resume payload and not by resuming, waiting, starting or a running turn', () => {
     expect(sessionReducer(bound(), resumed()).idleSnapshot).toEqual({ confirmed: true, hydrating: false, autoContinue: false })
@@ -884,6 +996,7 @@ describe('idle snapshot (spec 12.3)', () => {
     expect(sessionReducer(idle, ev({ type: 'status.update', seq: 1, payload: { kind: 'process', text: liveJson.text } })).idleSnapshot.confirmed).toBe(false)
     expect(sessionReducer(idle, ev({ type: 'status.update', seq: 1, payload: { text: 'thinking' } })).idleSnapshot.confirmed).toBe(false)
     expect(sessionReducer(idle, { type: 'turn/observed-running' }).idleSnapshot.confirmed).toBe(false)
+    expect(sessionReducer(idle, req('srq-000000000011', 'approval', APPROVAL)).idleSnapshot.confirmed).toBe(false)
     const invalidated = sessionReducer(idle, ev({ type: 'message.start', seq: 1 }))
     expect(sessionReducer(invalidated, activate()).idleSnapshot.confirmed).toBe(true)
   })

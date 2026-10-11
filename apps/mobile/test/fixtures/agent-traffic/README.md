@@ -4,32 +4,36 @@ Recorded on 2026-09-14 from a local `hermes serve` v0.21.2 (pin d76856cc) with t
 
 What the backend actually produced: every delivery ran through the local CLI (`hermes -p kevin chat …`), even with Kevin's Bot Chat resumed on a second socket (the live admission needs the canonical live-owner lease, which a plain `session.resume` does not create). Kevin also answers through his own `message_agent`, so the sender's chat holds, per exchange, an inbound `Message from 🤖 kevin (@kevin): …` row followed by a receipt row. The refusal for an unknown teammate is a tool result (`{error, reason: "unknown", teammates, peers}`), not a receipt. Two sends in one turn produced two separate receipts, not a batch.
 
-| File | Shape | Synthetic | Provenance |
-|---|---|---|---|
-| `receipt-cli.json` | cli | no | Recorded: local CLI delivery; stdout holds the reply, a "Resumed session" line and a "session_id:" line. |
-| `receipt-cli-second.json` | cli | no | Recorded: second CLI delivery from the two-sends turn. |
-| `receipt-refusal-json.json` | refusal-json | yes | Synthetic from tools/bot_mode_dm.py:391-396 (SESSION_NOT_OWNED refusal printed by --run-delivery). |
-| `receipt-live-json.json` | live-json | yes | Synthetic from tools/bot_mode_dm.py:538-549 (_wait_live_dm payload) and :584-590 (queued result). |
-| `receipt-live-ambiguous.json` | live-json | yes | Synthetic from tools/bot_mode_dm.py:538-549 (ambiguous exits 1). |
-| `receipt-live-failed.json` | live-json | yes | Synthetic: terminal failed record (tui_gateway/session_notifications.py:520-527 classify_agent_error). |
-| `receipt-batch-two.json` | batch | yes | Synthetic join of two recorded receipts per tools/process_registry_notifications.py:19-31 (ProcessNotificationBatch.render). |
-| `receipt-batch-three.json` | batch | yes | Synthetic join of three recorded receipts (same formatter). |
-| `receipt-relay-reply.json` | relay-reply | yes | Synthetic from tools/bot_relay.py:326-366 (waiter prints "Reply from <label>:" then the reply). |
-| `receipt-relay-empty.json` | relay-reply | yes | Synthetic from tools/bot_relay.py:326-366 ("(empty reply)"). |
-| `receipt-relay-failure.json` | relay-failure | yes | Synthetic from tools/bot_relay.py:326-366 (failure with a typed reason tag). |
-| `receipt-relay-timeout.json` | relay-timeout | yes | Synthetic from tools/bot_relay.py:326-366 (timeout exits 1 while delivery may still succeed). |
-| `receipt-subagent-trimmed.json` | subagent-trimmed | yes | Synthetic from tools/process_registry_notifications.py:326-376 (attribution line + 600-char trim marker). |
-| `receipt-damaged.json` | damaged | yes | Synthetic: the 2,000-char tail of a long live payload (tools/process_registry.py:1288 keeps the tail, no marker); the paired result carries delivery_id. |
-| `receipt-damaged-brace.json` | damaged | yes | Synthetic: a payload cut after the opening brace. |
-| `receipt-exit-none.json` | exit-none | yes | Synthetic from tools/process_registry.py:719 (recovered process, exit code None) and :375-379. |
-| `receipt-sigterm.json` | sigterm | yes | Synthetic from tools/process_registry_notifications.py:360-376 (", SIGTERM" for -15/143). |
-| `receipt-lost.json` | lost | yes | Synthetic from tools/process_registry_notifications.py:_REASON_STATUS. |
-| `receipt-watch-match.json` | watch-match | yes | Synthetic from tools/process_registry_notifications.py:352-357. |
-| `result-refusal.json` | refusal-result | no | Recorded `tool.complete` result for a nonexistent target. |
-| `transcript-sender.json` | REST page | no | `GET /api/sessions/{id}/messages?profile=default&limit=500&offset=0&order=latest` for Hermes's Bot Chat. |
-| `transcript-sender-page1.json`, `transcript-sender-page2.json` | REST pages | cut | The same rows split at row 99: page 1 starts with the receipt for `proc_782bd84d7f2a`, whose send (rows 94/95) is on page 2. |
-| `history-sender.json` | `session.history` | no | Hermes's Bot Chat over the socket (tool rows carry no ids; tool-call assistant rows have empty text and a reasoning summary). |
-| `history-receiver.json` | `session.history` | no | Kevin's Bot Chat: inbound rows, reasoning-only assistant rows, tool rows and the terminal answer. |
-| `events-sender.json` | event frames | no | One send-and-reply turn on Hermes's socket: `tool.start`, `tool.complete`, `message.complete`, `status.update {kind:"process"}`, the doubled `message.start`, `message.complete`. |
+The `Hermes` column names the version whose shape a row models, and the row's line citations are lines of that version (0.21.6 is 818c13be). The recorded rows stay as recorded: a server upgraded from 0.21.2 still serves them from `state.db`. Each recorded row says what v0.21.6 sends instead. The `message_agent` acknowledgment becomes the spawn ack `{status: "queued", delivery_id, to, reply_delivery, detail, process_id, queued_at}` (tools/bot_mode_dm.py:748-756); 0.21.2 sent `{status: "sent", to, detail, process_id, sent_at}`. A receipt row is stored with `display_kind: "process_complete"` and a one-line title in `display_metadata.display_text` (tui_gateway/session_notifications.py:598-602), and the live `status.update {kind:"process"}` carries only that title (:546-552). The synthetic rows marked 0.21.2 model rows written before the upgrade, which the app still reads.
+
+| File | Shape | Synthetic | Hermes | Provenance |
+|---|---|---|---|---|
+| `receipt-cli.json` | cli | no | 0.21.2 | Recorded: local CLI delivery; stdout holds the reply, a "Resumed session" line and a "session_id:" line. v0.21.6 pairs the same receipt with the spawn ack, stores it as a `process_complete` row, and cuts a reply longer than 18,000 characters (see `receipt-cli-cut`). |
+| `receipt-cli-second.json` | cli | no | 0.21.2 | Recorded: second CLI delivery from the two-sends turn. v0.21.6: as `receipt-cli`. |
+| `receipt-cli-cut.json` | cli-cut | yes | 0.21.6 | Synthetic: a CLI reply longer than the 18,000 characters a delivery run keeps (tools/bot_mode_dm.py:43-46, :711), so the body starts with the cut marker (tools/process_registry_notifications.py:448-451). The kept tail is shortened to its last lines here. Paired with the spawn ack (tools/bot_mode_dm.py:748-756). |
+| `receipt-refusal-json.json` | refusal-json | yes | 0.21.6 | Synthetic from tools/bot_mode_dm.py:454-458 (SESSION_NOT_OWNED refusal printed by --run-delivery), paired with the spawn ack (:743-756), whose `delivery_id` is the sha256 of the DM file path (:482-485). |
+| `receipt-live-json.json` | live-json | yes | 0.21.6 | Synthetic from tools/bot_mode_dm.py:556-568 (_wait_live_dm payload) and :675-689 (live-owner ack; `reply_delivery` is new in v0.21.6, :684). |
+| `receipt-live-ambiguous.json` | live-json | yes | 0.21.6 | Synthetic from tools/bot_mode_dm.py:556-568 (ambiguous exits 1); live-owner ack as in `receipt-live-json`. |
+| `receipt-live-failed.json` | live-json | yes | 0.21.6 | Synthetic: terminal failed record (tui_gateway/session_notifications.py:657-667 classify_agent_error); live-owner ack as in `receipt-live-json`. |
+| `receipt-live-cancelled.json` | live-json | yes | 0.21.6 | Synthetic from tools/bot_mode_dm.py:541-568: the live owner went away, so the runner cancels the queued delivery with reason `runtime_offline` and exits 1. The payload has no `reply`, because the cancelled record holds an empty one (tools/bot_live_delivery.py:301-317). Live-owner ack as in `receipt-live-json`. |
+| `receipt-batch-two.json` | batch | yes | 0.21.6 | Synthetic join of two recorded receipts per tools/process_registry_notifications.py:24-33 (ProcessNotificationBatch.render). |
+| `receipt-batch-three.json` | batch | yes | 0.21.6 | Synthetic join of three recorded receipts (same formatter). |
+| `receipt-relay-reply.json` | relay-reply | yes | 0.21.6 | Synthetic from tools/bot_mode_dm.py:801-828: the relay waiter `bot_mode_dm.py --wait-reply` prints "Reply from <label>:" and then the reply. tools/bot_relay.py:479-499 builds its command with the 3,120-second budget of :42-61. Paired with the spawn ack, whose `delivery_id` is the envelope id (tools/bot_mode_dm.py:328). |
+| `receipt-relay-empty.json` | relay-reply | yes | 0.21.6 | The same waiter prints "(empty reply)" (tools/bot_mode_dm.py:821-823). |
+| `receipt-relay-failure.json` | relay-failure | yes | 0.21.6 | The same waiter reports a failure with a typed reason tag and exits 1 (tools/bot_mode_dm.py:814-820). |
+| `receipt-relay-timeout.json` | relay-timeout | yes | 0.21.6 | The same waiter gives up after its budget and exits 1, while the delivery may still succeed (tools/bot_mode_dm.py:826-828). |
+| `receipt-subagent-trimmed.json` | subagent-trimmed | yes | 0.21.2 | Synthetic from tools/process_registry_notifications.py:326-376 (attribution line + 600-char trim marker). v0.21.6 writes the same receipt (:384-401, :443-447) and pairs it with the spawn ack. |
+| `receipt-damaged.json` | damaged | yes | 0.21.6 | Synthetic: a live payload longer than the 18,000 characters a delivery run keeps, so the body is the cut marker and the payload's tail (tools/process_registry_notifications.py:448-451; tools/process_registry.py:526-534), shortened here. Paired with the live-owner ack (tools/bot_mode_dm.py:675-689). |
+| `receipt-damaged-brace.json` | damaged | yes | 0.21.2 | Synthetic: a payload cut after the opening brace, paired with the `sent` ack. |
+| `receipt-exit-none.json` | exit-none | yes | 0.21.2 | 0.21.2 shape, kept for rows written before the upgrade. Synthetic from tools/process_registry.py:719 (recovered process, exit code None) and :375-379. v0.21.6 queues no completion for a recovered process (tools/process_registry.py:1021-1071), and a delivery run never uses a PTY, the only other source of exit code None (:1562-1564). |
+| `receipt-sigterm.json` | sigterm | yes | 0.21.2 | Synthetic from tools/process_registry_notifications.py:360-376 (", SIGTERM" for -15/143). v0.21.6 writes the same headline (:440, :452-454). |
+| `receipt-lost.json` | lost | yes | 0.21.2 | Synthetic from tools/process_registry_notifications.py:_REASON_STATUS, which v0.21.6 keeps (:11). |
+| `receipt-watch-match.json` | watch-match | yes | 0.21.6 | Synthetic from tools/process_registry_notifications.py:432-437. |
+| `result-refusal.json` | refusal-result | no | 0.21.2 | Recorded `tool.complete` result for a nonexistent target. v0.21.6 returns the same shape (tools/bot_mode_dm.py:190-198, :291-293). |
+| `transcript-sender.json` | REST page | no | 0.21.2 | `GET /api/sessions/{id}/messages?profile=default&limit=500&offset=0&order=latest` for Hermes's Bot Chat. On v0.21.6 the `message_agent` tool rows hold the spawn ack, and the receipt rows carry `display_kind: "process_complete"` and `display_metadata.display_text`. |
+| `transcript-sender-page1.json`, `transcript-sender-page2.json` | REST pages | cut | 0.21.2 | The same rows split at row 99: page 1 starts with the receipt for `proc_782bd84d7f2a`, whose send (rows 94/95) is on page 2. |
+| `history-sender.json` | `session.history` | no | 0.21.2 | Hermes's Bot Chat over the socket (tool rows carry no ids; tool-call assistant rows have empty text and a reasoning summary). On v0.21.6 the receipt rows also carry `display_kind` and `display_metadata` (tui_gateway/session_history.py:358-362). |
+| `history-receiver.json` | `session.history` | no | 0.21.2 | Kevin's Bot Chat: inbound rows, reasoning-only assistant rows, tool rows and the terminal answer. v0.21.6 stamps the inbound rows the same way (tools/bot_mode_dm.py:243). |
+| `events-sender.json` | event frames | no | 0.21.2 | One send-and-reply turn on Hermes's socket: `tool.start`, `tool.complete`, `message.complete`, `status.update {kind:"process"}`, the doubled `message.start`, `message.complete`. On v0.21.6 the `tool.complete` result is the spawn ack, and `status.update` carries the one-line title instead of the receipt (tui_gateway/session_notifications.py:546-552). |
 
 Re-record with `ERGATES_LIVE=1 ERGATES_RECORD=1 ERGATES_TOKEN=… ERGATES_OUT=… npx vitest run test/live/agent-traffic-record.live.test.ts`, then sanitize by hand.

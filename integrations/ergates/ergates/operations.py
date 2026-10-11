@@ -232,11 +232,21 @@ class Operations:
         self._enable_plugin(profile)
         return Reply(200, {"profile": profile, "enabled": True})
 
-    # GET /attention/prefs?profile=<name or *>
+    # GET /attention/prefs?scope=<name or *>, or ?profile=<name>
     @_guard_store
-    def get_prefs(self, profile: Any) -> Reply:
+    def get_prefs(self, scope: Any, named_profile: Any = None) -> Reply:
+        """The prefs of ``scope``, a profile name or ``*`` for every agent.
+
+        Without a scope, ``named_profile`` (the ``?profile=`` query) names one
+        agent and nothing else: Hermes runs a request in the profile its
+        ``profile`` parameter names and refuses ``*`` there itself.
+        """
+        if scope is None and named_profile is not None:
+            if not _is_profile_name(named_profile):
+                return error_reply(400, "invalid", "?profile= names one agent; ask for every agent with ?scope=*")
+            scope = named_profile
         try:
-            prefs = self._attention.get_prefs(profile)
+            prefs = self._attention.get_prefs(scope)
         except AttentionError as exc:
             return error_reply(400, "invalid", str(exc))
         return Reply(200, {"prefs": prefs})

@@ -1,0 +1,20 @@
+{
+  "shape": "cli-cut",
+  "synthetic": true,
+  "text": "[IMPORTANT: Background process proc_c1d2e3f4a5b6 completed normally (exit code 0).\nCommand: /opt/data/hermes/hermes-agent/venv/bin/python /opt/data/hermes/hermes-agent/tools/bot_mode_dm.py --run-delivery --author '{\"id\":\"bot:default\",\"name\":\"hermes\",\"is_bot\":true}' query-file /opt/data/tmp/hermes-dm-501/dm-ttwwivgo.txt --profile-home /opt/data/hermes/profiles/kevin hermes -p kevin chat --in '~' -c 'Bot Chat' --create-if-missing -Q\nOutput:\n...(first 3072 characters cut — process(action=\"log\", session_id=\"proc_c1d2e3f4a5b6\") has the full output)\n  18:00\n\nTijdzone: UTC+7. Kies één tijd en laat weten of je 30, 45 of 60 minuten wilt trainen. Ik heb deze opties ook aan Hermes doorgegeven.\n↻ Resumed session 20260913_221338_79c894 \"Bot Chat\" (5 user messages, 10 total messages)\n\nsession_id: 20260913_221338_79c894\n]",
+  "result": {
+    "status": "queued",
+    "delivery_id": "f5b9d05a754c2aff30bc4a15746385cfa0afcc87dce6a0c3d2e5cde79370e687",
+    "to": "@kevin",
+    "reply_delivery": "notification",
+    "detail": "Message queued for @kevin: this acknowledges the hand-off to a background delivery process, not a delivery receipt — do NOT wait or poll. Finish your turn now; that process's completion notification carries the delivery outcome — the reply (relay it then, attributed to that agent) or the delivery failure (report it; the message was NOT delivered).",
+    "process_id": "proc_c1d2e3f4a5b6",
+    "queued_at": 1789375767
+  },
+  "expect": {
+    "processId": "proc_c1d2e3f4a5b6",
+    "delivery": "settled",
+    "reply": "excerpt",
+    "worker": "exited"
+  }
+}

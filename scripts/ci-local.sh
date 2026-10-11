@@ -8,6 +8,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 JOBS=(lint mobile integration contract deploy)
+# Jobs that run only when named. `contract-live` is the live half of `contract`
+# alone, for the weekly run against the newest Hermes release
+# (.github/workflows/contract-latest.yml).
+NAMED_JOBS=(contract-live)
 
 # The workflow files (actionlint) and the shell scripts themselves (bash -n,
 # then shellcheck), including the release scripts that otherwise first run in
@@ -45,16 +49,19 @@ job_integration() {
 }
 
 # Same pin in integrations/ergates/contract/pinned.py and .github/workflows/ci.yml (contract job `ref`).
-HERMES_PIN="d76856cc6971b6e0e1903b5369498bcc4bb83a60"
+HERMES_PIN="818c13be1dc4fd28987e1e881a9408224afd4535"
 
-# Fails unless $1 is a Hermes checkout at the pin without local changes or
-# untracked files (`git diff` would miss the untracked ones).
+# Fails unless $1 is a Hermes checkout at the expected commit without local
+# changes or untracked files (`git diff` would miss the untracked ones). The
+# expected commit is HERMES_EXPECTED_REF when set and not empty (the CI job
+# `contract-latest` sets it to the newest Hermes release), else the pin. Same
+# rule as `expected_ref()` in integrations/ergates/contract/pinned.py.
 # Checks every git exit code itself: `set -e` does not apply inside a function
 # called from an `if`.
 check_pin() {
-  local head changes
-  if ! head="$(git -C "$1" rev-parse HEAD)" || [[ "$head" != "$HERMES_PIN" ]]; then
-    echo "ci-local: $1 is at ${head:-no commit}, not the Hermes pin $HERMES_PIN" >&2
+  local expected="${HERMES_EXPECTED_REF:-$HERMES_PIN}" head changes
+  if ! head="$(git -C "$1" rev-parse HEAD)" || [[ "$head" != "$expected" ]]; then
+    echo "ci-local: $1 is at ${head:-no commit}, not the expected Hermes commit $expected (HERMES_EXPECTED_REF, else the pin)" >&2
     return 1
   fi
   if ! changes="$(git -C "$1" status --porcelain)" || [[ -n "$changes" ]]; then
@@ -63,8 +70,8 @@ check_pin() {
   fi
 }
 
-# Exports HERMES_SOURCE, a checkout at the pin:
-#  - HERMES_SOURCE when set (CI checks the pin out there);
+# Exports HERMES_SOURCE, a checkout at the pin (or at HERMES_EXPECTED_REF):
+#  - HERMES_SOURCE when set (CI checks the pin, or the newest release, out there);
 #  - else $ROOT/.cache/hermes-pin, created once as a detached `git worktree add`
 #    from HERMES_REPO (default ~/Projects/misc/hermes/hermes-agent), or fetched
 #    from GitHub when that clone does not have the pinned commit.
@@ -75,6 +82,10 @@ prepare_hermes_source() {
   if [[ -n "${HERMES_SOURCE:-}" ]]; then
     check_pin "$HERMES_SOURCE"
     return
+  fi
+  if [[ -n "${HERMES_EXPECTED_REF:-}" ]]; then
+    echo "ci-local: HERMES_EXPECTED_REF needs HERMES_SOURCE; the cache in $ROOT/.cache/hermes-pin is always at the pin" >&2
+    return 1
   fi
   local cache="$ROOT/.cache/hermes-pin"
   local repo="${HERMES_REPO:-$HOME/Projects/misc/hermes/hermes-agent}"
@@ -108,6 +119,20 @@ job_contract() {
   prepare_hermes_source
   cd "$ROOT/integrations/ergates"
   "${UV_TEST[@]}" pytest contract
+  contract_live
+}
+
+# Only `contract/live/`. The text suite pins exact Hermes line numbers, which
+# move in nearly every release, so the weekly run against the newest release
+# skips it.
+job_contract_live() {
+  prepare_hermes_source
+  contract_live
+}
+
+# Needs HERMES_SOURCE (prepare_hermes_source).
+contract_live() {
+  cd "$ROOT/integrations/ergates"
   local requirements="$ROOT/.cache/hermes-requirements.txt"
   mkdir -p "$ROOT/.cache"
   uv export --quiet --frozen --no-dev --no-emit-project --no-hashes --project "$HERMES_SOURCE" -o "$requirements"
@@ -127,14 +152,14 @@ main() {
   fi
   local job
   for job in "${selected[@]}"; do
-    if [[ " ${JOBS[*]} " != *" $job "* ]]; then
-      echo "ci-local: unknown job '$job' (jobs: ${JOBS[*]})" >&2
+    if [[ " ${JOBS[*]} ${NAMED_JOBS[*]} " != *" $job "* ]]; then
+      echo "ci-local: unknown job '$job' (jobs: ${JOBS[*]} ${NAMED_JOBS[*]})" >&2
       return 2
     fi
   done
   for job in "${selected[@]}"; do
     echo "==> $job"
-    ("job_$job")
+    ("job_${job//-/_}")
   done
   echo "ci-local: passed: ${selected[*]}"
 }

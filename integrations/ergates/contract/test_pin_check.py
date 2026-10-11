@@ -13,7 +13,9 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from pinned import check_pin
+import pytest
+
+from pinned import HERMES_PIN, check_pin, expected_ref
 
 
 def _git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -67,3 +69,24 @@ def test_a_checkout_at_the_wrong_commit_fails_naming_the_checkout(tmp_path: Path
 
     assert failure is not None
     assert str(tmp_path) in failure
+
+
+def test_expected_ref_overrides_the_pin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    head = _init_repo(tmp_path)
+    monkeypatch.setenv("HERMES_EXPECTED_REF", head)
+
+    assert expected_ref() == head
+    assert check_pin(tmp_path, expected_ref()) is None
+
+
+def test_without_the_override_the_pin_is_expected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HERMES_EXPECTED_REF", raising=False)
+
+    assert expected_ref() == HERMES_PIN
+
+
+def test_an_empty_override_means_the_pin(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A workflow expression that resolves to nothing leaves the variable set but empty.
+    monkeypatch.setenv("HERMES_EXPECTED_REF", "")
+
+    assert expected_ref() == HERMES_PIN

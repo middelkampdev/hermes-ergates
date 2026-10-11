@@ -1,6 +1,6 @@
 # 03 - Technical Design
 
-Version: 0.4. Date: 2026-09-13. Depends on [02](02-functional-design.md), [10](10-mobile-design.md), [11](11-implementation-readiness.md) and [08 ADR-029](08-decision-log.md#adr-029-app-code-shape-feature-modules-behind-one-gateway-port). Hermes pin: `d76856cc6971b6e0e1903b5369498bcc4bb83a60`, version 0.21.2. This is a design, not an executed deployment.
+Version: 0.4. Date: 2026-09-13. Depends on [02](02-functional-design.md), [10](10-mobile-design.md), [11](11-implementation-readiness.md) and [08 ADR-029](08-decision-log.md#adr-029-app-code-shape-feature-modules-behind-one-gateway-port). Hermes pin: `818c13be1dc4fd28987e1e881a9408224afd4535`, version 0.21.6 (0.21.2, `d76856cc6971b6e0e1903b5369498bcc4bb83a60`, until 2026-10-11). This is a design, not an executed deployment.
 
 ## 1. Boundaries
 
@@ -141,7 +141,7 @@ Answer approvals with the backend request id and session id. Show command/action
 | Canonical chat | Session with pinned `BOT_CHAT_TITLE` | Create/resume consistently; preserve history |
 | Creation by chat | No built-in Ergates action card | Typed proposal and confirmed provisioning contract in 11 |
 | Exchange | `message_agent` in canonical Bot Chats | Render individual histories in P1; merged overlay P2; cross-gateway relay separate |
-| Choice / approval | `clarify.*`, `approval.*` | Native cards; actual waiting/expiry semantics |
+| Choice / approval | `clarify` and `approval` server requests, `request.cancel` | Native cards; actual waiting/expiry semantics |
 | Routine | Hermes cron | Multiplex config, timezone, safe-create receipt and push routing |
 | Task board | Shared kanban tools | Agent protocol in P1, board UI in P2 |
 | Memory | `MEMORY.md`, `USER.md`, session search | Read-only mobile view; user may ask agent to edit |

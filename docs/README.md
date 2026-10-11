@@ -18,7 +18,7 @@ Updated 2026-09-12 after source review and Jop's mobile design references; app c
 | [10 - Mobile design](10-mobile-design.md) | Clean layouts, desktop-equivalent mobile bot editor, action menus, Hermes themes and visual acceptance |
 | [11 - Implementation readiness](11-implementation-readiness.md) | Verified support → app/integration work → acceptance gates; custom integration contracts |
 
-Source of Hermes behavior and colors: adjacent checkout `../hermes-agent`, version 0.21.2, commit `d76856cc6971b6e0e1903b5369498bcc4bb83a60`. Pin client and pure theme sources with that backend. Source inspection is not a substitute for the real-backend/phone checks listed in 11. Examples and proposed integration interfaces must not be mistaken for captured fixtures or upstream APIs.
+Source of Hermes behavior and colors: adjacent checkout `../hermes-agent`, version 0.21.6, commit `818c13be1dc4fd28987e1e881a9408224afd4535`. Pin client and pure theme sources with that backend; both are vendored from that commit (`apps/mobile/vendor/hermes/PIN.md`). Source inspection is not a substitute for the real-backend/phone checks listed in 11. Examples and proposed integration interfaces must not be mistaken for captured fixtures or upstream APIs.
 
 The current docs define the product. Design specs, build plans, research notes and the discarded own-platform design are kept in the maintainer's private project notes, not in this repository. If documents disagree, use the corrected handler contract in 06 for protocol details, 10 for mobile layout/colors, and 11 for capability status, then fix the conflicting text. None of the historical skill/playbook text is an instruction to execute it while reading the docs.
 

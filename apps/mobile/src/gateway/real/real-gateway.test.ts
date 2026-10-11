@@ -158,6 +158,26 @@ describe('socket cache', () => {
   })
 })
 
+describe('server requests', () => {
+  it('answers approval and clarify with response frames on the session socket', async () => {
+    const secrets = new MemorySecretStore()
+    const { impl } = routes({ '/api/profiles': { status: 200, body: { profiles: [] } } })
+    installFakeWebSocket({ onRequest: m => (m === 'session.create' ? { session_id: 's1', stored_session_id: 'st1' } : {}) })
+    const gateway = new RealGateway({ connectionId: 'c1', baseUrl: 'http://gw.local', secrets, fetchImpl: impl, socketFactory: fakeSocketFactory })
+    await gateway.login({ mode: 'token', token: 'tok-1' })
+
+    await gateway.sessions.create({ title: 'Bot Chat', profile: 'thijs' })
+    const ws = FakeWebSocket.instances.at(-1)!
+    ws.serverRequest('srq-00000000000c', 'clarify', { session_id: 's1', questions: [{ qid: 'q0', question: 'Tea?' }] })
+    await flush()
+    await gateway.sessions.respondClarify({ session_id: 's1', request_id: 'srq-00000000000c', answers: { q0: 'A' } })
+    expect(ws.sent.filter(f => f.id === 'srq-00000000000c')).toEqual([{ jsonrpc: '2.0', id: 'srq-00000000000c', result: { answers: { q0: 'A' } } }])
+    expect(ws.sent.some(f => f.method === 'clarify.respond' || f.method === 'approval.respond')).toBe(false)
+    await expect(gateway.sessions.respondApproval({ session_id: 's1', request_id: 'srq-00000000000d', choice: 'once' })).rejects.toMatchObject({ kind: 'not_found' })
+    gateway.disconnectAll()
+  })
+})
+
 describe('sessions.transcript', () => {
   it('sends profile, limit, offset and order explicitly and returns the normalized rows', async () => {
     const { gateway, urls } = gatewayWith({

@@ -580,6 +580,42 @@ def test_is_admitted_blocks_only_the_reserved_profile_while_it_is_provisioned(se
     assert service.is_admitted("nora") is True
 
 
+def test_a_profile_is_provisioned_once_its_configure_step_was_reported(service):
+    """The toolset rule of the tool gate applies to this profile from then on (ADR-034)."""
+    assert service.provisioned("thijs") is False
+    proposal_id = _accepted(service, "thijs")
+    assert service.provisioned("thijs") is False
+    for step in ("profile_created", "plugin_enabled"):
+        service.record_step(proposal_id, step, "done")
+    assert service.provisioned("thijs") is False
+
+    service.record_step(proposal_id, "configured", "failed")
+
+    assert service.provisioned("thijs") is True
+    assert service.provisioned("nora") is False
+
+
+def test_a_completed_proposal_keeps_its_profile_provisioned(service):
+    proposal_id = _accepted(service)
+    _all_steps_done(service, proposal_id)
+    service.complete(proposal_id, profile_exists=lambda name: True, plugin_enabled=lambda name: True)
+
+    assert service.provisioned("thijs") is True
+
+
+def test_a_proposed_or_rejected_proposal_provisions_nothing(service):
+    _recorded(service, "thijs")
+    rejected = _recorded(service, "nora")
+    service.reject(rejected["proposal_id"])
+
+    assert service.provisioned("thijs") is False
+    assert service.provisioned("nora") is False
+
+
+def test_the_default_profile_is_never_provisioned(service):
+    assert service.provisioned("default") is False
+
+
 # --- retention (04 section 8; 11 section 4.1) ------------------------------
 
 

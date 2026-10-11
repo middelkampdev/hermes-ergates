@@ -554,6 +554,20 @@ def test_get_prefs_for_an_invalid_profile_is_400(ops, profile):
     assert _error(ops.get_prefs(profile)) == (400, "invalid")
 
 
+def test_get_prefs_names_one_agent_with_profile_and_every_agent_only_with_scope(ops):
+    """``GET /attention/prefs?scope=<name or *>``; ``?profile=<name>`` still names one agent.
+    Hermes refuses ``?profile=*`` before the route runs (``*`` is no profile name), and the
+    route takes nothing but a profile name from that parameter either."""
+    ops.set_prefs({"profile": "*", "muted": True, "quiet_start": None, "quiet_end": None})
+
+    assert ops.get_prefs("*").body["prefs"]["profile"] == "*"
+    assert ops.get_prefs(None, named_profile="thijs").body["prefs"] == {
+        "profile": "thijs", "muted": True, "quiet_start": None, "quiet_end": None}
+    assert ops.get_prefs("nora", named_profile="thijs").body["prefs"]["profile"] == "nora"
+    assert _error(ops.get_prefs(None, named_profile="*")) == (400, "invalid")
+    assert _error(ops.get_prefs(None, named_profile="Bad Name")) == (400, "invalid")
+
+
 @pytest.mark.parametrize("body", [
     None,
     {"profile": "thijs", "muted": True},

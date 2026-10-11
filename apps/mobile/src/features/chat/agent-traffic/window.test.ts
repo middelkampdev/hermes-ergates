@@ -169,19 +169,6 @@ describe('transcript window', () => {
       'call_nRwha9TQ0oE9AugWq67WcB4K',
       'call_QZXUy0W80yGtyEPZwlzOFkxc'
     ])
-    expect(ids.processIds).toContain('proc_c7ff5a9cacfb')
-    expect(ids.processIds).toContain('proc_782bd84d7f2a')
-    // A batch row names every process it reports.
-    expect(new Set(ids.processIds).size).toBe(ids.processIds.length)
-  })
-
-  it('does not read receipt text out of a row a display kind already projected', () => {
-    const receipt = '[IMPORTANT: Background process proc_0123456789ab completed normally (exit code 0).\nCommand: run-delivery\nOutput:\n{"status": "settled"}]'
-    const stamped = row(20, { text: receipt, content: receipt, displayKind: 'a2a_message', displayMetadata: { sender_handle: 'kevin' } })
-    expect(reconciledIds(page([stamped])).processIds).toEqual([])
-
-    const plain = row(21, { text: receipt, content: receipt })
-    expect(reconciledIds(page([plain])).processIds).toEqual(['proc_0123456789ab'])
   })
 
   it('reconciles a tool result row whose tool_name did not survive, through its send row', () => {

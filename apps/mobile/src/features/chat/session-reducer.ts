@@ -6,17 +6,18 @@
 
 import type {
   ActivateResult,
-  ApprovalReceivedPayload,
-  ApprovalRequestPayload,
+  ApprovalRequestParams,
   BackgroundCompletePayload,
-  ClarifyExpirePayload,
-  ClarifyRequestPayload,
+  ClarifyRequestParams,
   ErrorPayload,
   GatewayEventFrame,
   HistoryMessage,
   MessageCompletePayload,
   MessageInterimPayload,
+  OpenServerRequest,
   ReplayResult,
+  RequestCancelPayload,
+  ServerRequestFrame,
   SessionInfoPayload,
   StatusUpdatePayload,
   TextPayload,
@@ -25,7 +26,7 @@ import type {
   UsagePayload
 } from '@/gateway/types'
 
-import { parseReceiptRow } from './agent-traffic/receipt'
+import { PROCESS_TITLE_RE, parseReceiptRow } from './agent-traffic/receipt'
 import { historyToItems, maxRowId, mergeHistory, newestInputRowId, type ChatItem, type DeliveryState, type LiveAnchor } from './history'
 
 export type { ChatItem, DeliveryState } from './history'
@@ -37,8 +38,11 @@ export type { ChatItem, DeliveryState } from './history'
  */
 export type TurnOwnership = 'local' | 'foreign' | 'unknown'
 
-/** The fields of a resume payload the idle snapshot reads (methods_session.py:684-770). */
-export interface ResumeSnapshot { status: string; running: boolean; inflight?: unknown; hydrating?: boolean; auto_continue?: unknown }
+/**
+ * The fields of a resume payload the reducer reads: the idle snapshot (methods_session.py:684-770)
+ * and the server requests still open (`open_requests`, left out when empty).
+ */
+export interface ResumeSnapshot { status: string; running: boolean; inflight?: unknown; hydrating?: boolean; auto_continue?: unknown; open_requests?: OpenServerRequest[] }
 
 /**
  * Spec 12.3: the last turn may fold on idle evidence only under a snapshot confirmed against
@@ -83,22 +87,30 @@ export interface SessionState {
   /** What the last resume or activate payload says about the session being idle (spec 12.3). */
   idleSnapshot: IdleSnapshot
   /**
-   * The process id of the last live receipt appended while no turn was running (rule g). The next
+   * The process id of the last receipt a `status.update {kind:"process"}` named (rule g). The next
    * turn to start is the one Hermes runs on that receipt row, so the id moves onto its anchor;
-   * cleared when a turn starts (consumed) and when one completes.
+   * cleared when a turn starts (consumed) and at a reconnect boundary (rule h). Only a 0.21.2 server sends a
+   * receipt live: v0.21.6 sends a title without a process id, so the id stays null there.
    */
   pendingReceiptProcessId: string | null
 }
 
 export type SessionAction =
   | { type: 'session/bound'; liveSessionId: string; storedSessionId: string; epoch?: string | null }
-  | { type: 'session/activated'; result: ActivateResult; at?: number }
+  /**
+   * `pendingWhenSent`: the request ids of the cards that were pending when this activate went
+   * out. Only those can expire because the snapshot leaves them out: a request raised after
+   * Hermes took the snapshot can reach the phone before the answer.
+   */
+  | { type: 'session/activated'; result: ActivateResult; at?: number; pendingWhenSent: readonly string[] }
   /** The `session.resume` payload the chat opened with: the only carrier of hydration and auto-continue. */
   | { type: 'session/resumed'; snapshot: ResumeSnapshot }
   /** `revision` is the one captured before the fetch; a mismatch means the snapshot is stale. */
   | { type: 'history/loaded'; messages: HistoryMessage[]; revision?: number }
   | { type: 'connection/state'; state: SessionState['connection'] }
   | { type: 'event'; event: GatewayEventFrame; at?: number }
+  /** A server request from the connection, live or re-delivered from `open_requests`. */
+  | { type: 'request/received'; request: ServerRequestFrame }
   | { type: 'submit/started'; localId: string; text: string; at: number }
   | { type: 'submit/acknowledged'; localId: string }
   /** The gateway parked it behind the running turn (`prompt.submit` → `{status:'queued'}`). */
@@ -121,7 +133,7 @@ export type SessionAction =
   /** A turn was already running when we (re)attached (`opened.running`, `session.activate`). */
   | { type: 'turn/observed-running'; at?: number }
   /** Durable transcript rows arrived for live-only observations; drop the duplicates. */
-  | { type: 'transcript/reconciled'; toolCallIds: string[]; processIds: string[] }
+  | { type: 'transcript/reconciled'; toolCallIds: string[] }
   | { type: 'replay/result'; result: ReplayResult }
   | { type: 'history/refetched' }
   | { type: 'error/cleared' }
@@ -159,8 +171,6 @@ const INVALIDATING_EVENTS = new Set([
   'status.update',
   'tool.start',
   'tool.complete',
-  'clarify.request',
-  'approval.request',
   'background.complete',
   'error',
   'session.resume_progress'
@@ -191,10 +201,10 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         replay: { ...state.replay, epoch: action.epoch ?? state.replay.epoch }
       }
     case 'session/activated':
-      return applyActivate(state, action.result, action.at)
+      return expireUnlisted(applyActivate(state, action.result, action.at), action.result.open_requests, action.pendingWhenSent)
     case 'session/resumed':
       return {
-        ...state,
+        ...expireUnlisted(state, action.snapshot.open_requests),
         idleSnapshot: confirmIdle(action.snapshot, {
           hydrating: action.snapshot.hydrating === true,
           autoContinue: action.snapshot.auto_continue !== undefined && action.snapshot.auto_continue !== null
@@ -291,13 +301,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return invalidateIdle(startTurn(state, 'unknown', action.at))
     case 'transcript/reconciled': {
       const toolCallIds = new Set(action.toolCallIds)
-      const processIds = new Set(action.processIds)
-      const items = state.items.filter(i => {
-        if (i.kind === 'tool' && i.toolId !== undefined && toolCallIds.has(i.toolId)) {
-          return false
-        }
-        return !(i.kind === 'receipt' && i.live && processIds.has(i.receipt.headline.processId))
-      })
+      const items = state.items.filter(i => !(i.kind === 'tool' && i.toolId !== undefined && toolCallIds.has(i.toolId)))
       return items.length === state.items.length ? state : { ...state, items }
     }
     case 'replay/result':
@@ -308,9 +312,75 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return { ...state, lastError: null }
     case 'event':
       return applyEvent(state, action.event, action.at)
+    case 'request/received':
+      return receiveRequest(state, action.request)
     default:
       return state
   }
+}
+
+/** The card a server request shows, or null for a method the phone shows no card for. */
+function requestCard(request: ServerRequestFrame): Extract<ChatItem, { kind: 'approval' | 'clarify' }> | null {
+  if (request.method === 'approval') {
+    return { kind: 'approval', id: `approval-${request.id}`, requestId: request.id, payload: request.params as ApprovalRequestParams, state: 'pending' }
+  }
+  if (request.method === 'clarify') {
+    const asked = (request.params as Partial<ClarifyRequestParams>).questions
+    const questions = (Array.isArray(asked) ? asked : []).map(q => ({ qid: q.qid, question: q.question, choices: Array.isArray(q.choices) ? q.choices : [], multi_select: q.multi_select ?? false }))
+    return { kind: 'clarify', id: `clarify-${request.id}`, requestId: request.id, questions, state: 'pending' }
+  }
+  return null
+}
+
+/**
+ * One card per request id. A pending card stays as it is. A card in any other state goes back to
+ * pending: Hermes delivers a request again only while it still waits for the answer, so the answer
+ * the card shows never arrived. The socket already dropped the one re-delivery that proves nothing,
+ * a snapshot that Hermes took on the answering socket before the answer reached it
+ * (`SocketSession.takeRequest`). Hermes Desktop also keys its cards on the id and lets a
+ * re-delivery replace the entry (apps/desktop/src/store/server-requests.ts:12-14).
+ */
+function receiveRequest(state: SessionState, request: ServerRequestFrame): SessionState {
+  if (!state.liveSessionId || request.params.session_id !== state.liveSessionId) {
+    return state
+  }
+  const card = requestCard(request)
+  if (!card) {
+    return state
+  }
+  const index = state.items.findIndex(i => i.kind === card.kind && i.requestId === request.id)
+  const existing = index >= 0 ? state.items[index] : undefined
+  if (existing && (existing.kind === 'approval' || existing.kind === 'clarify') && existing.state === 'pending') {
+    return state
+  }
+  const items = existing ? state.items.map((i, at) => (at === index ? card : i)) : [...state.items, card]
+  // The turn now waits on the user: no working line, and the idle snapshot is stale.
+  return invalidateIdle({ ...state, items, live: { ...state.live, statusLine: null } })
+}
+
+/** The request ids of the approval and clarify cards still waiting for the user's answer. */
+export function pendingRequestIds(state: SessionState): string[] {
+  return state.items.flatMap(i => ((i.kind === 'approval' || i.kind === 'clarify') && i.state === 'pending' ? [i.requestId] : []))
+}
+
+/**
+ * A reconnect or resume payload lists every server request Hermes still waits on (`open_requests`,
+ * left out when empty). A pending card it does not list is over, even when its `request.cancel` was
+ * lost to a truncated replay or a restart. `candidates` narrows that to the cards that were pending
+ * when the call went out; without it every pending card counts.
+ */
+function expireUnlisted(state: SessionState, open: OpenServerRequest[] | undefined, candidates?: readonly string[]): SessionState {
+  const listed = new Set((open ?? []).map(r => r.id))
+  const eligible = candidates === undefined ? null : new Set(candidates)
+  let changed = false
+  const items = state.items.map(i => {
+    if ((i.kind === 'approval' || i.kind === 'clarify') && i.state === 'pending' && !listed.has(i.requestId) && (eligible === null || eligible.has(i.requestId))) {
+      changed = true
+      return { ...i, state: 'expired' as const }
+    }
+    return i
+  })
+  return changed ? { ...state, items, revision: state.revision + 1 } : state
 }
 
 /**
@@ -412,38 +482,20 @@ function startTurn(state: SessionState, unownedAs: 'foreign' | 'unknown', at: nu
 }
 
 /**
- * A background process wrote a durable row and the backend told us so
- * (`status.update {kind:"process"}`). The text is receipt or notice grammar, so
- * it never reaches the working line (spec 5.9), and the notification itself is
- * the evidence a row exists — the tail is wanted even when the receipt is one we
- * already hold (5.8).
+ * A background process or a subagent wrote a durable row and the backend told us so
+ * (`status.update {kind:"process"}`). Desktop adds nothing for any of them and only re-reads its
+ * process list (apps/desktop/src/app/session/hooks/use-message-stream/gateway-event/status.ts:116-119),
+ * so no item is added here either: the REST tail brings the durable row (5.8), and the text never
+ * reaches the working line (spec 5.9). v0.21.6 sends a one-line title for a completion or a subagent
+ * and the full text for a watch match (tui_gateway/session_notifications.py:546-552).
  */
-function applyProcessNotification(state: SessionState, text: string, at: number | undefined): SessionState {
-  const parsed = parseReceiptRow(text)
-  const when = at ?? Date.now()
-  let items = state.items
-  let pendingReceiptProcessId = state.pendingReceiptProcessId
-  if (parsed.kind === 'receipts') {
-    const known = new Set(
-      state.items.filter((i): i is Extract<ChatItem, { kind: 'receipt' }> => i.kind === 'receipt').map(i => i.receipt.headline.processId)
-    )
-    for (const receipt of parsed.receipts) {
-      const processId = receipt.headline.processId
-      if (known.has(processId)) {
-        continue
-      }
-      known.add(processId)
-      items = [...items, { kind: 'receipt', id: `live-receipt-${processId}`, receipt, at: when, live: true }]
-      // Rule (h): a receipt observed while a turn streams cannot belong to that turn — it already
-      // started — so it is remembered for whichever turn starts next, same as when nothing is
-      // running. Last receipt wins either way.
-      pendingReceiptProcessId = processId
-    }
-  } else {
-    const noticeKind = parsed.kind === 'notice' ? parsed.noticeKind : 'unknown'
-    items = [...items, { kind: 'notice', id: nextId('notice'), noticeKind, detail: text, at: when, live: true }]
-  }
-  return { ...state, items, pendingReceiptProcessId, revision: state.revision + 1, tailWanted: state.tailWanted + 1 }
+function applyProcessNotification(state: SessionState, text: string): SessionState {
+  const parsed = PROCESS_TITLE_RE.test(text) ? null : parseReceiptRow(text)
+  // Rule (h): a receipt observed while a turn streams cannot belong to that turn — it already
+  // started — so its process id is remembered for whichever turn starts next, same as when nothing
+  // is running. Last receipt wins either way.
+  const processId = parsed?.kind === 'receipts' ? parsed.receipts.at(-1)!.headline.processId : null
+  return { ...state, pendingReceiptProcessId: processId ?? state.pendingReceiptProcessId, tailWanted: state.tailWanted + 1 }
 }
 
 /**
@@ -662,7 +714,7 @@ function applyEvent(state: SessionState, event: GatewayEventFrame, at?: number):
     case 'status.update': {
       const p = raw as StatusUpdatePayload
       if (p.kind === 'process') {
-        return applyProcessNotification(next, p.text ?? '', at)
+        return applyProcessNotification(next, p.text ?? '')
       }
       const text = p.text ?? p.message ?? p.status ?? null
       return { ...next, live: { ...next.live, statusLine: text } }
@@ -737,45 +789,16 @@ function applyEvent(state: SessionState, event: GatewayEventFrame, at?: number):
         tailWanted: p.name === 'message_agent' ? next.tailWanted + 1 : next.tailWanted
       }
     }
-    case 'clarify.request': {
-      const p = raw as ClarifyRequestPayload
-      if (!p.request_id || next.items.some(i => i.kind === 'clarify' && i.requestId === p.request_id)) {
-        return next
-      }
-      const questions = Array.isArray(p.questions) && p.questions.length > 0
-        ? p.questions
-        : [{ qid: 'q0', question: String((payload as { question?: unknown }).question ?? ''), choices: Array.isArray((payload as { choices?: unknown }).choices) ? ((payload as { choices: string[] }).choices) : [], multi_select: Boolean((payload as { multi_select?: unknown }).multi_select) }]
-      return {
-        ...next,
-        items: [...next.items, { kind: 'clarify', id: `clarify-${p.request_id}`, requestId: p.request_id, questions, state: 'pending' }],
-        live: { ...next.live, statusLine: null }
-      }
-    }
-    case 'clarify.expire': {
-      const p = raw as ClarifyExpirePayload
-      return {
-        ...next,
-        revision: next.revision + 1,
-        items: next.items.map(i => (i.kind === 'clarify' && i.requestId === p.request_id && i.state === 'pending' ? { ...i, state: 'expired' } : i))
-      }
-    }
-    case 'approval.request': {
-      const p = raw as ApprovalRequestPayload
-      if (!p.request_id || next.items.some(i => i.kind === 'approval' && i.requestId === p.request_id)) {
+    case 'request.cancel': {
+      // Hermes stopped waiting for this request: expire its card only (server_requests.py:145-146).
+      const p = raw as Partial<RequestCancelPayload>
+      if (typeof p.id !== 'string') {
         return next
       }
       return {
         ...next,
-        items: [...next.items, { kind: 'approval', id: `approval-${p.request_id}`, requestId: p.request_id, payload: p, state: 'pending' }],
-        live: { ...next.live, statusLine: null }
-      }
-    }
-    case 'approval.received': {
-      const p = raw as ApprovalReceivedPayload
-      return {
-        ...next,
         revision: next.revision + 1,
-        items: next.items.map(i => (i.kind === 'approval' && i.requestId === p.request_id && i.state === 'pending' ? { ...i, state: 'resolved', choice: typeof p.choice === 'string' ? p.choice : i.choice } : i))
+        items: next.items.map(i => ((i.kind === 'approval' || i.kind === 'clarify') && i.requestId === p.id && i.state === 'pending' ? { ...i, state: 'expired' as const } : i))
       }
     }
     case 'session.info':

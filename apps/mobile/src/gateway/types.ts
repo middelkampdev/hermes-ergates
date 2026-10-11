@@ -1,7 +1,9 @@
 /**
- * Wire types for the Hermes gateway, verified against the pinned backend
- * (commit d76856cc, v0.21.2). See docs/06-hermes-api-contract.md for the
- * backend wire shapes.
+ * Wire types for the Hermes gateway. Pinned backend: commit 818c13be
+ * (v0.21.6). The server request types (approval, clarify, `request.cancel`,
+ * `open_requests`) follow tui_gateway/contracts/server_requests.py at that
+ * commit; the other types were verified at 0.21.2. See
+ * docs/06-hermes-api-contract.md for the backend wire shapes.
  *
  * This module imports nothing from React Native or Expo (ADR-029 rule 1).
  */
@@ -315,8 +317,7 @@ export interface SessionResumeResult {
   running: boolean
   status: string
   started_at?: number
-  pending_approval?: ApprovalRequestPayload
-  pending_clarify?: ClarifyRequestPayload
+  open_requests?: OpenServerRequest[]
   /** Present only when a crash-interrupted turn was scheduled to continue (session_auto_continue.py:57). */
   auto_continue?: unknown
   [k: string]: unknown
@@ -345,9 +346,9 @@ export interface QueuedPromptSnapshot {
 
 /**
  * `session.activate {session_id, omit_messages}` — `_live_session_payload`
- * (tui_gateway/server.py:2706). This is the RPC that rebinds the session's
- * transport to the current socket, and the only one that reports
- * `pending_approval` / `pending_clarify` (wire contract section B.4).
+ * (tui_gateway/server.py:3157-3196). This is the RPC that rebinds the session's
+ * transport to the current socket. `open_requests` lists the server requests
+ * still waiting on the session, and is left out when there are none.
  */
 export interface ActivateResult {
   session_id: string
@@ -362,8 +363,7 @@ export interface ActivateResult {
   info: SessionInfoPayload
   inflight?: InflightSnapshot | null
   queued?: QueuedPromptSnapshot | null
-  pending_approval?: ApprovalRequestPayload
-  pending_clarify?: ClarifyRequestPayload
+  open_requests?: OpenServerRequest[]
   [k: string]: unknown
 }
 
@@ -399,6 +399,7 @@ export interface ReplayResult {
   truncated: boolean
   count: number
   epoch: string
+  open_requests?: OpenServerRequest[]
 }
 
 export interface SubmitResult {
@@ -500,6 +501,7 @@ export interface ToolCompletePayload {
   error?: string
 }
 
+/** A clarify question as the card shows it: `choices` and `multi_select` filled in. */
 export interface ClarifyQuestion {
   qid: string
   question: string
@@ -507,32 +509,55 @@ export interface ClarifyQuestion {
   multi_select: boolean
 }
 
-export interface ClarifyRequestPayload {
-  request_id: string
-  questions: ClarifyQuestion[]
-}
-
-export interface ClarifyExpirePayload {
-  request_id: string
-}
-
 export type ApprovalChoice = 'once' | 'session' | 'always' | 'deny'
 
-export interface ApprovalRequestPayload {
+// ── server-to-client requests ────────────────────────────────────────────
+
+/**
+ * A server request still waiting for an answer, as `open_requests` lists it
+ * (tui_gateway/server_requests.py:74-80). `id` is `srq-<12 hex>`
+ * (server_requests.py:55); Hermes waits for a response frame with that id.
+ */
+export interface OpenServerRequest {
+  id: string
+  method: string
+  params: { session_id?: string; [k: string]: unknown }
+}
+
+/** One server request as a connection hands it over. `replayed` is true when it came from `open_requests` after a reconnect. */
+export interface ServerRequestFrame extends OpenServerRequest {
+  replayed: boolean
+}
+
+/** `approval` params (tui_gateway/contracts/server_requests.py:107-121). The answer is `{choice}`. */
+export interface ApprovalRequestParams {
+  session_id: string
   request_id: string
   command?: string
   description?: string
-  tool?: string
-  pattern_key?: string
   choices?: ApprovalChoice[]
-  timeout?: number
+  allow_permanent?: boolean | null
+  allow_session?: boolean | null
+  smart_denied?: boolean | null
+  tool_name?: string | null
   [k: string]: unknown
 }
 
-export interface ApprovalReceivedPayload {
-  request_id: string
-  choice?: string
-  [k: string]: unknown
+/**
+ * `clarify` params (tui_gateway/contracts/server_requests.py:34-45). The answer
+ * is `{answers}` for the whole set, `null` for a skipped question.
+ */
+export interface ClarifyRequestParams {
+  session_id: string
+  questions: { qid: string; question: string; choices?: string[] | null; multi_select?: boolean }[]
+  answers?: Record<string, string | null> | null
+}
+
+/** `request.cancel`: Hermes stopped waiting for request `id` (tui_gateway/contracts/server_requests.py:260-267). */
+export interface RequestCancelPayload {
+  id: string
+  method: string
+  reason: string
 }
 
 /** `{task_id, text}` (tui_gateway/methods_prompt.py:920-941, :994). No `agent`, no `source`. */
