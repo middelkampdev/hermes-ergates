@@ -125,9 +125,11 @@ export class RealGateway implements GatewayPort {
       await this.options.secrets.set(this.key('cookie'), this.auth.cookie)
       return await whoAmI(this.http)
     } catch (err) {
-      // `onSetCookie` writes any `Set-Cookie` it sees, including one from a login
-      // that then fails. The caller discards this connection id, so nothing would
-      // ever be able to target that entry again: clear all three here.
+      // `onSetCookie` stores any `Set-Cookie` it sees, including one from a login
+      // that then fails, so a failed password sign-in clears the stored sign-in
+      // (mode, token, cookie) of this connection. A new connection's id is then
+      // discarded; a saved connection signing in again keeps its id and has no
+      // stored sign-in until a sign-in succeeds.
       this.auth = previous
       await this.forgetSecrets()
       await this.clearCookies()

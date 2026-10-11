@@ -69,9 +69,9 @@ describe('token login', () => {
 
 describe('password login', () => {
   it('clears every secret when the login fails after a Set-Cookie', async () => {
-    // `onSetCookie` writes any cookie it sees, including one from a login that
-    // then fails. The caller discards this connection id, so an orphan entry
-    // could never be targeted again.
+    // `onSetCookie` stores any cookie it sees, including one from a login that
+    // then fails. The cookie of a login that did not finish must not stay
+    // behind, for a new connection or for a saved one signing in again.
     const { gateway, secrets } = gatewayWith({
       '/auth/password-login': { status: 200, body: { ok: false }, headers: { 'set-cookie': 'hermes_session_at=abc; Path=/' } }
     })
