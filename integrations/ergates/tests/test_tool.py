@@ -678,12 +678,19 @@ def _parse_platform_toolsets_value(value):
     return None
 
 
-def _stub_hermes_grant_modules(monkeypatch, config, *, drop_mcp_reader=False):
+def _cli_list_as_is(config, platform, *, include_default_mcp_servers=True):
+    """Stand-in for Hermes's ``_get_platform_tools``: the saved list itself, no expansion."""
+    return set(_parse_platform_toolsets_value(config["platform_toolsets"][platform]))
+
+
+def _stub_hermes_grant_modules(monkeypatch, config, *, drop_mcp_reader=False, platform_tools=_cli_list_as_is):
     """Fake the Hermes modules ``granted_toolsets`` imports, so its real import
     and config-reading logic runs without a Hermes install. ``drop_mcp_reader``
     leaves ``tools.mcp_tool_common`` without the symbol the grant reads, the
     way a Hermes upgrade that renames or removes it would (v0.21.6 removed the
-    one read before, ``tools.mcp_tool_registration._server_enabled``)."""
+    one read before, ``tools.mcp_tool_registration._server_enabled``).
+    ``platform_tools`` stands in for ``hermes_cli.tools_config._get_platform_tools``
+    (``None`` leaves it out)."""
     monkeypatch.setattr(hermes_adapter, "_profile_home", _fake_profile_home)
     hermes_config = types.ModuleType("hermes_cli.config")
     hermes_config.load_config_readonly = lambda: config
@@ -692,6 +699,10 @@ def _stub_hermes_grant_modules(monkeypatch, config, *, drop_mcp_reader=False):
     validation = types.ModuleType("hermes_cli.toolset_validation")
     validation.parse_platform_toolsets_value = _parse_platform_toolsets_value
     monkeypatch.setitem(sys.modules, "hermes_cli.toolset_validation", validation)
+    tools_config = types.ModuleType("hermes_cli.tools_config")
+    if platform_tools is not None:
+        tools_config._get_platform_tools = platform_tools
+    monkeypatch.setitem(sys.modules, "hermes_cli.tools_config", tools_config)
     model_tools = types.ModuleType("model_tools")
     model_tools.get_toolset_for_tool = lambda tool_name: None
     monkeypatch.setitem(sys.modules, "model_tools", model_tools)
@@ -747,6 +758,45 @@ def test_an_app_toolset_pin_saved_as_a_list_literal_string_is_that_list(monkeypa
     _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": "['web']"}})
 
     assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web"})
+
+
+def test_the_app_grant_is_what_hermes_resolves_for_the_cli_platform(monkeypatch):
+    """Hermes's own reader expands what the raw list does not: the legacy alias ``hermes`` is
+    ``hermes-cli`` plus ``hermes-api-server``, and default-on plugin toolsets, ``context_engine``
+    and platform-native toolsets join (hermes_cli/tools_config.py:577-652). The grant is what it
+    answers for ``cli``, so ``cli: [hermes]`` refuses nothing it enables."""
+    calls = []
+
+    def hermes_resolution(config, platform, *, include_default_mcp_servers=True):
+        calls.append((platform, include_default_mcp_servers))
+        return {"terminal", "web", "file"}
+
+    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": ["hermes"]}},
+                               platform_tools=hermes_resolution)
+
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"terminal", "web", "file"})
+    assert calls == [("cli", True)]
+
+
+def test_an_explicit_empty_app_pin_grants_no_toolset(provisioned_thijs, monkeypatch):
+    """``cli: []`` is an explicit zero-tool selection for Hermes (#82010), never "no pin"."""
+    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": []}},
+                               platform_tools=lambda config, platform, **kwargs: set())
+    monkeypatch.setattr(hermes_adapter, "toolset_for_tool", {"terminal": "terminal"}.get)
+
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset()
+    assert _gate(_RecordingCtx())(tool_name="terminal", args={}) == {"action": "block", "message": BLOCK_REVOKED}
+
+
+def _raises(*args, **kwargs):
+    raise RuntimeError("the toolset resolver failed")
+
+
+@pytest.mark.parametrize("platform_tools", [None, _raises], ids=["missing", "raising"])
+def test_a_hermes_cli_resolver_that_is_missing_or_raises_blocks(provisioned_thijs, monkeypatch, platform_tools):
+    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": ["web"]}}, platform_tools=platform_tools)
+
+    assert _gate(_RecordingCtx())(tool_name="web_search", args={}) == {"action": "block", "message": BLOCK_UNVERIFIED}
 
 
 def test_another_platforms_toolset_list_is_not_the_pin(monkeypatch):

@@ -392,6 +392,28 @@ def test_hermes_builds_app_sessions_from_the_pin_and_other_platforms_from_their_
     assert "_refresh_live_sessions" not in hermes.text(PROFILES_RPC)
 
 
+def test_the_app_grant_is_hermes_s_own_resolution_of_the_cli_list(hermes: PinnedSource) -> None:
+    """granted_toolsets calls this for ``platform_toolsets.cli``, the call an app session is built
+    with (tui_gateway/server.py:2087): it expands the legacy alias ``hermes`` and adds the toolsets
+    Hermes turns on beyond the list, so the gate refuses nothing Hermes enables there."""
+    function = hermes.function(TOOLS_CONFIG, "_get_platform_tools")
+    assert [a.arg for a in function.args.args] == ["config", "platform"]
+    assert [a.arg for a in function.args.kwonlyargs] == ["include_default_mcp_servers"]
+    assert [ast.unparse(d) for d in function.args.kw_defaults] == ["True"]
+    # hermes_cli/tools_config.py:585-587: an explicitly saved list (even []) is used as saved.
+    assert hermes.lines(TOOLS_CONFIG, 585, 587) == (
+        "    explicitly_configured = isinstance(toolset_names, list)\n"
+        "    if not explicitly_configured:\n"
+        "        toolset_names = [_platform_default_toolset(platform)]"
+    )
+    # hermes_cli/tools_config.py:598-600: the legacy alias.
+    assert hermes.lines(TOOLS_CONFIG, 598, 600) == (
+        "    _LEGACY_TOOLSET_ALIASES: dict = {\n"
+        '        "hermes": ("hermes-cli", "hermes-api-server"),\n'
+        "    }"
+    )
+
+
 def test_config_is_read_without_a_copy_for_every_tool_call(hermes: PinnedSource) -> None:
     assert _arguments(hermes.function(CONFIG, "load_config_readonly")) == []
 
