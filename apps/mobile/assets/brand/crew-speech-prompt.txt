@@ -1,4 +1,0 @@
-Tool: built-in image_gen (edit)
-Input: crew-source.png
-
-Use case: precise-object-edit. Edit the supplied approved square black-and-white Hermes Crew app logo. Preserve the existing three tightly overlapping faces, their exact features, arrangement, scale, and the white background. Make just one addition: a small bold speech bubble at the bottom right, overlapping the lower right black hair area, without obscuring any face. Bubble has white fill, a thick black outline, a small speech tail, and exactly three bold black circular dots horizontally centered inside: ... . Use a clean rounded bubble, about 27 percent of canvas width and 19 percent of canvas height. Keep the entire bubble within the existing artwork bounds and comfortable outer margins. Pure black and white, crisp edges, no other text, no mockup, no shadows. Output the edited square app logo.

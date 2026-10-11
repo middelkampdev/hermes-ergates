@@ -1,7 +1,0 @@
-Tool: built-in image_gen (edit)
-
-First edit:
-Use case: precise-object-edit. Edit this existing square black-and-white app icon. Change ONLY the speech bubble tail: remove its current downward-left tail and place the tail on the UPPER LEFT side of the bubble, pointing diagonally up-left directly toward the mouth of the largest front woman (the rightmost face, whose lips are around x=520 y=750 in this 1254x1254 image). The tail tip should end near her mouth, without covering her lips or facial features. The bubble must read clearly as her speech. Keep the rounded bubble body in its current bottom-right position, same size, exactly three black dots, thick black outline and thin white outer separation. Preserve all three faces, hair, their tight overlap, overall scale, margins, monochrome style and white background unchanged. No other changes.
-
-Refinement:
-Precise small edit to this logo: the speech bubble tail currently points to the woman's cheek at (735,750). Adjust ONLY this tail so its sharp tip ends at approximately (580,785), just below and to the right of the front woman's lips at (520,750), aiming directly at those lips. Extend the tail leftwards from the bubble's upper-left edge, with a slim elegant taper, so she clearly speaks. Do not change any face or lips. Keep the bubble body in the exact same bottom-right position with exactly three dots. Keep all remaining image content unchanged, black and white, same canvas and margins.
