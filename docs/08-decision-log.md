@@ -142,3 +142,25 @@ Decided 2026-10-11, when a build made with Xcode 27 stopped at launch on the iOS
 `plugins/with-scene-lifecycle.js` adds a scene manifest to `Info.plist` and a `SceneDelegate.swift` that creates the window, starts React Native in it and passes links and user activities to `AppDelegate`, which hands them to the Expo modules and React Native's Linking as before. It is a reduced copy of SDK 58's `ExpoAppSceneDelegate`, limited to what this app uses. `test/scene-lifecycle.test.ts` fails once the installed Expo ships its own scene delegate, so the SDK 58 upgrade removes the plugin.
 
 Rejected: upgrading to SDK 58 now, which would put a store build on a React Native release candidate and change every native dependency at once. Rejected: building with Xcode 26 only, which works until Apple requires the iOS 27 SDK for uploads but leaves every local Xcode 27 build broken until then.
+
+## ADR-040 Rooted and jailbroken phones are warned, not blocked; the sign-in stays in memory there
+
+Decided 2026-10-11. On a physical phone, `isRootedExperimentalAsync()` from `expo-device` flags a rooted (Android) or jailbroken (iOS) phone at every start (`src/state/device-trust.ts`). A simulator or emulator counts as standard, and so does any failure of the check. The result is not remembered between starts. A development-only flag, `EXPO_PUBLIC_DEV_FORCE_ROOTED=1`, forces the flagged path; it is read only while `__DEV__` is true, so a release bundle never sees it.
+
+On a flagged phone the app keeps working, with three changes:
+
+1. The shared sign-in store (`authSecretStore`, in `src/gateway/secrets.ts` and `src/state/persistence.ts`) switches to memory only. The token, cookie and mode of a connection are not written to SecureStore.
+2. At start, before any gateway restores a sign-in, the app deletes the stored token, cookie and mode of every connection saved in the device blob. SecureStore cannot list its keys, so a sign-in whose connection is no longer in the blob is not found.
+3. A one-time alert says why, and the owner signs in again on each cold start, on the Sign-in screen (`app/sign-in.tsx`). Signing in again keeps drafts, the outbox, unfinished agent setups and the organization.
+
+On every phone, `HttpClient` sends `credentials: 'omit'` (`src/gateway/real/http.ts`), so Hermes cookies no longer land in the platform cookie jar. Without this, the refresh cookie, which lives 30 days, would outlast the memory-only store. The app captures `Set-Cookie` itself and replays it as a `Cookie` header. In Expo SDK 57 the runtime `fetch` is `expo/fetch`, which maps `'omit'` to `httpShouldHandleCookies = false` on iOS and `CookieJar.NO_COOKIES` on Android. The Sign-in screen is also on every phone: Home redirects to it when a connection has no stored sign-in, the chat's "Tap to sign in again" opens it, and for the primary connection it offers Settings as a way out.
+
+Two Play Console settings guard the Android store listing (owner, manual; the steps are in `apps/mobile/RELEASING.md`): store listing visibility "Device integrity checks", and automatic protection "installer check". The first hides the app from phones that fail Google's device integrity check, GrapheneOS and other custom systems included. The second shows a "get it on Google Play" prompt in a copy installed from anywhere else. No equivalent is set up for iOS, where the app's own check is the only one.
+
+The check is a heuristic for honest users. It does not stop an attacker who hides root. Its purpose is to keep the Hermes sign-in off the disk of a phone where other apps may read it, without losing drafts, the outbox or the organization.
+
+Rejected: blocking the app on a flagged phone. Anyone with root can hide it from the check, so a block would lock out honest owners of custom systems and stop nobody else.
+
+Rejected: server-side attestation (App Attest on iOS, key attestation on Android) through a Hermes dashboard auth provider. An app check cannot stop a rebuilt copy of the open-source app or a client that already holds the token, so attestation would protect no more than the app's own check. It would gate only the sign-in, and only in gated mode, not in loopback token mode. It could lock out the browser dashboard and Hermes Desktop, which cannot attest. It needs Expo's alpha `@expo/app-integrity` or a native module.
+
+Rejected: a hosted Play Integrity verifier run by this project. Play Integrity has a default limit of 10,000 requests a day per Cloud project, so our uptime and that quota would gate every user. It adds a new party to the privacy story, and the owner's Hermes server would still not check its answer.

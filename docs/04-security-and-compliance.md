@@ -42,6 +42,7 @@ Sources: `website/docs/integrations/providers.md` and `website/docs/user-guide/f
 | Agent loop or spend runaway | Per-profile iteration controls and operator stop; prompt rules are advisory | Exercise reciprocal messages; measure bounded behavior before unattended deployment |
 | Gateway exposure | Basic provider on Tailscale only; authenticated tickets; request guards | Unauthenticated and off-tailnet access rejected; valid phone works |
 | Device or disk loss | Credential storage, explicit local-data controls, encrypted off-host backups | Sign-out/connection-removal clearing and clean restore drill |
+| Rooted or jailbroken phone | Detected at every start on a physical phone (`src/state/device-trust.ts`). The app warns and keeps working. The server sign-in (token, cookie, mode) is kept in memory only, the stored one of every saved connection is deleted at start, and the owner signs in again on each cold start (ADR-040). Requests skip the platform cookie jar. Limit: a heuristic for honest users; it does not stop an attacker who hides root, a rebuilt copy of the app, or a client that holds the token. The start-up deletion covers the connections saved in the device blob (SecureStore cannot list keys). Drafts, the outbox and the organization stay in the sealed device blob (ADR-033). On Android, Play Console hides the app from phones that fail Google's device integrity check and prompts for the Play install on copies from elsewhere | Unit tests for detection, the memory-only store, the start-up deletion and `credentials: 'omit'`; with `EXPO_PUBLIC_DEV_FORCE_ROOTED=1` in a development build, the notice shows once and the Sign-in screen appears after every cold start |
 
 ## 4. Identity and access
 
@@ -77,7 +78,7 @@ An enabled email/payment/delete tool needs its own business-action approval gate
 | MCP tokens | Hermes-managed `mcp-tokens/` and referenced profile secrets; narrow scopes |
 | Gateway basic auth | Secret configuration on the server; password hash where supported; do not bake into images |
 | ntfy publication/subscription | Separate scoped tokens; server publisher and device subscriptions |
-| Mobile session | SecureStore-backed native cookie/token handling; no full authenticated URLs in logs |
+| Mobile session | Token or session cookie and auth mode per connection, in SecureStore (`ergates.<connection id>.token`, `.cookie`, `.mode`). The app keeps the cookie itself and replays it as a `Cookie` header; requests send `credentials: 'omit'`, so the platform cookie jar holds no copy. On a rooted or jailbroken phone these live in memory only and the owner signs in on each cold start (ADR-040). No full authenticated URLs in logs |
 | Device blob key | Random per-install AES-256 key in SecureStore (`WHEN_UNLOCKED_THIS_DEVICE_ONLY` on iOS); it seals the whole device blob in AsyncStorage: connections, drafts, the outbox and unfinished agent setups (ADR-033) |
 
 Provision profiles with `mirror_credentials: false` and an approved role template; `profiles.create` defaults can otherwise copy launch credentials. Validate cloning/export options before offering them. A template must not silently carry secrets, personal memory or unrestricted connector grants.
