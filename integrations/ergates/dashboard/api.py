@@ -169,9 +169,15 @@ async def record_step(proposal_id: str, request: Request) -> JSONResponse:
     return await _answer(lambda ops: ops.record_step(proposal_id, body))
 
 
-@router.post("/profiles/{profile}/plugin")
-async def enable_plugin(profile: str) -> JSONResponse:
-    return await _answer(lambda ops: ops.enable_plugin(profile))
+# Hermes runs every route of this router in the profile scope of a parameter
+# named ``profile`` (a path parameter of that name, else the query) and answers
+# a name it refuses itself, before the route runs, in its own error shape
+# (``contract/test_dashboard_api_mount.py``). The path parameter is ``name`` so
+# this route still answers an unknown profile: 404 ``unknown_profile``, which
+# the app reads as "the profile was deleted".
+@router.post("/profiles/{name}/plugin")
+async def enable_plugin(name: str) -> JSONResponse:
+    return await _answer(lambda ops: ops.enable_plugin(name))
 
 
 @router.get("/attention/prefs")
