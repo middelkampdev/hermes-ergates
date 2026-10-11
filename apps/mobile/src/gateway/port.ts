@@ -168,7 +168,10 @@ export interface GatewayPort {
 
 /**
  * What the registry hands to screens and features: the port, plus `restore()`,
- * which reloads the saved credential before the first call after a cold start.
+ * which reloads the saved credential before the first call after a cold start
+ * and says which one it found. `'none'` means this phone holds no sign-in for
+ * the connection (on a rooted phone, after every restart), so Home sends the
+ * owner to sign in again.
  * Nothing outside `src/gateway` sees the adapter class (ADR-029 rule 1).
  */
-export type ConnectedGateway = GatewayPort & { restore(): Promise<unknown> }
+export type ConnectedGateway = GatewayPort & { restore(): Promise<'none' | 'token' | 'password'> }

@@ -145,8 +145,21 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
   useFocusEffect(
     useCallback(() => {
       setActiveConnection(connectionId)
-      void gateway.restore().then(() => refetchHome())
-    }, [connectionId, gateway, refetchHome, setActiveConnection])
+      let focused = true
+      void gateway.restore().then(found => {
+        if (found !== 'none') {
+          return refetchHome()
+        }
+        // No sign-in on this phone for the connection (a rooted phone keeps none
+        // across restarts). Only while Home is on screen: a late answer must not replace another screen.
+        if (focused) {
+          router.replace({ pathname: '/sign-in', params: { connection: connectionId } })
+        }
+      })
+      return () => {
+        focused = false
+      }
+    }, [connectionId, gateway, refetchHome, router, setActiveConnection])
   )
 
   // Every roster read (docs/05 section 3): the one-time first sync (on a new

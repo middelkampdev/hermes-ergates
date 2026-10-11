@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createAuthSecretStore, MemorySecretStore, type SecretStore } from '@/gateway/secrets'
 
-import { currentDeviceTrust, detectDeviceTrust, initDeviceTrust, rootedNoticeCopy, startDeviceTrust, type TrustProbe } from './device-trust'
+import { currentDeviceTrust, detectDeviceTrust, initDeviceTrust, rootedNoticeCopy, rootedReasonLine, startDeviceTrust, type TrustProbe } from './device-trust'
 import { secretKey } from './persistence'
 
 describe('detectDeviceTrust', () => {
@@ -158,5 +158,16 @@ describe('rootedNoticeCopy', () => {
   it('says rooted on Android and anywhere else', () => {
     expect(rootedNoticeCopy('android')).toEqual({ title: 'This phone is rooted', body })
     expect(rootedNoticeCopy('web')).toEqual({ title: 'This phone is rooted', body })
+  })
+})
+
+describe('rootedReasonLine', () => {
+  it('says jailbroken on iOS', () => {
+    expect(rootedReasonLine('ios')).toBe('Ergates does not keep your sign-in on a jailbroken phone.')
+  })
+
+  it('says rooted on Android and anywhere else', () => {
+    expect(rootedReasonLine('android')).toBe('Ergates does not keep your sign-in on a rooted phone.')
+    expect(rootedReasonLine('web')).toBe('Ergates does not keep your sign-in on a rooted phone.')
   })
 })

@@ -119,3 +119,8 @@ export function rootedNoticeCopy(platform: string): { title: string; body: strin
     body: 'Apps with root access can read your server sign-in. Ergates does not keep your sign-in on this phone, so you sign in each time the app starts.'
   }
 }
+
+/** Why the Sign-in screen asks again on a flagged phone. iOS says jailbroken, Android says rooted. */
+export function rootedReasonLine(platform: string): string {
+  return `Ergates does not keep your sign-in on a ${platform === 'ios' ? 'jailbroken' : 'rooted'} phone.`
+}
