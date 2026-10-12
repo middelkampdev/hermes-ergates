@@ -277,7 +277,7 @@ def _deliver_in_background(worker: DeliveryWorker, event_id: str) -> threading.T
     in-app approval card itself. The event and its outbox row are already
     committed when this starts; the network call runs on a short-lived daemon
     thread. A push this thread cannot finish stays due in the outbox, and
-    the next ``python -m ergates.flush`` sends it.
+    the next sweep sends it.
 
     The thread runs in a copy of the caller's context. A multiplexed gateway
     routes each session to its profile with a context-local Hermes home, and
@@ -390,12 +390,12 @@ def _delivery_worker(store: ControlStore) -> Optional[DeliveryWorker]:
     The settings are install-wide (:mod:`ergates.settings`): the Hermes
     root's ``config.yaml``, whichever profile this hook runs in. A settings
     file that cannot be read turns push off for this call; the event and its
-    outbox row are still recorded, and the flush sends the push later.
+    outbox row are still recorded, and the next sweep sends the push.
     """
     try:
         settings = push_settings(hermes_root())
     except Exception as exc:
-        logger.warning("ergates: push settings unreadable (%s); the flush sends it later", type(exc).__name__)
+        logger.warning("ergates: push settings unreadable (%s); the next sweep sends it", type(exc).__name__)
         return None
     if settings is None:
         return None

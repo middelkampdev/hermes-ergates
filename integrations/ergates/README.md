@@ -43,12 +43,16 @@ id. It never carries message text, a command or a tool argument.
   other `.json` file in it.
 - Each profile's `plugins/ergates` link and `config.yaml`. `POST /setup`
   (and `python -m ergates.install`) does this for every profile in one call,
-  and `POST /profiles/{name}/plugin` for one profile. For each profile, the
-  plugin links `<profile>/plugins/ergates` to the root's copy and adds
-  `ergates` to that profile's `plugins.enabled` (and takes it out of
+  and `POST /profiles/{name}/plugin` for one profile. The plugin links
+  `<profile>/plugins/ergates` to the root's copy for every named profile;
+  the default profile's home is the root, so it needs no link. In each
+  profile it adds `ergates` to `plugins.enabled` (and takes it out of
   `plugins.disabled`). It writes that `config.yaml` with Hermes's own
   `save_config` and changes no setting besides those two lists. A profile
-  whose `plugins/ergates` is a real folder is reported, not replaced.
+  whose `plugins/ergates` is a real folder is reported, not replaced. Hermes's
+  `load_config`, which the plugin uses to read a profile's `config.yaml`,
+  saves a copy in that profile's `backups/config/` each time it parses a new
+  version of the file.
 - Hermes cron jobs. A reminder that the app or an agent creates (through the
   `ergates_create_reminder` tool) becomes a job in that profile's Hermes
   cron.
@@ -61,16 +65,20 @@ nothing there.
 In each process that loads the plugin's dashboard routes, the plugin starts
 one daemon thread, `ergates-sweep`. Those processes are `hermes serve`,
 Hermes Desktop's backend, a TUI gateway process once it imports Hermes's
-dashboard server, and a plugin host under `plugins.isolation: host`. The
+dashboard server (it does so to show the images of a user message in a
+session's history), and a plugin host under `plugins.isolation: host`. The
 messaging gateway and cron processes load only the plugin's hooks and tools
 and start no such thread. The first pass runs 5 seconds after the thread
 starts, then one runs every `sweep.interval_seconds` (120 by default; 0 turns
-the thread off). A pass sends the pushes that are due, expires approvals past
-their timeout, applies the retention rules and asks Hermes cron whether each
-reminder's job still exists. Several sweeps on one store are safe: a lease
-keeps two sweeps from sending the same push at the same moment. The approval
-hook also sends its push on a short-lived thread. Besides these threads the
-plugin starts no process and runs no shell command.
+the thread off). The interval is read when the thread starts, so a change
+takes effect after a restart. A pass sends the pushes that are due, expires
+approvals past their timeout, applies the retention rules and asks Hermes
+cron whether each reminder's job still exists. Several sweeps on one store
+are safe: a lease keeps two sweeps from sending the same push at the same
+moment. Delivery is at least once, so a push can arrive twice, for example
+when a batch takes longer than its 60-second lease. The approval hook also
+sends its push on a short-lived thread. Besides these threads the plugin
+starts no process and runs no shell command.
 
 ### What it reads outside its own data
 
@@ -210,8 +218,8 @@ The proposal templates need no step of their own. They ship in this folder
 `hermes serve` copies them into `<root>/ergates/templates/` the first time it
 serves a request, before it opens the store. It checks every
 `<template_id>.json` the way the accept route would and makes the target hold
-exactly those files, removing any other. One invalid template installs
-nothing and leaves the previous set in place. A template that cannot be
+exactly those files, removing any other `.json` file. One invalid template
+installs nothing and leaves the previous set in place. A template that cannot be
 installed is logged by state and error class only and does not stop the
 routes.
 
@@ -250,7 +258,7 @@ raised it. The ntfy token is a Hermes plugin secret and lives in the root's
 | `ntfy.topic` | unset (push disabled) | ntfy topic to publish attention events to |
 | `ntfy.token`: `ERGATES_NTFY_TOKEN` in `<hermes root>/.env` | unset | ntfy publish token (Bearer), or `user:pass` for Basic |
 | `ntfy.connection_id` | unset | app connection id used to build the `Click` deep link |
-| `sweep.interval_seconds` | `120` | seconds between two sweeps inside `hermes serve` (see "Periodic sweep"); `0` turns the sweep off |
+| `sweep.interval_seconds` | `120` | seconds between two sweeps inside `hermes serve` (see "Periodic sweep"), read when the sweep starts; `0` turns the sweep off |
 
 Values are read as written; `${VAR}` references are not expanded. One
 setting is per profile, read with `ctx.get_config` from that profile's own
@@ -396,9 +404,11 @@ and answers the same receipt.
 
 ### Health
 
-`GET /health` is the route a client reads before it relies on the rest. It
-writes nothing. The body of a plugin installed from a git commit, with the
-setup finished:
+`GET /health` is the route a client reads before it relies on the rest. The
+route itself writes nothing, but Hermes's `load_config`, which it calls for
+each profile, saves a copy of a `config.yaml` the first time it parses that
+version of the file (see "What it writes"). The body of a plugin installed
+from a git commit, with the setup finished:
 
 ```json
 {"ok": true, "plugin_version": "<version>", "api_level": 1, "min_api_level": 1, "schema_version": 2,
@@ -671,10 +681,12 @@ of that profile (ADR-032).
   Hermes time zone, see "Periodic sweep"; may wrap midnight) hold
   completion pushes, and their retries, until they end; approval pushes
   ignore them.
-- A worker leases an outbox row for 60 s before it sends, so two workers
-  never send one row at once, and a worker that dies mid-send leaves a lease
-  that runs out. Failed attempts back off 30 s, 120 s, 600 s, 600 s; the
-  fifth failure gives up. Push is at least once. Each push carries its event
+- A worker leases an outbox row for 60 s before it sends, so two sweeps do
+  not send the same push at the same moment, and a worker that dies mid-send
+  leaves a lease that runs out. Failed attempts back off 30 s, 120 s, 600 s,
+  600 s; the fifth failure gives up. Delivery is at least once: a worker
+  leases a whole batch at once, so a batch that takes longer than its 60 s
+  lease can have its later pushes sent twice. Each push carries its event
   id as ntfy's `X-Sequence-ID`, so a push sent again replaces the first one
   in the ntfy Android app (1.22.2 or later, server 2.16.0 or later); the iOS
   app shows both. Either one opens the same chat.
