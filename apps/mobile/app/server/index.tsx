@@ -33,7 +33,6 @@ import {
   type StepStatus
 } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
-import { isGatewayError } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
 import { buildRecord } from '@/lib/build-info'
 import type { Connection } from '@/state/device-store'
@@ -123,6 +122,9 @@ function ServerSetup({ connection }: { connection: Connection }) {
       case 'retry':
         void start()
         return
+      case 'check_again':
+        void check.refetch()
+        return
       case 'finish':
         openFinish(finishParams(run?.outcome ?? null) ?? {})
         return
@@ -131,7 +133,8 @@ function ServerSetup({ connection }: { connection: Connection }) {
         return
       case 'done':
       case 'not_now':
-        router.replace('/')
+        // Home is under this screen when it was pushed from there, and not when Connect or Sign in replaced into it.
+        router.dismissTo('/')
         return
     }
   }
@@ -159,7 +162,7 @@ function ServerSetup({ connection }: { connection: Connection }) {
       footer={
         primary || secondary ? (
           <View style={styles.actions}>
-            {primary ? <Button label={primary.label} onPress={() => act(primary.action)} /> : null}
+            {primary ? <Button label={primary.label} onPress={() => act(primary.action)} loading={primary.action === 'check_again' && check.isFetching} /> : null}
             {secondary ? <Button label={secondary.label} variant="secondary" onPress={() => act(secondary.action)} /> : null}
           </View>
         ) : undefined
@@ -201,7 +204,8 @@ function viewOf(check: ReturnType<typeof useServerCheck>, build: BuildRecord | n
     return setupView(check.data, build, null)
   }
   if (check.isError) {
-    return isGatewayError(check.error) && check.error.kind === 'unauthorized' ? signedOutView() : setupView({ kind: 'unknown' }, build, null)
+    // `checkServer` rejects only with the 401; every other failure is a check that ended `unknown`.
+    return signedOutView()
   }
   return null
 }

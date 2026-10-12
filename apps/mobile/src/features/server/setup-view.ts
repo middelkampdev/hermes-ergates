@@ -11,7 +11,8 @@ import { parseHermesVersion } from './hermes-version'
 import type { ServerCheck } from './server-check'
 import type { ManualFailure, SetupOutcome, SetupStep, StepStatus } from './setup-run'
 
-export type SetupAction = 'run' | 'turn_on' | 'finish' | 'done' | 'retry' | 'sign_in'
+/** `retry` runs the setup again after a failed run; `check_again` asks the server again after a check that could not tell. */
+export type SetupAction = 'run' | 'turn_on' | 'finish' | 'done' | 'retry' | 'check_again' | 'sign_in'
 
 export interface SetupView {
   title: string
@@ -42,6 +43,7 @@ const UNREVIEWED =
 const TURNED_OFF = 'The Ergates plugin is on your server but turned off.'
 const READY = 'Your server is ready.'
 const SIGN_IN = 'Your server asked you to sign in again.'
+const UNREACHABLE = 'Could not reach your server.'
 const NO_COMMIT = 'This build of Ergates does not know which plugin version to install.'
 const UNKNOWN_VERSION = "Ergates could not read your server's Hermes version, so you finish setup on the server."
 
@@ -176,8 +178,9 @@ export function setupView(check: ServerCheck, build: BuildRecord | null, run: Se
     case 'unavailable':
       return view({ body: [check.message], secondary: NOT_NOW })
     case 'app_outdated':
-    case 'unknown':
       return view({ secondary: NOT_NOW })
+    case 'unknown':
+      return view({ body: [UNREACHABLE], primary: { label: 'Try again', action: 'check_again' }, secondary: NOT_NOW })
   }
 }
 

@@ -67,7 +67,7 @@ describe('afterSignIn', () => {
     await expect(afterSignIn(serverWith(new GatewayError('unauthorized', 'Sign-in required.', { status: 401 })), buildRecord())).resolves.toBe('/')
   })
 
-  it('goes Home when the check throws something that is not a gateway error', async () => {
+  it('goes Home when the health read throws something that is not a gateway error, which the check counts as not knowing', async () => {
     await expect(afterSignIn(serverWith(new TypeError('boom')), buildRecord())).resolves.toBe('/')
   })
 

@@ -151,11 +151,28 @@ describe('setupView: the other checks', () => {
     expect(view.secondary).toEqual(NOT_NOW)
   })
 
-  it.each<[string, ServerCheck]>([
-    ['newer than this app', { kind: 'app_outdated', health: FAKE_PLUGIN_HEALTH }],
-    ['not answering', { kind: 'unknown' }]
-  ])('has nothing to set up for a plugin that is %s, and only lets the user leave', (_title, check) => {
-    expect(setupView(check, buildRecord(), null)).toEqual({ title: 'Set up your server', body: [], source: null, note: null, primary: null, secondary: NOT_NOW, steps: null })
+  it('has nothing to set up for a plugin that is newer than this app, and only lets the user leave', () => {
+    expect(setupView({ kind: 'app_outdated', health: FAKE_PLUGIN_HEALTH }, buildRecord(), null)).toEqual({
+      title: 'Set up your server',
+      body: [],
+      source: null,
+      note: null,
+      primary: null,
+      secondary: NOT_NOW,
+      steps: null
+    })
+  })
+
+  it('says the server could not be reached when the check could not tell, and offers to check again', () => {
+    expect(setupView({ kind: 'unknown' }, buildRecord(), null)).toEqual({
+      title: 'Set up your server',
+      body: ['Could not reach your server.'],
+      source: null,
+      note: null,
+      primary: { label: 'Try again', action: 'check_again' },
+      secondary: NOT_NOW,
+      steps: null
+    })
   })
 
   it('shows the plugin\'s own text when it is unavailable', () => {
