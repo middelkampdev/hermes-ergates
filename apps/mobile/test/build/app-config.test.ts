@@ -104,6 +104,32 @@ describe('app config', () => {
     expect(appConfig(context).extra?.ergates.requiredPlugin.commit).toBeNull()
   })
 
+  it('trims ERGATES_PLUGIN_COMMIT', () => {
+    vi.stubEnv('ERGATES_PLUGIN_COMMIT', ` ${'d'.repeat(40)}\n`)
+
+    expect(appConfig(context).extra?.ergates.requiredPlugin.commit).toBe('d'.repeat(40))
+  })
+
+  it('takes the commit from git when ERGATES_PLUGIN_COMMIT is only white space', () => {
+    vi.stubEnv('ERGATES_PLUGIN_COMMIT', ' \n')
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim()
+
+    expect(appConfig(context).extra?.ergates.requiredPlugin.commit).toBe(head)
+  })
+
+  it.each([
+    ['upper case', 'B'.repeat(40)],
+    ['short', 'b'.repeat(7)],
+    ['too long', 'b'.repeat(41)],
+    ['not hex', 'g'.repeat(40)],
+    ['a branch name', 'main'],
+    ['a commit with text around it', `v1 ${'b'.repeat(40)}`]
+  ])('fails the build when ERGATES_PLUGIN_COMMIT is %s, instead of building without a commit', (_title, value) => {
+    vi.stubEnv('ERGATES_PLUGIN_COMMIT', value)
+
+    expect(() => appConfig(context)).toThrow('app.config.ts: ERGATES_PLUGIN_COMMIT must be a full commit of 40 lowercase hex characters')
+  })
+
   it('does not change the config it was given', () => {
     vi.stubEnv('ERGATES_PLUGIN_COMMIT', 'c'.repeat(40))
     const given = structuredClone(EXPO_CONFIG)

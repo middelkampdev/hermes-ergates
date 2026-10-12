@@ -65,6 +65,9 @@ jobs:
         env:
           BUILD_NUMBER: ${{ inputs.build-number }}
           OUTPUT_DIR: ${{ runner.temp }}/release
+          # The plugin commit the app installs (app.config.ts). In a reusable workflow github.sha is the
+          # caller's, the release tag's commit; a malformed value fails the build instead of shipping none.
+          ERGATES_PLUGIN_COMMIT: ${{ github.sha }}
           ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
           ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
           ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}

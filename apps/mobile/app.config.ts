@@ -64,14 +64,21 @@ export function readBuildRecord(repoRoot: string, testedThrough: string, commit:
   return { requiredPlugin: { version, apiLevel, commit }, hermesRange: { oldest, newestMinor: testedThrough } }
 }
 
+const FULL_COMMIT = /^[0-9a-f]{40}$/
+
 /**
- * The commit the plugin installs from: ERGATES_PLUGIN_COMMIT when set (for
- * development), else the HEAD of the checkout, which a release build has at
- * the tag. Null when there is no git or no repository.
+ * The commit the plugin installs from: ERGATES_PLUGIN_COMMIT when set (the
+ * release workflows set it to the tag's commit, and a developer may), else
+ * the HEAD of the checkout. Null when there is no git or no repository. A
+ * value that is not a full commit fails the build: the app would otherwise
+ * ship without a commit, and so without one-tap setup, and say nothing.
  */
 function pluginCommit(repoRoot: string): string | null {
-  const fromEnv = process.env.ERGATES_PLUGIN_COMMIT
+  const fromEnv = process.env.ERGATES_PLUGIN_COMMIT?.trim()
   if (fromEnv) {
+    if (!FULL_COMMIT.test(fromEnv)) {
+      throw new Error(`app.config.ts: ERGATES_PLUGIN_COMMIT must be a full commit of 40 lowercase hex characters, got ${JSON.stringify(fromEnv)}. Unset it to take the commit from git.`)
+    }
     return fromEnv
   }
   try {
