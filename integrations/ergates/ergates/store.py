@@ -38,7 +38,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -186,19 +186,51 @@ def give_to_hermes_owner(paths: list[Path], hermes_root: Path) -> None:
     root, or the platform has no ``os.geteuid``. Root without the right to
     change owners (a rootless container) logs a warning and continues, as
     Hermes's own container setup does when its chown fails.
+
+    A symlink at one of ``paths`` gets the new owner itself; the file it
+    points to keeps its owner, because the ``hermes`` user can plant one.
+    """
+    if not paths:
+        return
+    owner = hermes_owner(hermes_root)
+    if owner is None:
+        return
+    for path in paths:
+        _hand_over(path.name, lambda: os.chown(path, *owner, follow_symlinks=False))
+
+
+def give_open_file_to_hermes_owner(fd: int, name: str, owner: tuple[int, int] | None) -> None:
+    """Give the file or folder open at ``fd`` to ``owner``, from :func:`hermes_owner`; nothing when it is ``None``.
+
+    The change goes through the descriptor, so no path is resolved: a
+    symlink, or a folder swapped since the file was opened, cannot send it
+    to another file. ``name`` is only for the warning a refusal logs, as in
+    :func:`give_to_hermes_owner`.
+    """
+    if owner is not None:
+        _hand_over(name, lambda: os.fchown(fd, *owner))
+
+
+def hermes_owner(hermes_root: Path) -> tuple[int, int] | None:
+    """The ``(uid, gid)`` of ``hermes_root`` when this process runs as root, else ``None``.
+
+    ``None`` as well on a platform without ``os.geteuid``.
     """
     geteuid = getattr(os, "geteuid", None)
-    if not paths or geteuid is None or geteuid() != 0:
-        return
-    owner = os.stat(hermes_root)
-    for path in paths:
-        try:
-            os.chown(path, owner.st_uid, owner.st_gid)
-        except FileNotFoundError:
-            pass  # SQLite removed a -wal or -shm file when its last connection closed
-        except OSError as exc:
-            logger.warning("ergates: could not hand %s to the Hermes user (%s); continuing",
-                           path.name, type(exc).__name__)
+    if geteuid is None or geteuid() != 0:
+        return None
+    root_stat = os.stat(hermes_root)
+    return root_stat.st_uid, root_stat.st_gid
+
+
+def _hand_over(name: str, change_owner: Callable[[], None]) -> None:
+    try:
+        change_owner()
+    except FileNotFoundError:
+        pass  # SQLite removed a -wal or -shm file when its last connection closed
+    except OSError as exc:
+        logger.warning("ergates: could not hand %s to the Hermes user (%s); continuing",
+                       name, type(exc).__name__)
 
 
 def root_run_would_break(hermes_root: Path) -> bool:

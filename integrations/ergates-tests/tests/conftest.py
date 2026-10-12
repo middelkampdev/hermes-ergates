@@ -7,6 +7,7 @@ import sys
 import threading
 import types
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -36,12 +37,31 @@ def clock() -> FakeClock:
 HERMES_OWNER = (4242, 4343)
 
 
+class ChangedFile(NamedTuple):
+    """The file an ``os.fchown`` changed, known by device and inode: it may be renamed after the call."""
+
+    device: int
+    inode: int
+
+    def path_under(self, root: Path) -> Path | None:
+        """Where the file is under ``root`` now, symlinks not followed; ``None`` when it is not there."""
+        for folder, folder_names, file_names in os.walk(root):
+            for name in (*folder_names, *file_names):
+                found = os.lstat(Path(folder) / name)
+                if (found.st_dev, found.st_ino) == (self.device, self.inode):
+                    return Path(folder) / name
+        return None
+
+
 @pytest.fixture
 def as_root(tmp_path, monkeypatch):
     """This process runs as root, and the Hermes root ``tmp_path`` belongs to ``HERMES_OWNER``.
 
-    Returns the list of ``(path, uid, gid)`` calls to ``os.chown``, which is
-    recorded instead of run.
+    Returns the owner changes, recorded instead of run: ``(path, uid, gid)``
+    for an ``os.chown``, ``(ChangedFile, uid, gid)`` for an ``os.fchown``.
+    An ``os.chown`` that would follow a symlink fails the test. It fails
+    through ``pytest.fail``, a ``BaseException``, so no ``except`` in the
+    code under test can swallow it.
     """
     real_stat = os.stat
 
@@ -53,10 +73,21 @@ def as_root(tmp_path, monkeypatch):
         values[4], values[5] = HERMES_OWNER
         return os.stat_result(values)
 
-    calls: list[tuple[Path, int, int]] = []
+    calls: list[tuple[Path | ChangedFile, int, int]] = []
+
+    def chown(path, uid, gid, *, follow_symlinks=True):
+        if follow_symlinks:
+            pytest.fail(f"os.chown would follow a symlink at {path}")
+        calls.append((Path(path), uid, gid))
+
+    def fchown(fd, uid, gid):
+        opened = os.fstat(fd)
+        calls.append((ChangedFile(opened.st_dev, opened.st_ino), uid, gid))
+
     monkeypatch.setattr(os, "geteuid", lambda: 0)
     monkeypatch.setattr(os, "stat", stat_with_hermes_owner)
-    monkeypatch.setattr(os, "chown", lambda path, uid, gid: calls.append((Path(path), uid, gid)))
+    monkeypatch.setattr(os, "chown", chown)
+    monkeypatch.setattr(os, "fchown", fchown)
     return calls
 
 

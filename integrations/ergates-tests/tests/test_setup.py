@@ -7,6 +7,9 @@
 import json
 import logging
 import os
+import secrets
+import stat
+import threading
 
 import pytest
 
@@ -148,14 +151,14 @@ def test_a_target_that_cannot_be_written_is_failed(source, target, monkeypatch):
     _write(target, "bookkeeper", _template("bookkeeper", ("terminal",)))
     before = _files(target)
 
-    def refuse(src, dst):
-        raise PermissionError(13, "Permission denied", str(dst))
+    def refuse(source_name, target_name, **folders):
+        raise PermissionError(13, "Permission denied", str(target_name))
 
     monkeypatch.setattr(os, "replace", refuse)
 
     assert ensure_templates(source, target) == FAILED
 
-    assert {name: content for name, content in _files(target).items() if name.endswith(".json")} == before
+    assert _files(target) == before  # no staging file is left behind either
 
 
 def test_a_target_folder_that_is_a_file_is_failed(tmp_path, source):
@@ -176,7 +179,7 @@ def test_ensure_templates_never_raises(source, target, monkeypatch):
 def test_a_set_that_is_already_installed_is_not_written_again(source, target, monkeypatch):
     ensure_templates(source, target)
 
-    def refuse(src, dst):
+    def refuse(source_name, target_name, **folders):
         raise AssertionError("the installed set was written again")
 
     monkeypatch.setattr(os, "replace", refuse)
@@ -188,7 +191,7 @@ def test_a_state_other_than_installed_is_logged_by_state_and_exception_class_onl
                                                                                   caplog):
     caplog.set_level(logging.INFO, logger="ergates.setup")
 
-    def refuse(src, dst):
+    def refuse(source_name, target_name, **folders):
         raise PermissionError(13, "Permission denied", "/secret/hermes/root")
 
     monkeypatch.setattr(os, "replace", refuse)
@@ -223,8 +226,10 @@ def test_the_store_folder_is_private_when_the_install_runs_first(tmp_path, sourc
 # --- a root run on a fresh root the Hermes user owns -----------------------
 
 
-def _handed_over(calls):
-    return [path for path, uid, gid in calls if (uid, gid) == HERMES_OWNER]
+def _handed_over(calls, root):
+    """The paths ``calls`` gave to ``HERMES_OWNER``; a file changed through its descriptor by where it is now."""
+    return [changed if isinstance(changed, os.PathLike) else changed.path_under(root)
+            for changed, uid, gid in calls if (uid, gid) == HERMES_OWNER]
 
 
 def test_the_first_use_as_root_hands_every_path_it_makes_to_the_owner_of_the_hermes_root(tmp_path, as_root):
@@ -236,11 +241,11 @@ def test_the_first_use_as_root_hands_every_path_it_makes_to_the_owner_of_the_her
 
     folder = tmp_path / "ergates"
     everything_made = {folder, *folder.rglob("*")}
-    assert _handed_over(as_root) == [
+    assert _handed_over(as_root, tmp_path) == [
         folder, folder / "templates", folder / "templates" / "bookkeeper.json",
         folder / "templates" / "general-assistant.json", folder / "control.sqlite3",
     ]
-    assert set(_handed_over(as_root)) == everything_made
+    assert set(_handed_over(as_root, tmp_path)) == everything_made
     assert all(call[1:] == HERMES_OWNER for call in as_root)
 
 
@@ -252,7 +257,7 @@ def test_root_hands_over_the_template_files_it_writes_but_not_the_folders_that_e
 
     assert ensure_templates(source, target) == INSTALLED
 
-    assert _handed_over(as_root) == [target / "bookkeeper.json", target / "general-assistant.json"]
+    assert _handed_over(as_root, tmp_path) == [target / "bookkeeper.json", target / "general-assistant.json"]
 
 
 def test_root_changes_no_owner_when_the_installed_set_is_already_right(tmp_path, as_root, source):
@@ -265,12 +270,227 @@ def test_root_changes_no_owner_when_the_installed_set_is_already_right(tmp_path,
     assert as_root == []
 
 
+def test_root_installs_into_a_hermes_root_that_does_not_exist_yet(tmp_path, as_root, source):
+    assert ensure_templates(source, templates_dir(tmp_path / "new-root")) == INSTALLED
+
+
 def test_a_process_that_is_not_root_changes_no_owner(tmp_path, as_root, source, monkeypatch):
     monkeypatch.setattr(os, "geteuid", lambda: 1000)
 
     ensure_templates(source, templates_dir(tmp_path))
 
     assert as_root == []
+
+
+# --- symlinks and races: the hermes user's processes share these folders with a root run --
+
+
+def _tree(folder):
+    """Every path under ``folder`` with its bytes, ``None`` for a folder."""
+    return {path.relative_to(folder): None if path.is_dir() else path.read_bytes() for path in folder.rglob("*")}
+
+
+def _installed(folder):
+    """``{template_id: bytes}`` of the templates in ``folder``, the shape ``source_templates`` returns."""
+    return {path.stem: path.read_bytes() for path in folder.glob("*.json")}
+
+
+@pytest.fixture
+def outside(tmp_path_factory):
+    """A folder outside the Hermes root, with a file each step of the install could write over or remove."""
+    folder = tmp_path_factory.mktemp("outside")
+    _write(folder, "victim", {"belongs": "to someone else"})
+    _write(folder / "templates", "victim", {"belongs": "to someone else"})
+    return folder
+
+
+def _swap_for_a_symlink_after_the_first_file(monkeypatch, folder, moved_to, points_to):
+    """After the first ``os.replace``, move ``folder`` to ``moved_to`` and put a symlink to ``points_to`` in its
+    place, as a process of the folder's owner can at any moment."""
+    real_replace = os.replace
+
+    def replace_then_swap(*args, **kwargs):
+        real_replace(*args, **kwargs)
+        if not moved_to.exists():
+            os.rename(folder, moved_to)
+            folder.symlink_to(points_to, target_is_directory=True)
+
+    monkeypatch.setattr(os, "replace", replace_then_swap)
+
+
+symlinked_folders = pytest.mark.parametrize("linked, points_to", [
+    ("ergates", "."),
+    ("ergates/templates", "templates"),
+], ids=["store folder", "templates folder"])
+
+
+def test_a_symlink_at_a_staging_name_is_never_written_through(source, target, outside):
+    """The staging names were predictable: a process of the `hermes` user could plant a symlink there, and a root
+    run wrote the template into the file it points to."""
+    target.mkdir(parents=True)
+    for template_id in ("bookkeeper", "general-assistant"):
+        (target / f".{template_id}.json.tmp").symlink_to(outside / "victim.json")
+    before = _tree(outside)
+
+    assert ensure_templates(source, target) == INSTALLED
+
+    assert _tree(outside) == before
+    assert _installed(target) == source_templates(source)
+    assert not any(path.is_symlink() for path in target.glob("*.json"))
+
+
+def test_a_staging_name_that_is_taken_is_never_opened(source, target, outside, monkeypatch):
+    """The staging name is random; when it is taken all the same, the install stops instead of opening it."""
+    target.mkdir(parents=True)
+    (target / ".bookkeeper.taken.tmp").symlink_to(outside / "victim.json")
+    before = _tree(outside)
+    monkeypatch.setattr(secrets, "token_hex", lambda nbytes=None: "taken")
+
+    assert ensure_templates(source, target) == FAILED
+
+    assert _tree(outside) == before
+
+
+@symlinked_folders
+def test_a_symlinked_store_or_templates_folder_is_failed_and_nothing_outside_the_root_changes(
+        tmp_path, source, outside, linked, points_to, caplog):
+    caplog.set_level(logging.INFO, logger="ergates.setup")
+    link = tmp_path / linked
+    link.parent.mkdir(exist_ok=True)
+    link.symlink_to(outside / points_to, target_is_directory=True)
+    before = _tree(outside)
+
+    assert ensure_templates(source, templates_dir(tmp_path)) == FAILED
+
+    assert _tree(outside) == before
+    messages = [record.getMessage() for record in caplog.records if record.name == "ergates.setup"]
+    assert messages == ["setup: templates failed (OSError)"]
+
+
+@symlinked_folders
+def test_the_install_itself_refuses_a_symlinked_store_or_templates_folder(tmp_path, source, outside, linked,
+                                                                         points_to):
+    """A folder can turn into a symlink after `ensure_templates` looked, so the install refuses one as well."""
+    link = tmp_path / linked
+    link.parent.mkdir(exist_ok=True)
+    link.symlink_to(outside / points_to, target_is_directory=True)
+    before = _tree(outside)
+
+    with pytest.raises(OSError):
+        install_templates(source_templates(source), templates_dir(tmp_path))
+
+    assert _tree(outside) == before
+
+
+def test_a_templates_folder_swapped_for_a_symlink_during_the_install_is_never_written_through(
+        tmp_path, source, outside, monkeypatch):
+    target = templates_dir(tmp_path)
+    _write(target, "retired-role", _template("retired-role"))
+    moved = tmp_path / "ergates" / "moved"
+    _swap_for_a_symlink_after_the_first_file(monkeypatch, target, moved, outside / "templates")
+    before = _tree(outside)
+
+    ensure_templates(source, target)
+
+    assert _tree(outside) == before
+    assert _installed(moved) == source_templates(source)  # every write stayed in the folder the install opened
+
+
+def test_as_root_every_owner_change_stays_in_the_store_folder_and_follows_no_symlink(
+        tmp_path, source, outside, as_root, monkeypatch):
+    """`as_root` fails any `os.chown` that would follow a symlink. A process of the `hermes` user planted symlinks
+    at an old staging name, at a template's name and at a template the bundle lacks, and swaps the folder for a
+    symlink during the install."""
+    target = templates_dir(tmp_path)
+    target.mkdir(parents=True)
+    for name in (".bookkeeper.json.tmp", "bookkeeper.json", "retired-role.json"):
+        (target / name).symlink_to(outside / "victim.json")
+    moved = tmp_path / "ergates" / "moved"
+    _swap_for_a_symlink_after_the_first_file(monkeypatch, target, moved, outside / "templates")
+    before = _tree(outside)
+
+    ensure_templates(source, target)
+    ControlStore(store_path(tmp_path)).close()
+
+    assert _handed_over(as_root, tmp_path) == [
+        moved / "bookkeeper.json", moved / "general-assistant.json", tmp_path / "ergates" / "control.sqlite3",
+    ]
+    assert len(as_root) == 3
+    assert _tree(outside) == before
+
+
+def test_a_symlink_at_a_template_name_is_replaced_and_one_the_bundle_lacks_removed_never_followed(
+        source, target, outside):
+    target.mkdir(parents=True)
+    (target / "bookkeeper.json").symlink_to(outside / "victim.json")
+    (target / "retired-role.json").symlink_to(outside / "victim.json")
+    before = _tree(outside)
+
+    assert ensure_templates(source, target) == INSTALLED
+
+    assert not any(path.is_symlink() for path in target.iterdir())
+    assert _installed(target) == source_templates(source)
+    assert _tree(outside) == before
+
+
+def test_two_installs_of_a_changed_set_at_the_same_moment_both_end_complete(source, target, monkeypatch):
+    """The dashboard API runs in one plugin host per profile (`plugins.isolation: host`), so two processes can
+    install a changed set at once. With one shared staging name, one truncated or moved the other's file."""
+    ensure_templates(source, target)
+    _write(source, "bookkeeper", _template("bookkeeper", ("terminal",)))
+    both_staged = threading.Barrier(2, timeout=5)
+    real_replace = os.replace
+
+    def replace_once_both_have_staged(*args, **kwargs):
+        both_staged.wait()
+        real_replace(*args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", replace_once_both_have_staged)
+    start = threading.Barrier(2, timeout=5)
+    states = []
+
+    def install():
+        start.wait()
+        states.append(ensure_templates(source, target))
+
+    installs = [threading.Thread(target=install) for _ in range(2)]
+    for thread in installs:
+        thread.start()
+    for thread in installs:
+        thread.join()
+
+    assert states == [INSTALLED, INSTALLED]
+    assert _installed(target) == source_templates(source)
+    assert [name for name in os.listdir(target) if name.startswith(".")] == []
+
+
+def test_the_installed_files_are_0644_under_the_usual_umask(source, target):
+    """The staging file is the installed file, so its mode is the one a plain write gave."""
+    previous_umask = os.umask(0o022)
+    try:
+        ensure_templates(source, target)
+    finally:
+        os.umask(previous_umask)
+
+    assert {stat.S_IMODE(path.stat().st_mode) for path in target.glob("*.json")} == {0o644}
+
+
+def test_without_dir_fd_the_install_works_by_path_and_still_refuses_a_symlinked_folder(tmp_path, source, outside,
+                                                                                       monkeypatch):
+    """Windows has no `dir_fd`, and no root to escalate from, so there the install resolves names by path."""
+    monkeypatch.setattr("ergates.setup._HAS_DIR_FD", False)
+    target = templates_dir(tmp_path)
+
+    assert ensure_templates(source, target) == INSTALLED
+    assert _installed(target) == source_templates(source)
+
+    other_root = tmp_path / "other"
+    (other_root / "ergates").mkdir(parents=True)
+    (other_root / "ergates" / "templates").symlink_to(outside / "templates", target_is_directory=True)
+    before = _tree(outside)
+    with pytest.raises(OSError):
+        install_templates(source_templates(source), templates_dir(other_root))
+    assert _tree(outside) == before
 
 
 # --- templates_state ----------------------------------------------------------

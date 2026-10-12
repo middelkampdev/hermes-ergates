@@ -107,7 +107,7 @@ def test_a_file_that_vanished_before_its_chown_is_skipped(tmp_path, monkeypatch)
     """A -wal or -shm file disappears when the last connection closes."""
     monkeypatch.setattr(os, "geteuid", lambda: 0)
 
-    def chown_a_vanished_file(path, uid, gid):
+    def chown_a_vanished_file(path, uid, gid, *, follow_symlinks=True):
         raise FileNotFoundError(path)
 
     monkeypatch.setattr(os, "chown", chown_a_vanished_file)
@@ -118,7 +118,7 @@ def test_a_file_that_vanished_before_its_chown_is_skipped(tmp_path, monkeypatch)
 def test_root_without_the_right_to_change_owners_warns_and_continues(tmp_path, as_root, monkeypatch, caplog):
     """A rootless container's root has no CAP_CHOWN. Hermes's own container setup
     warns and continues when its chown fails; so does the store."""
-    def chown_refused(path, uid, gid):
+    def chown_refused(path, uid, gid, *, follow_symlinks=True):
         raise PermissionError(1, "Operation not permitted")
 
     monkeypatch.setattr(os, "chown", chown_refused)
@@ -171,7 +171,7 @@ def test_root_leaves_an_existing_store_alone(tmp_path, monkeypatch):
     ControlStore(path)
     calls = []
     monkeypatch.setattr(os, "geteuid", lambda: 0)
-    monkeypatch.setattr(os, "chown", lambda *args: calls.append(args))
+    monkeypatch.setattr(os, "chown", lambda *args, **options: calls.append(args))
 
     ControlStore(path)
 
