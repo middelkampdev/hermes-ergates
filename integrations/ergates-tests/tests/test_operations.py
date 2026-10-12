@@ -6,6 +6,7 @@ Hermes's own web server; these tests pin each status code and body.
 
 import json
 import re
+import threading
 import time
 import tomllib
 from pathlib import Path
@@ -15,7 +16,7 @@ import yaml
 
 import ergates
 from conftest import FakeClock, raw_bytes, rows
-from ergates.operations import LABEL_MAX_LEN, Operations, internal_error
+from ergates.operations import HEALTH_CACHE_SECONDS, LABEL_MAX_LEN, Operations, internal_error
 from ergates.paths import templates_dir
 from ergates.proposals import PROPOSAL_EXPIRY, ProposalService, validate_proposal
 from ergates.setup import ensure_templates
@@ -43,6 +44,7 @@ class FakeHermes:
         self.broken = set()
         self.profile_lookup_error = None
         self.unreadable = set()
+        self.enable_checks = []
         self.enable_calls = []
         self.schedule_calls = []
         self.prompt_calls = []
@@ -52,6 +54,7 @@ class FakeHermes:
         return profile in self.profiles
 
     def plugin_enabled(self, profile):
+        self.enable_checks.append(profile)
         if profile in self.unreadable:
             raise RuntimeError("the profile's config could not be read")
         return profile in self.enabled
@@ -103,8 +106,15 @@ def hermes():
 
 
 @pytest.fixture
-def ops(store, cron, clock, hermes, tmp_path):
-    return _operations(store, cron, clock, hermes, tmp_path)
+def cache_clock():
+    """The monotonic clock of ``ops``: ``health`` reuses its setup and push parts until this moves
+    ``HEALTH_CACHE_SECONDS`` on."""
+    return FakeClock(0.0)
+
+
+@pytest.fixture
+def ops(store, cron, clock, hermes, tmp_path, cache_clock):
+    return _operations(store, cron, clock, hermes, tmp_path, monotonic=cache_clock)
 
 
 @pytest.fixture
@@ -119,7 +129,7 @@ def ops_on_a_v4_store(store, cron, clock, hermes, tmp_path):
 
 
 def _operations(store, cron, clock, hermes, tmp_path, sweep_status=lambda: dict(SWEEP_STATUS),
-                install=lambda: dict(INSTALL), push_status=lambda: dict(PUSH_STATUS)):
+                install=lambda: dict(INSTALL), push_status=lambda: dict(PUSH_STATUS), monotonic=None):
     directory = templates_dir(tmp_path)
     directory.mkdir(parents=True)
     (directory / "bookkeeper.json").write_text(json.dumps(TEMPLATE), encoding="utf-8")
@@ -132,7 +142,7 @@ def _operations(store, cron, clock, hermes, tmp_path, sweep_status=lambda: dict(
         enable_plugin=hermes.enable_plugin, profile_names=hermes.profile_names, check_schedule=hermes.check_schedule,
         check_prompt=hermes.check_prompt, check_gateway_lifecycle=hermes.check_gateway_lifecycle,
         templates=directory, bundled_templates=bundled, sweep_status=sweep_status, install=install,
-        push_status=push_status, clock=clock,
+        push_status=push_status, clock=clock, monotonic=monotonic or FakeClock(0.0),
     )
 
 
@@ -228,7 +238,8 @@ def test_health_reports_the_setup_state_and_writes_nothing(ops, hermes, tmp_path
     assert {path.name: path.read_bytes() for path in templates_dir(tmp_path).iterdir()} == before
 
 
-def test_health_says_whether_the_bad_template_is_the_bundled_one_or_an_installed_file(ops, hermes, tmp_path):
+def test_health_says_whether_the_bad_template_is_the_bundled_one_or_an_installed_file(
+        ops, hermes, tmp_path, cache_clock):
     _installed(hermes, tmp_path)
     (tmp_path / "elsewhere.json").write_text("{}", encoding="utf-8")
     (templates_dir(tmp_path) / "bookkeeper.json").unlink()
@@ -236,6 +247,7 @@ def test_health_says_whether_the_bad_template_is_the_bundled_one_or_an_installed
 
     installed_file = ops.health().body["setup"]
     (tmp_path / "bundled" / "researcher.json").write_text("{not json", encoding="utf-8")
+    cache_clock.advance(HEALTH_CACHE_SECONDS)
     bundle = ops.health().body["setup"]
 
     assert (installed_file["templates"], installed_file["templates_detail"]) == ("invalid", "installed")
@@ -262,6 +274,146 @@ def test_health_reports_push_as_booleans_and_never_a_value(store, cron, clock, h
 
     assert reply.body["push"] == {"configured": True, "token_set": True, "legacy_config_token": False}
     assert "tk_secret_value" not in json.dumps(reply.body) and "ntfy.example" not in json.dumps(reply.body)
+
+
+def _counting(calls):
+    def push_status():
+        calls.append(1)
+        return dict(PUSH_STATUS)
+    return push_status
+
+
+def test_health_computes_setup_and_push_once_within_the_window_and_reads_the_rest_every_time(
+        store, cron, clock, hermes, tmp_path, cache_clock):
+    """The setup part runs Hermes plugin discovery for every profile and the push part parses config.yaml."""
+    hermes.profiles = {"default", "mira", "zoe"}
+    pushes, installs, sweeps = [], [], []
+    ops = _operations(
+        store, cron, clock, hermes, tmp_path, monotonic=cache_clock, push_status=_counting(pushes),
+        install=lambda: installs.append(1) or dict(INSTALL), sweep_status=lambda: sweeps.append(1) or SWEEP_STATUS)
+
+    first = ops.health()
+    cache_clock.advance(HEALTH_CACHE_SECONDS - 0.1)
+    second = ops.health()
+
+    assert sorted(hermes.enable_checks) == ["default", "mira", "zoe"]  # once per profile, for two calls
+    assert (len(pushes), len(installs), len(sweeps)) == (1, 2, 2)
+    assert second.body == first.body
+
+
+def test_health_reads_the_store_at_every_call(ops, cache_clock):
+    before = ops.health().body["store"]["writable"]
+    with ops._store.transaction() as conn:
+        conn.execute("UPDATE store_meta SET value = '4' WHERE key = ?", (MIN_SCHEMA_KEY,))
+        conn.execute("PRAGMA user_version = 4")
+
+    after = ops.health().body
+
+    assert (before, after["store"]["writable"], after["schema_version"]) == (True, False, 4)
+
+
+def test_health_computes_setup_and_push_again_when_the_window_is_over(ops, hermes, tmp_path, cache_clock):
+    _installed(hermes, tmp_path)
+    hermes.enabled = {"default"}
+    first = ops.health().body["setup"]["profiles"]
+    hermes.enabled = set()
+    cache_clock.advance(HEALTH_CACHE_SECONDS - 0.1)
+    within = ops.health().body["setup"]["profiles"]
+    cache_clock.advance(0.1)
+    after = ops.health().body["setup"]["profiles"]
+
+    assert first == within == [{"name": "default", "enabled": True}]
+    assert after == [{"name": "default", "enabled": False}]
+
+
+def test_setup_makes_the_next_health_say_so_at_once(ops, hermes):
+    hermes.profiles = {"default", "mira"}
+    assert ops.health().body["setup"]["finished"] is False
+
+    ops.setup({})
+    after = ops.health().body["setup"]  # the clock has not moved
+
+    assert after["finished"] is True
+    assert after["profiles"] == [{"name": "default", "enabled": True}, {"name": "mira", "enabled": True}]
+
+
+def test_enable_plugin_makes_the_next_health_say_so_at_once(ops, hermes):
+    hermes.profiles = {"default", "mira"}
+    assert {"name": "mira", "enabled": False} in ops.health().body["setup"]["profiles"]
+
+    ops.enable_plugin("mira")
+
+    assert {"name": "mira", "enabled": True} in ops.health().body["setup"]["profiles"]
+
+
+def test_an_enable_that_fails_still_drops_the_cached_parts(ops, hermes):
+    hermes.profiles = {"default", "mira"}
+    hermes.broken = {"mira"}
+    ops.health()
+    checks = len(hermes.enable_checks)
+
+    with pytest.raises(FileExistsError):
+        ops.enable_plugin("mira")
+    ops.health()
+
+    assert len(hermes.enable_checks) == 2 * checks
+
+
+def test_a_refused_setup_or_enable_keeps_the_cached_parts(ops, hermes):
+    ops.health()
+    checks = len(hermes.enable_checks)
+
+    ops.setup([])  # not a JSON object
+    ops.enable_plugin("not a profile")
+    ops.enable_plugin("ghost")  # no such profile
+    ops.health()
+
+    assert len(hermes.enable_checks) == checks
+
+
+def test_health_answers_get_their_own_copy_of_the_cached_parts(ops, hermes, tmp_path):
+    _installed(hermes, tmp_path)
+    first = ops.health().body
+    first["setup"]["profiles"].append({"name": "intruder", "enabled": True})
+    first["push"]["configured"] = "changed"
+
+    second = ops.health().body
+
+    assert second["setup"]["profiles"] == [{"name": "default", "enabled": True}]
+    assert second["push"] == PUSH_STATUS
+
+
+def test_polls_that_overlap_wait_for_the_first_and_share_its_answer(store, cron, clock, hermes, tmp_path, cache_clock):
+    """Two requests arrive while Hermes is still being asked: the second must not ask again."""
+    hermes.profiles = {"default", "mira"}
+    entered, release = threading.Event(), threading.Event()
+    real = hermes.plugin_enabled
+
+    def slow_plugin_enabled(profile):
+        entered.set()
+        assert release.wait(10)
+        return real(profile)
+
+    ops = Operations(
+        store, cron=cron, profile_exists=hermes.profile_exists, plugin_enabled=slow_plugin_enabled,
+        enable_plugin=hermes.enable_plugin, profile_names=hermes.profile_names, check_schedule=hermes.check_schedule,
+        check_prompt=hermes.check_prompt, check_gateway_lifecycle=hermes.check_gateway_lifecycle,
+        templates=templates_dir(tmp_path), bundled_templates=tmp_path / "bundled", sweep_status=lambda: SWEEP_STATUS,
+        install=lambda: dict(INSTALL), push_status=lambda: dict(PUSH_STATUS), clock=clock, monotonic=cache_clock)
+    answers = []
+    first = threading.Thread(target=lambda: answers.append(ops.health()))
+    second = threading.Thread(target=lambda: answers.append(ops.health()))
+
+    first.start()
+    assert entered.wait(10)
+    second.start()
+    second.join(0.3)  # it waits for the first; a second computation would wait in slow_plugin_enabled as well
+    release.set()
+    first.join(10)
+    second.join(10)
+
+    assert len(answers) == 2 and answers[0].body == answers[1].body
+    assert sorted(hermes.enable_checks) == ["default", "mira"]
 
 
 def test_health_survives_a_push_read_that_raises(store, cron, clock, hermes, tmp_path):

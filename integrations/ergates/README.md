@@ -344,7 +344,10 @@ setup finished:
 
 `health` answers 503 `store_unavailable` only when the control store cannot
 be read, so the setup, push and install parts above never turn into an error
-of their own.
+of their own. Checking the plugin in every profile and parsing `config.yaml`
+is slow, so `setup` and `push` are reused for 10 seconds (`POST /setup` and
+`POST /profiles/{profile}/plugin` drop them at once); `store`, `install` and
+`sweep` are read at every call.
 
 ## Tools and the tool gate
 

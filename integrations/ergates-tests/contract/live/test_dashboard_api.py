@@ -321,6 +321,26 @@ def test_setup_through_hermes_serve_enables_the_plugin_in_every_profile(web, tok
     assert (home / "plugins" / "ergates").is_symlink()
 
 
+def test_health_reuses_its_setup_part_for_a_few_seconds_and_post_setup_drops_it(
+        web, token_headers, monkeypatch, make_profile):
+    """Hermes plugin discovery runs once per profile for the setup part, so ``health`` keeps it for
+    ``HEALTH_CACHE_SECONDS``; ``POST /setup`` writes, so the next ``health`` computes it again."""
+    monkeypatch.setattr(_module(), "_operations", None)  # a new Operations: its cache holds nothing yet
+
+    def profiles():
+        return web.get(f"{API}/health", headers=token_headers).json()["setup"]["profiles"]
+
+    before = profiles()
+    make_profile("kees")
+    within_the_window = profiles()
+    assert web.post(f"{API}/setup", json={}, headers=token_headers).status_code == 200
+    after = profiles()
+
+    assert "kees" not in [item["name"] for item in before]
+    assert within_the_window == before
+    assert {"name": "kees", "enabled": True} in after
+
+
 def test_setup_reports_a_profile_with_a_hand_copied_plugin_folder_and_enables_the_rest(
         web, token_headers, make_profile):
     """Hermes's ``enable_plugin`` refuses to replace a folder where the plugin link belongs; the

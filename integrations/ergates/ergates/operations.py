@@ -23,10 +23,12 @@ for the first. The router runs them on a worker thread.
 
 from __future__ import annotations
 
+import copy
 import functools
 import logging
 import re
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +55,9 @@ _STEP_STATUS_NOT_STRINGS = "step and status must be strings"
 PROMPT_REFUSED = "prompt is not one Hermes cron accepts"
 PROMPT_STOPS_GATEWAY = "prompt reads as a command to stop or restart the Hermes gateway, which Hermes cron refuses"
 PUSH_KEYS = ("configured", "token_set", "legacy_config_token")
+# How long ``health`` reuses its ``setup`` and ``push`` parts. The app polls ``health`` every few seconds, and
+# those parts cost about 40 ms of CPU per profile (Hermes plugin discovery) plus a parse of config.yaml.
+HEALTH_CACHE_SECONDS = 10
 
 
 @dataclass(frozen=True)
@@ -158,10 +163,13 @@ class Operations:
         check_schedule: Callable[[str, str], None], check_prompt: Callable[[str], None],
         check_gateway_lifecycle: Callable[[str, str], None], templates: Path, bundled_templates: Path,
         sweep_status: Callable[[], dict], install: Callable[[], dict], push_status: Callable[[], dict],
-        clock: Callable[[], float] = time.time,
+        clock: Callable[[], float] = time.time, monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._store = store
         self._sweep_status = sweep_status
+        self._monotonic = monotonic
+        self._cache_lock = threading.Lock()
+        self._cached: tuple[float, dict, dict] | None = None  # when it was computed, ``setup``, ``push``
         self._install = install
         self._push_status = push_status
         self._profile_exists = profile_exists
@@ -191,16 +199,24 @@ class Operations:
         (``ergates.install_info``), ``setup`` the state ``POST /setup`` would
         make (read, never written), ``push`` three booleans and ``sweep`` the
         periodic sweep's ``status()`` (``ergates.sweep``).
+
+        ``store``, ``install`` and ``sweep`` are read at every call.
+        ``setup`` and ``push`` are expensive, so they are reused for
+        :data:`HEALTH_CACHE_SECONDS`, and ``POST /setup`` and
+        ``POST /profiles/{profile}/plugin`` drop them. A change made another
+        way (``python -m ergates.install``, Hermes Desktop) shows within that
+        time.
         """
         schema_version = self._store.schema_version
+        setup, push = self._setup_and_push()
         return Reply(200, {
             "ok": True, "plugin_version": __version__, "api_level": API_LEVEL, "min_api_level": MIN_API_LEVEL,
             "schema_version": schema_version,
             "store": {"plugin_schema_version": SCHEMA_VERSION, "min_schema_version": self._store.min_schema_version,
                       "writable": self._store.writable},
             "install": self._install(),
-            "setup": self._setup_state(),
-            "push": self._push(),
+            "setup": setup,
+            "push": push,
             "sweep": self._sweep_status(),
         })
 
@@ -270,7 +286,10 @@ class Operations:
             return error_reply(404, "unknown_profile", "there is no profile with that name")
         if not self._profile_exists(profile):
             return error_reply(404, "unknown_profile", f"profile {profile!r} does not exist")
-        self._enable_plugin(profile)
+        try:
+            self._enable_plugin(profile)
+        finally:  # a failed enable can have written part of it
+            self._forget_setup_and_push()
         return Reply(200, {"profile": profile, "enabled": True})
 
     # POST /setup
@@ -286,8 +305,11 @@ class Operations:
         """
         if not isinstance(body, dict):
             return error_reply(400, "invalid", _NOT_AN_OBJECT)
-        templates = ensure_templates(self._bundled_templates, self._templates)
-        profiles = enable_everywhere(self._profile_names(), self._enable_plugin, self._plugin_enabled)
+        try:
+            templates = ensure_templates(self._bundled_templates, self._templates)
+            profiles = enable_everywhere(self._profile_names(), self._enable_plugin, self._plugin_enabled)
+        finally:  # after the writes, so a health computed during them is dropped too
+            self._forget_setup_and_push()
         return Reply(200, {"setup": setup_report(templates, profiles)})
 
     # GET /attention/prefs?scope=<name or *>, or ?profile=<name>
@@ -323,6 +345,23 @@ class Operations:
         except AttentionError as exc:
             return error_reply(400, "invalid", str(exc))
         return Reply(200, {"prefs": prefs})
+
+    def _setup_and_push(self) -> tuple[dict, dict]:
+        """The ``setup`` and ``push`` parts of ``health``, computed at most once per :data:`HEALTH_CACHE_SECONDS`.
+
+        One lock covers the computation, so polls that overlap wait for the
+        first and share its answer. Each caller gets its own copy.
+        """
+        with self._cache_lock:
+            now = self._monotonic()
+            cached = self._cached
+            if cached is None or not 0 <= now - cached[0] < HEALTH_CACHE_SECONDS:
+                cached = self._cached = (now, self._setup_state(), self._push())
+            return copy.deepcopy((cached[1], cached[2]))
+
+    def _forget_setup_and_push(self) -> None:
+        with self._cache_lock:
+            self._cached = None
 
     def _setup_state(self) -> dict:
         """The body of ``POST /setup`` as it would be now, without writing anything.
