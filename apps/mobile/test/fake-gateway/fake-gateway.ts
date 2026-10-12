@@ -30,6 +30,7 @@ import toolsetsFixture from '../fixtures/toolsets.json'
 import transcriptSenderFixture from '../fixtures/agent-traffic/transcript-sender.json'
 
 import { FakeErgates } from './fake-ergates'
+import { FakePlugins } from './fake-plugins'
 
 /** Deep-clones a fixture and casts it to the wire type it represents. */
 const clone = <V>(value: unknown): V => structuredClone(value) as V
@@ -315,6 +316,8 @@ export class FakeGateway implements GatewayPort {
   readonly profileNames = new Set<string>((profilesListFixture.profiles as { name: string }[]).map(p => p.name))
   /** The Ergates routes, over this gateway's profiles. */
   readonly ergates = new FakeErgates({ hasProfile: name => this.profileNames.has(name) })
+  /** Hermes's plugin routes: the hub list, install and enable. */
+  readonly plugins = new FakePlugins()
 
   /** `ui_meta` and its revisions per profile once a write touched them, as profile.yaml holds them. */
   private readonly storedMeta = new Map<string, { uiMeta: T.UiMeta; revisions: Record<string, number> }>()

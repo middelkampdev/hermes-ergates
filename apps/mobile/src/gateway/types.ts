@@ -688,6 +688,32 @@ export interface SetupState {
  */
 export type PluginProbe = { state: 'answered'; health: ErgatesHealth } | { state: 'absent' } | { state: 'not_loaded' }
 
+// ── Hermes plugin routes (/api/dashboard/plugins/hub, /api/dashboard/agent-plugins) ──
+
+export interface HermesPluginRow {
+  name: string
+  /** Null when the plugin's manifest names none. */
+  version: string | null
+  runtime_status: 'enabled' | 'disabled' | 'inactive'
+}
+
+/** `POST /api/dashboard/agent-plugins/install`. The app always sends `force: false`. */
+export interface PluginInstallRequest {
+  identifier: string
+  /** A full 40-character commit. */
+  ref: string
+  enable: true
+  force: false
+}
+
+export interface PluginInstallResult {
+  plugin_name: string
+  enabled: boolean
+}
+
+/** The `code` of the `GatewayError` an install refusal rejects with; a refusal Hermes words otherwise has none. */
+export type PluginInstallCode = 'scan_blocked' | 'no_git' | 'download_failed' | 'already_installed' | 'enable_refused'
+
 export interface ReminderRequest {
   profile: string
   schedule: string

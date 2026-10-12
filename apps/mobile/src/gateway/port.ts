@@ -165,6 +165,19 @@ export interface ErgatesApi {
   setAttentionPrefs(prefs: T.AttentionPrefs): Promise<T.AttentionPrefs>
 }
 
+/**
+ * Hermes's own plugin routes, behind the connection's auth. An install can run
+ * for minutes (a git download in up to three phases) and answers only when it
+ * ends. A refusal rejects with `GatewayError`; for `install` its `code` is a
+ * `PluginInstallCode` when Hermes's text is one the app knows. `enable` maps no
+ * code: any refusal is a plain error with Hermes's text as the message.
+ */
+export interface PluginsApi {
+  hub(): Promise<T.HermesPluginRow[]>
+  install(req: T.PluginInstallRequest): Promise<T.PluginInstallResult>
+  enable(name: string): Promise<void>
+}
+
 export interface GatewayPort {
   status(): Promise<T.BackendStatus>
   login(creds: T.Credentials): Promise<T.AuthIdentity | null>
@@ -187,6 +200,7 @@ export interface GatewayPort {
   tools: ToolsApi
   files: FilesApi
   ergates: ErgatesApi
+  plugins: PluginsApi
 }
 
 /**

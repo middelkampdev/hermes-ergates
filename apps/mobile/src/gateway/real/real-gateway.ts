@@ -9,12 +9,13 @@
 import type { WebSocketLike } from '@vendor/hermes/shared/json-rpc-gateway'
 
 import { GatewayError, isGatewayError, requireSent } from '../errors'
-import type { ErgatesApi, FilesApi, GatewayConnection, GatewayPort, ProfilesApi, RoutinesApi, SessionsApi, ToolsApi } from '../port'
+import type { ErgatesApi, FilesApi, GatewayConnection, GatewayPort, PluginsApi, ProfilesApi, RoutinesApi, SessionsApi, ToolsApi } from '../port'
 import { normalizeTranscriptPage } from '../transcript'
 import type * as T from '../types'
 import { logoutRequest, mintTicket, passwordLogin, readStatus, whoAmI } from './auth'
 import { createErgatesApi } from './ergates-api'
 import { HttpClient, type HttpAuthMode, type HttpAuthState } from './http'
+import { createPluginsApi } from './plugins-api'
 import type { SecretStore } from './secrets'
 import { SocketSession, type SocketCredential } from './socket'
 
@@ -41,6 +42,8 @@ export class RealGateway implements GatewayPort {
   readonly http: HttpClient
   /** The Ergates integration routes, over this connection's auth. */
   readonly ergates: ErgatesApi
+  /** Hermes's plugin routes, over this connection's auth. */
+  readonly plugins: PluginsApi
   private readonly options: RealGatewayOptions
   private auth: HttpAuthState = { mode: 'none' }
   private authLoaded: Promise<void> | null = null
@@ -61,6 +64,7 @@ export class RealGateway implements GatewayPort {
       fetchImpl: options.fetchImpl
     })
     this.ergates = createErgatesApi(this.http, () => this.restore())
+    this.plugins = createPluginsApi(this.http, () => this.restore())
   }
 
   private key(kind: 'token' | 'cookie' | 'mode'): string {
