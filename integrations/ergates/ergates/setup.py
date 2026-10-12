@@ -9,8 +9,9 @@ builds its operations, and ``python -m ergates.install`` runs the same code.
 Every ``<template_id>.json`` in the source folder must be a template the
 accept route would serve (:func:`ergates.templates.load_template`). The
 target then holds exactly the source set: a template the source no longer
-has is removed there. When any source template is invalid, or the source is
-missing or empty, nothing is written and the target keeps what it has.
+has is removed there. When any source template is invalid, the source is
+missing or empty, or this process runs as root on a Hermes root another user
+owns, nothing is written and the target keeps what it has.
 
 ``ensure_templates`` and ``templates_state`` return a state and do not raise,
 because the router must keep serving when a template cannot be installed: a
@@ -23,20 +24,21 @@ import errno
 import logging
 import os
 import secrets
+import stat
 from contextlib import ExitStack, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from .proposals import ProposalError
-from .store import give_open_file_to_hermes_owner, hermes_owner
+from .store import ROOT_REFUSAL, root_run_would_break
 from .templates import load_template
 
 logger = logging.getLogger(__name__)
 
 INSTALLED = "installed"  # the target holds exactly the source set
 DIFFER = "differ"  # the target holds something else (``templates_state`` only)
-INVALID = "invalid"  # a source template is one the accept route would refuse
+INVALID = "invalid"  # a source template the accept route would refuse (``templates_state``: also a bad target file)
 MISSING = "missing"  # the source folder is absent or holds no ``*.json``
 FAILED = "failed"  # the source or target could not be read or written
 
@@ -68,39 +70,36 @@ def source_templates(source: Path) -> dict[str, bytes]:
 def install_templates(templates: dict[str, bytes], target: Path) -> None:
     """Make ``target`` hold exactly ``templates``; each file is replaced atomically.
 
-    ``hermes serve`` may run as root, while ``<hermes root>/ergates`` belongs
-    to the ``hermes`` user, whose agents have a terminal. A process of that
-    user can put a symlink in these folders, or swap a folder for one, at any
-    moment. So the install never works through a symlink: the store folder
-    and ``target`` are opened with ``O_NOFOLLOW`` (a symlink there raises
-    ``OSError``), every name below them is resolved against those open
-    folders, so a folder swapped later changes nothing, and owners change
-    through descriptors only (:func:`_replace_file`). Windows has no
-    ``dir_fd`` and no root, so names are resolved by path there.
+    The agents of a Hermes install have a terminal, so one of their
+    processes can put a symlink in these folders, or swap a folder for one,
+    at any moment. The install never works through a symlink: the store
+    folder and ``target`` are opened with ``O_NOFOLLOW`` (a symlink there
+    raises ``OSError``), and every name below them is resolved against
+    those open folders, so a folder swapped later changes nothing
+    (:func:`_replace_file`). Windows has no ``dir_fd``, so names are
+    resolved by path there.
 
-    ``hermes serve`` installs the templates before it opens the store, so a
-    root process on a fresh root owned by the ``hermes`` user creates the
-    store folder here and the store finds it. Every folder and file this call
-    makes is therefore handed to the owner of the Hermes root the way the
-    store hands over its own (:func:`ergates.store.give_to_hermes_owner`).
-    Both folders are made 0700, one at a time, because the store folder must
-    be private even when the install runs before the store first opens.
+    Both folders are made 0700, one at a time, because ``hermes serve``
+    installs the templates before it opens the store, and the store folder
+    must be private from the start. Callers go through
+    :func:`ensure_templates`, which installs nothing as root on a Hermes
+    root another user owns.
     """
     target = Path(target)
     hermes_root = target.parent.parent
     hermes_root.mkdir(parents=True, exist_ok=True)
-    owner = hermes_owner(hermes_root)
     with ExitStack() as open_folders:
         root_folder = _open_hermes_root(hermes_root, open_folders)
-        store_folder = _open_folder(root_folder, target.parent.name, owner, open_folders)
-        templates_folder = _open_folder(store_folder, target.name, owner, open_folders)
+        store_folder = _make_folder(root_folder, target.parent.name, open_folders)
+        templates_folder = _make_folder(store_folder, target.name, open_folders)
 
         for template_id, content in templates.items():
-            _replace_file(templates_folder, f"{template_id}.json", content, owner)
+            _replace_file(templates_folder, f"{template_id}.json", content)
 
+        # Names only: no file is opened, and unlink removes a symlink itself.
         for name in templates_folder.names():
             if name.endswith(".json") and Path(name).stem not in templates:
-                os.unlink(templates_folder.entry(name), dir_fd=templates_folder.fd)  # never follows a symlink
+                os.unlink(templates_folder.entry(name), dir_fd=templates_folder.fd)
 
 
 # Linux and macOS resolve a name against an open folder (``dir_fd``).
@@ -110,6 +109,10 @@ _HAS_DIR_FD = {os.open, os.mkdir, os.rename, os.unlink} <= os.supports_dir_fd an
 _FOLDER_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 # O_CREAT with O_EXCL fails on any name that exists, a symlink included, and never follows one.
 _STAGING_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+# O_NOFOLLOW: a symlink fails with ELOOP. O_NONBLOCK: a FIFO opens at once instead of waiting for a writer.
+_READ_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+# A bundled template is under 2 KB; 1 MiB leaves room and bounds what one planted file makes the plugin read.
+MAX_TEMPLATE_BYTES = 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -128,7 +131,7 @@ class _Folder:
 
 
 def _open_hermes_root(hermes_root: Path, open_folders: ExitStack) -> _Folder:
-    """The Hermes root, opened following a symlink: the operator chooses the root, not the ``hermes`` user."""
+    """The Hermes root, opened following a symlink: the operator chooses the root, not an agent."""
     if not _HAS_DIR_FD:
         return _Folder(hermes_root, None)
     fd = os.open(hermes_root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
@@ -136,47 +139,43 @@ def _open_hermes_root(hermes_root: Path, open_folders: ExitStack) -> _Folder:
     return _Folder(hermes_root, fd)
 
 
-def _open_folder(parent: _Folder, name: str, owner: Optional[tuple[int, int]], open_folders: ExitStack) -> _Folder:
-    """The folder ``name`` in ``parent``, made 0700 and handed to ``owner`` when this call creates it.
+def _make_folder(parent: _Folder, name: str, open_folders: ExitStack) -> _Folder:
+    """The folder ``name`` in ``parent``, made 0700 when it does not exist; see :func:`_open_folder`."""
+    with suppress(FileExistsError):
+        os.mkdir(parent.entry(name), 0o700, dir_fd=parent.fd)
+    return _open_folder(parent, name, open_folders)
+
+
+def _open_folder(parent: _Folder, name: str, open_folders: ExitStack) -> _Folder:
+    """The existing folder ``name`` in ``parent``.
 
     Raises ``OSError`` when ``name`` is a symlink or, where the platform has
-    ``dir_fd``, a file.
+    ``dir_fd``, a file or missing.
     """
-    try:
-        os.mkdir(parent.entry(name), 0o700, dir_fd=parent.fd)
-        is_new = True
-    except FileExistsError:
-        is_new = False
-
     path = parent.path / name
     if parent.fd is None:
         _refuse_a_symlink(path)
         return _Folder(path, None)
-
     fd = os.open(name, _FOLDER_FLAGS, dir_fd=parent.fd)
     open_folders.callback(os.close, fd)
-    if is_new:
-        give_open_file_to_hermes_owner(fd, name, owner)
     return _Folder(path, fd)
 
 
-def _replace_file(folder: _Folder, name: str, content: bytes, owner: Optional[tuple[int, int]]) -> None:
+def _replace_file(folder: _Folder, name: str, content: bytes) -> None:
     """Make ``name`` in ``folder`` hold ``content``, swapped in whole by ``os.replace``.
 
     The staging file gets a random name and is created with ``O_EXCL``, so
     nothing another process put there is ever opened, and two processes
-    installing at the same moment each write their own. It is handed to
-    ``owner`` through its descriptor before it takes the final name;
-    ``os.replace`` then replaces a symlink at that name instead of following
-    it. A failure removes the staging file before the error goes up. The
-    file is created 0644 less the umask, the mode a plain write gave it.
+    installing at the same moment each write their own. ``os.replace``
+    then replaces a symlink at the final name instead of following it. A
+    failure removes the staging file before the error goes up. The file is
+    created 0644 less the umask, the mode a plain write gave it.
     """
     staging = f".{Path(name).stem}.{secrets.token_hex(8)}.tmp"
     fd = os.open(folder.entry(staging), _STAGING_FLAGS, 0o644, dir_fd=folder.fd)
     try:
         with open(fd, "wb") as staged:  # closes fd before the rename: Windows renames no open file
             staged.write(content)
-            give_open_file_to_hermes_owner(fd, name, owner)
         os.replace(folder.entry(staging), folder.entry(name), src_dir_fd=folder.fd, dst_dir_fd=folder.fd)
     except BaseException:
         with suppress(OSError):
@@ -189,18 +188,71 @@ def _refuse_a_symlink(folder: Path) -> None:
         raise OSError(errno.ELOOP, "the install does not work through a symlink")
 
 
+def _installed_templates(target: Path) -> Optional[dict[str, bytes]]:
+    """``{template_id: bytes}`` of every ``*.json`` in ``target``; ``{}`` when a folder on the way is missing.
+
+    The files are read relative to the open folder, the way
+    :func:`install_templates` writes them. ``None`` when one of them is not
+    a regular file of at most :data:`MAX_TEMPLATE_BYTES` (a symlink, a
+    FIFO, a folder, an oversized file): it is not followed and not read.
+    Raises ``OSError`` when the store folder or ``target`` is a symlink or
+    a file.
+    """
+    target = Path(target)
+    with ExitStack() as open_folders:
+        try:
+            root_folder = _open_hermes_root(target.parent.parent, open_folders)
+            store_folder = _open_folder(root_folder, target.parent.name, open_folders)
+            templates_folder = _open_folder(store_folder, target.name, open_folders)
+            names = templates_folder.names()
+        except FileNotFoundError:
+            return {}
+        installed: dict[str, bytes] = {}
+        for name in sorted(names):
+            if not name.endswith(".json"):
+                continue
+            content = _read_template_file(templates_folder, name)
+            if content is None:
+                return None
+            installed[Path(name).stem] = content
+        return installed
+
+
+def _read_template_file(folder: _Folder, name: str) -> Optional[bytes]:
+    """The bytes of ``name`` in ``folder``; ``None`` unless it is a regular file within :data:`MAX_TEMPLATE_BYTES`."""
+    try:
+        fd = os.open(folder.entry(name), _READ_FLAGS, dir_fd=folder.fd)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:  # a symlink
+            return None
+        raise
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or opened.st_size > MAX_TEMPLATE_BYTES:
+            return None
+        content = b""
+        while len(content) <= MAX_TEMPLATE_BYTES:  # the file can grow after the fstat
+            chunk = os.read(fd, MAX_TEMPLATE_BYTES + 1 - len(content))
+            if not chunk:
+                break
+            content += chunk
+    finally:
+        os.close(fd)
+    return content if len(content) <= MAX_TEMPLATE_BYTES else None
+
+
 def templates_match(templates: dict[str, bytes], target: Path) -> bool:
     """True when ``target`` holds exactly ``templates``, byte for byte.
 
-    Raises ``OSError`` when ``target`` or the store folder above it is a
-    symlink, which :func:`install_templates` refuses, so ``ensure_templates``
-    is then ``FAILED`` and ``templates_state`` is ``DIFFER``.
+    False as well when an entry there is not a regular file of at most
+    :data:`MAX_TEMPLATE_BYTES`, which the install then replaces or
+    removes. Raises ``OSError`` when ``target`` or the store folder above
+    it is a symlink, which :func:`install_templates` refuses, so
+    ``ensure_templates`` is then ``FAILED`` and ``templates_state`` is
+    ``DIFFER``.
     """
-    target = Path(target)
-    for folder in (target.parent, target):
-        _refuse_a_symlink(folder)
-    installed = {path.stem: path.read_bytes() for path in target.glob("*.json")}
-    return installed == templates
+    installed = _installed_templates(target)
+    return installed is not None and installed == templates
 
 
 def ensure_templates(source: Path, target: Path) -> str:
@@ -208,12 +260,18 @@ def ensure_templates(source: Path, target: Path) -> str:
 
     ``INSTALLED`` when the target now equals the source (a target that
     already did is not written again), else ``INVALID``, ``MISSING`` or
-    ``FAILED``, and then nothing more is written. Never raises. A state other
-    than ``INSTALLED`` is logged by state and exception class only: a path or
-    a template's text must not reach the log.
+    ``FAILED``, and then nothing more is written. ``FAILED`` without reading
+    or writing the target when this process runs as root and another user
+    owns the Hermes root (:func:`ergates.store.root_run_would_break`).
+    Never raises. A state other than ``INSTALLED`` is logged by state and
+    exception class, or by that short reason: a path or a template's text
+    must not reach the log.
     """
     error: Optional[Exception] = None
     try:
+        if root_run_would_break(Path(target).parent.parent):
+            logger.warning("setup: templates %s (%s)", FAILED, ROOT_REFUSAL)
+            return FAILED
         templates = source_templates(source)
         if not templates:
             state = MISSING
@@ -236,8 +294,10 @@ def ensure_templates(source: Path, target: Path) -> str:
 def templates_state(source: Path, target: Path) -> str:
     """``INSTALLED``, ``DIFFER``, ``INVALID`` or ``MISSING``; reads only, writes nothing.
 
-    A source that cannot be read counts as ``MISSING``, a target that cannot
-    be read as ``DIFFER``, so a health report built on this never raises.
+    ``INVALID`` also when an entry in the target is not a regular file of at
+    most :data:`MAX_TEMPLATE_BYTES`. A source that cannot be read counts as
+    ``MISSING``, a target that cannot be read as ``DIFFER``, so a health
+    report built on this never raises.
     """
     try:
         templates = source_templates(source)
@@ -248,6 +308,9 @@ def templates_state(source: Path, target: Path) -> str:
     if not templates:
         return MISSING
     try:
-        return INSTALLED if templates_match(templates, target) else DIFFER
+        installed = _installed_templates(target)
     except OSError:
         return DIFFER
+    if installed is None:
+        return INVALID
+    return INSTALLED if installed == templates else DIFFER

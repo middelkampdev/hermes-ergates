@@ -14,10 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from conftest import HERMES_OWNER, rows
+from conftest import HERMES_UID, rows
 from ergates import store as store_module
+from ergates.paths import store_path
 from ergates.store import (
-    MIGRATIONS, MIN_SCHEMA_KEY, SCHEMA_VERSION, ControlStore, Migration, StoreError, StoreReadOnly,
+    MIGRATIONS, MIN_SCHEMA_KEY, ROOT_REFUSAL, SCHEMA_VERSION, ControlStore, Migration, StoreError, StoreReadOnly,
     root_run_would_break,
 )
 
@@ -70,121 +71,74 @@ def test_the_store_file_and_folder_are_private(store):
     assert stat.S_IMODE(os.stat(store.path.parent).st_mode) == 0o700
 
 
-def test_a_store_created_by_root_belongs_to_the_owner_of_the_hermes_root(tmp_path, as_root):
-    """A root `docker compose exec ... python -m ergates.flush` that runs before
-    any Hermes service must not leave a store the `hermes` user cannot open."""
-    path = tmp_path / "ergates" / "control.sqlite3"
-
-    ControlStore(path)
-
-    assert as_root == [(path.parent, *HERMES_OWNER), (path, *HERMES_OWNER)]
+def _tree(folder: Path) -> dict:
+    """Every path under ``folder`` with its bytes, ``None`` for a folder."""
+    return {path.relative_to(folder): None if path.is_dir() else path.read_bytes() for path in folder.rglob("*")}
 
 
-def test_root_also_hands_over_the_wal_files_sqlite_created_in_that_call(tmp_path, as_root, monkeypatch):
-    """Another connection that stays open keeps -wal and -shm on disk after the store is created."""
-    path = tmp_path / "ergates" / "control.sqlite3"
-    keeper: list[sqlite3.Connection] = []
-    use_wal = ControlStore._use_wal
+@pytest.mark.parametrize("existing_store", [False, True], ids=["fresh root", "existing store"])
+def test_root_on_a_hermes_root_another_user_owns_opens_no_store_and_creates_nothing(tmp_path, as_root, monkeypatch,
+                                                                                    existing_store):
+    """Root writes nothing into a Hermes root another user owns: SQLite would make the -wal and -shm files root's,
+    and that user's processes could no longer open the store."""
+    if existing_store:
+        monkeypatch.setattr(os, "geteuid", lambda: HERMES_UID)
+        ControlStore(store_path(tmp_path)).close()
+        monkeypatch.setattr(os, "geteuid", lambda: 0)
+    before = _tree(tmp_path)
 
-    def use_wal_then_hold_the_file_open(self, conn):
-        use_wal(self, conn)
-        keeper.append(sqlite3.connect(path))
-        keeper[0].execute("SELECT count(*) FROM sqlite_master").fetchone()
+    with pytest.raises(StoreError, match=f"^{re.escape(ROOT_REFUSAL)}$"):
+        ControlStore(store_path(tmp_path))
 
-    monkeypatch.setattr(ControlStore, "_use_wal", use_wal_then_hold_the_file_open)
-    try:
-        ControlStore(path)
-        wal, shm = (path.with_name(path.name + suffix) for suffix in ("-wal", "-shm"))
-        assert wal.exists() and shm.exists()
-    finally:
-        keeper[0].close()
-
-    assert as_root == [(path.parent, *HERMES_OWNER), (path, *HERMES_OWNER), (wal, *HERMES_OWNER),
-                       (shm, *HERMES_OWNER)]
+    assert ROOT_REFUSAL == "run hermes serve as the owner of the Hermes root"
+    assert _tree(tmp_path) == before
+    assert as_root.owner_changes == []
 
 
-def test_a_file_that_vanished_before_its_chown_is_skipped(tmp_path, monkeypatch):
-    """A -wal or -shm file disappears when the last connection closes."""
-    monkeypatch.setattr(os, "geteuid", lambda: 0)
-
-    def chown_a_vanished_file(path, uid, gid, *, follow_symlinks=True):
-        raise FileNotFoundError(path)
-
-    monkeypatch.setattr(os, "chown", chown_a_vanished_file)
-
-    assert ControlStore(tmp_path / "ergates" / "control.sqlite3").schema_version == SCHEMA_VERSION
+def _root_on_its_own_hermes_root(as_root, monkeypatch):
+    as_root.root_owner = 0
 
 
-def test_root_without_the_right_to_change_owners_warns_and_continues(tmp_path, as_root, monkeypatch, caplog):
-    """A rootless container's root has no CAP_CHOWN. Hermes's own container setup
-    warns and continues when its chown fails; so does the store."""
-    def chown_refused(path, uid, gid, *, follow_symlinks=True):
-        raise PermissionError(1, "Operation not permitted")
+def _not_root(as_root, monkeypatch):
+    monkeypatch.setattr(os, "geteuid", lambda: HERMES_UID)
 
-    monkeypatch.setattr(os, "chown", chown_refused)
 
-    assert ControlStore(tmp_path / "ergates" / "control.sqlite3").schema_version == SCHEMA_VERSION
-    assert "could not hand ergates to the Hermes user (PermissionError)" in caplog.text
-    assert str(tmp_path) not in caplog.text
+def _no_geteuid(as_root, monkeypatch):
+    monkeypatch.delattr(os, "geteuid")
+
+
+@pytest.mark.parametrize("process", [_root_on_its_own_hermes_root, _not_root, _no_geteuid],
+                         ids=["root on a root it owns", "not root", "no geteuid"])
+def test_every_other_process_opens_the_store_as_before_and_changes_no_owner(tmp_path, as_root, monkeypatch, process):
+    process(as_root, monkeypatch)
+
+    store = ControlStore(store_path(tmp_path))
+    with store.transaction() as conn:
+        _add_prefs(conn, "thijs")
+
+    assert store.schema_version == SCHEMA_VERSION
+    assert stat.S_IMODE(os.lstat(store.path).st_mode) == 0o600
+    assert as_root.owner_changes == []
 
 
 def test_a_root_run_breaks_only_a_hermes_root_that_another_user_owns(tmp_path, as_root, monkeypatch):
-    """SQLite creates -wal and -shm as the user that opens the store and does not
-    hand them over, so root must not open a store the Hermes user owns."""
     assert root_run_would_break(tmp_path) is True
 
-    real_stat = os.stat
-
-    def owned_by_root(path, *args, **kwargs):
-        values = list(real_stat(path, *args, **kwargs))
-        values[4] = values[5] = 0
-        return os.stat_result(values)
-
-    monkeypatch.setattr(os, "stat", owned_by_root)
+    as_root.root_owner = 0
     assert root_run_would_break(tmp_path) is False  # root owns the Hermes root, so root is the Hermes user
 
-    monkeypatch.setattr(os, "geteuid", lambda: 1000)
+    assert root_run_would_break(tmp_path / "not-there-yet") is False  # root would make it its own
+
+    monkeypatch.setattr(os, "geteuid", lambda: HERMES_UID)
     assert root_run_would_break(tmp_path) is False
 
     monkeypatch.delattr(os, "geteuid")
     assert root_run_would_break(tmp_path) is False
 
 
-def test_a_store_created_by_another_user_changes_no_owner(tmp_path, as_root, monkeypatch):
-    monkeypatch.setattr(os, "geteuid", lambda: 1000)
-
-    ControlStore(tmp_path / "ergates" / "control.sqlite3")
-
-    assert as_root == []
-
-
-def test_a_platform_without_geteuid_changes_no_owner(tmp_path, as_root, monkeypatch):
-    monkeypatch.delattr(os, "geteuid")
-
-    ControlStore(tmp_path / "ergates" / "control.sqlite3")
-
-    assert as_root == []
-
-
-def test_root_leaves_an_existing_store_alone(tmp_path, monkeypatch):
-    path = tmp_path / "ergates" / "control.sqlite3"
-    ControlStore(path)
-    calls = []
-    monkeypatch.setattr(os, "geteuid", lambda: 0)
-    monkeypatch.setattr(os, "chown", lambda *args, **options: calls.append(args))
-
-    ControlStore(path)
-
-    assert calls == []
-
-
-def test_root_leaves_an_existing_folder_alone_and_hands_over_only_the_new_file(tmp_path, as_root):
-    path = tmp_path / "ergates" / "control.sqlite3"
-    path.parent.mkdir()
-
-    ControlStore(path)
-
-    assert as_root == [(path, *HERMES_OWNER)]
+def test_root_creates_a_missing_hermes_root_as_its_own(tmp_path, as_root):
+    """A root that does not exist yet has no other owner: root makes it, and it is root's."""
+    assert ControlStore(store_path(tmp_path / "new-root")).schema_version == SCHEMA_VERSION
 
 
 def test_reopening_keeps_the_data_and_does_not_migrate_again(store):

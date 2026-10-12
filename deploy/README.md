@@ -328,11 +328,11 @@ Add this to the host's crontab (`crontab -e`), every two minutes:
 
 - `-T` disables the pseudo-TTY, which a cron job has no use for.
 - `-u hermes` runs the sweep as the image's `hermes` user, the user every
-  Hermes service runs as. `docker compose exec` runs as root otherwise, and
-  a root sweep is not supported: SQLite creates the store's `-wal` and
-  `-shm` files as root and does not hand them over, and then every Hermes
-  hook fails to open the store. The sweep refuses to start as root. If a
-  root process opened the store anyway, repair it with
+  Hermes service runs as. `docker compose exec` runs as root otherwise. As
+  root, the plugin writes nothing into a Hermes root that `hermes` owns, so
+  the sweep refuses to start: SQLite would create the store's `-wal` and
+  `-shm` files as root, and every Hermes hook would then fail to open the
+  store. If an older plugin left root-owned files there, repair them with
   `docker compose exec hermes-serve chown -R hermes:hermes /opt/data/ergates`.
 - `PYTHONPATH=/opt/data/plugins/ergates` puts the mounted plugin directory
   on the import path; the package inside it is `ergates/`.

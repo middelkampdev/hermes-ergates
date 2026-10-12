@@ -902,6 +902,23 @@ def test_the_gate_opens_the_store_once_it_can(tmp_path, profile_process):
     assert store_path(tmp_path).exists()
 
 
+def test_root_on_a_hermes_root_another_user_owns_gets_a_gate_that_blocks_and_writes_nothing(
+        tmp_path, profile_process, as_root, caplog):
+    """The store refuses to open there, and the gate fails closed on that refusal as on any other."""
+    ctx = _RecordingCtx()
+
+    with caplog.at_level(logging.WARNING, logger="ergates"):
+        gate = _gate(ctx)
+        blocked = gate(tool_name="terminal", args={})
+        proposed = json.loads(ctx.tools["ergates_propose_agent"](_valid_args(), session_id="s-1"))
+
+    assert blocked == {"action": "block", "message": BLOCK_UNVERIFIED}
+    assert proposed == {"error": "the proposal could not be recorded (StoreError)"}
+    assert "tool gate failed (StoreError); blocking the call" in caplog.text
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["profiles"]
+    assert as_root.owner_changes == []
+
+
 class _DefaultCtx(_RecordingCtx):
     profile_name = "default"
 

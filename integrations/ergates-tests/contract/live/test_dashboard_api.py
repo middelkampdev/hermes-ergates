@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -266,6 +268,39 @@ def test_a_store_that_cannot_be_opened_is_503_store_unavailable(web, token_heade
     reply = web.get(f"{API}/health", headers=token_headers)
 
     assert (reply.status_code, reply.json()["error"]["code"]) == (503, "store_unavailable")
+
+
+def test_root_on_a_hermes_root_another_user_owns_is_503_and_writes_nothing(web, token_headers, monkeypatch, tmp_path):
+    """Root (a fake euid 0) on a Hermes root that uid 1000 owns: no store, no templates, no owner change."""
+    module = _module()
+    real_stat = os.stat
+    owner_changes = []
+
+    def stat_owned_by_1000(path, *args, **kwargs):
+        result = real_stat(path, *args, **kwargs)
+        if not isinstance(path, (str, os.PathLike)) or Path(path) != tmp_path:
+            return result
+        values = list(result)
+        values[4] = values[5] = 1000
+        return os.stat_result(values)
+
+    def refuse(name):
+        return lambda *args, **kwargs: owner_changes.append(name)
+
+    monkeypatch.setattr(module, "_operations", None)
+    monkeypatch.setattr(module, "hermes_root", lambda: tmp_path)
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "stat", stat_owned_by_1000)
+    for name in ("chown", "fchown", "lchown"):
+        monkeypatch.setattr(os, name, refuse(name))
+
+    replies = [web.get(f"{API}/health", headers=token_headers),
+               web.get(f"{API}/attention/prefs", params={"scope": "*"}, headers=token_headers)]
+
+    assert [(reply.status_code, reply.json()["error"]["code"]) for reply in replies] == [
+        (503, "store_unavailable"), (503, "store_unavailable")]
+    assert list(tmp_path.iterdir()) == []
+    assert owner_changes == []
 
 
 def test_the_bundled_templates_are_installed_before_the_store_opens(web, token_headers, monkeypatch, tmp_path):

@@ -6,8 +6,8 @@ import os
 import sys
 import threading
 import types
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NamedTuple
 
 import pytest
 
@@ -34,61 +34,50 @@ def clock() -> FakeClock:
     return FakeClock()
 
 
-HERMES_OWNER = (4242, 4343)
+HERMES_UID = 1000  # the `hermes` user of the Hermes image
+OWNER_CHANGES = ("chown", "fchown", "lchown")
 
 
-class ChangedFile(NamedTuple):
-    """The file an ``os.fchown`` changed, known by device and inode: it may be renamed after the call."""
+@dataclass
+class RootRun:
+    """What ``as_root`` fakes: the owner of the Hermes root, and every owner change the code under test tried."""
 
-    device: int
-    inode: int
-
-    def path_under(self, root: Path) -> Path | None:
-        """Where the file is under ``root`` now, symlinks not followed; ``None`` when it is not there."""
-        for folder, folder_names, file_names in os.walk(root):
-            for name in (*folder_names, *file_names):
-                found = os.lstat(Path(folder) / name)
-                if (found.st_dev, found.st_ino) == (self.device, self.inode):
-                    return Path(folder) / name
-        return None
+    root_owner: int = HERMES_UID
+    owner_changes: list[str] = field(default_factory=list)
 
 
 @pytest.fixture
-def as_root(tmp_path, monkeypatch):
-    """This process runs as root, and the Hermes root ``tmp_path`` belongs to ``HERMES_OWNER``.
+def as_root(tmp_path, monkeypatch) -> RootRun:
+    """This process runs as root (a fake euid 0), and the Hermes root ``tmp_path`` belongs to ``HERMES_UID``.
 
-    Returns the owner changes, recorded instead of run: ``(path, uid, gid)``
-    for an ``os.chown``, ``(ChangedFile, uid, gid)`` for an ``os.fchown``.
-    An ``os.chown`` that would follow a symlink fails the test. It fails
-    through ``pytest.fail``, a ``BaseException``, so no ``except`` in the
-    code under test can swallow it.
+    A test sets ``root_owner = 0`` for a Hermes root that root owns. Any
+    ``os.chown``, ``os.fchown`` or ``os.lchown`` is recorded and fails the
+    test through ``pytest.fail``, a ``BaseException``, so no ``except`` in
+    the code under test can swallow it.
     """
+    run = RootRun()
     real_stat = os.stat
 
-    def stat_with_hermes_owner(path, *args, **kwargs):
+    def stat_with_the_root_owner(path, *args, **kwargs):
         result = real_stat(path, *args, **kwargs)
         if not isinstance(path, (str, os.PathLike)) or Path(path) != tmp_path:
             return result
         values = list(result)
-        values[4], values[5] = HERMES_OWNER
+        values[4] = values[5] = run.root_owner
         return os.stat_result(values)
 
-    calls: list[tuple[Path | ChangedFile, int, int]] = []
-
-    def chown(path, uid, gid, *, follow_symlinks=True):
-        if follow_symlinks:
-            pytest.fail(f"os.chown would follow a symlink at {path}")
-        calls.append((Path(path), uid, gid))
-
-    def fchown(fd, uid, gid):
-        opened = os.fstat(fd)
-        calls.append((ChangedFile(opened.st_dev, opened.st_ino), uid, gid))
+    def refuse(name):
+        def change_owner(*args, **kwargs):
+            run.owner_changes.append(name)
+            pytest.fail(f"os.{name} was called: the plugin changes the owner of nothing")
+        return change_owner
 
     monkeypatch.setattr(os, "geteuid", lambda: 0)
-    monkeypatch.setattr(os, "stat", stat_with_hermes_owner)
-    monkeypatch.setattr(os, "chown", chown)
-    monkeypatch.setattr(os, "fchown", fchown)
-    return calls
+    monkeypatch.setattr(os, "stat", stat_with_the_root_owner)
+    for name in OWNER_CHANGES:
+        if hasattr(os, name):
+            monkeypatch.setattr(os, name, refuse(name))
+    return run
 
 
 @pytest.fixture

@@ -411,9 +411,10 @@ class _Services:
 
 
 # What opening the control store raises when it cannot serve: a folder or file
-# this process cannot create or open (OSError), or SQLite refusing the file. A
-# store a newer plugin changed still opens, and its writes raise StoreReadOnly,
-# a StoreError, which the handlers catch where they write.
+# this process cannot create or open (OSError), SQLite refusing the file, or
+# root on a Hermes root another user owns (StoreError). A store a newer plugin
+# changed still opens, and its writes raise StoreReadOnly, a StoreError, which
+# the handlers catch where they write.
 _OPEN_ERRORS = (StoreError, sqlite3.Error, OSError)
 
 

@@ -106,6 +106,15 @@ user that owns the Hermes root, inside the Hermes runtime, and restart
 `hermes serve` after the first run so it loads the plugin's hooks and tools.
 (On Hermes v0.21.6 the routes alone would mount on their first request.)
 
+Run `hermes serve`, the gateway and these commands as the user that owns the
+Hermes root. A process running as root on a Hermes root that another user
+owns creates, writes and changes the owner of nothing there. Its store does
+not open, so every route answers 503 `store_unavailable` and the tool gate
+blocks every tool call. It installs no templates, and the log says
+`setup: templates failed (run hermes serve as the owner of the Hermes root)`.
+`python -m ergates.install` and `python -m ergates.flush` refuse to start. A
+Hermes root that root owns, such as root's own home, works as before.
+
 ## Configuration
 
 Install-wide settings live in the Hermes root's `config.yaml` (the default
@@ -426,13 +435,12 @@ reminder's job still exists. No credential is ever passed as an argument or
 printed. `deploy/README.md` schedules it from host cron every two minutes,
 inside the container.
 
-Run it as the user that owns the Hermes root (`hermes` in the container).
-Root runs are not supported: SQLite creates the store's `-wal` and `-shm`
-files as the user that opens the store and does not hand them over, so a
-root run can leave files the Hermes user cannot open, and every hook then
-fails. The sweep refuses to start as root when another user owns the Hermes
-root. If a root process opened the store anyway, repair it inside the
-container with `chown -R hermes:hermes /opt/data/ergates`.
+Run it as the user that owns the Hermes root (`hermes` in the container). As
+root it refuses to start when another user owns the Hermes root (see
+"Install"). SQLite creates the store's `-wal` and `-shm` files as the user
+that opens the store, so a root run would leave files the Hermes user cannot
+open, and every hook would fail. If an older plugin left such files, repair
+them inside the container with `chown -R hermes:hermes /opt/data/ergates`.
 
 Quiet hours are read in the time zone Hermes cron uses: `HERMES_TIMEZONE`
 (which the multiplexed gateway ignores), else `timezone` in the
