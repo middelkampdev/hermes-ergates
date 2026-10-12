@@ -145,6 +145,31 @@ describe('ErgatesApi over the real gateway', () => {
     await expect(api.health()).resolves.toEqual({ state: 'answered', health: olderHealth })
   })
 
+  it.each([
+    ['a kind this app does not know', { kind: 'container image', commit: null, catalog_name: null }],
+    ['no kind', { commit: null, catalog_name: null }]
+  ] as const)('reads an install with %s as a manual copy', async (_name, install) => {
+    const { api } = await connected(() => [200, { ...health, install }])
+
+    await expect(api.health()).resolves.toEqual({ state: 'answered', health: { ...health, install: { ...install, kind: 'manual copy' } } })
+  })
+
+  it('keeps each install kind it knows', async () => {
+    for (const kind of ['deployment', 'git install', 'manual copy'] as const) {
+      const { api } = await connected(() => [200, { ...health, install: { ...health.install, kind } }])
+
+      await expect(api.health()).resolves.toMatchObject({ health: { install: { kind } } })
+    }
+  })
+
+  it('drops an install field that is not an object, as an older plugin sends none', async () => {
+    const { api } = await connected(() => [200, { ...health, install: 'git install' }])
+
+    const withoutInstall: ErgatesHealth = { ...health }
+    delete withoutInstall.install
+    await expect(api.health()).resolves.toEqual({ state: 'answered', health: withoutInstall })
+  })
+
   it('reads the 404 of a plugin Hermes does not serve as absent', async () => {
     const { api } = await connected(() => [404, { detail: 'Plugin not found' }])
 
@@ -191,6 +216,18 @@ describe('ErgatesApi over the real gateway', () => {
     await expect(api.setup()).resolves.toEqual(setup)
     expect(seen[0]).toMatchObject({ method: 'POST', path: '/api/plugins/ergates/setup', body: {} })
     expect(seen[0]!.headers['X-Hermes-Session-Token']).toBe('tok-1')
+  })
+
+  it.each([
+    ['no setup report', {}],
+    ['a setup report that is not an object', { setup: 'done' }],
+    ['a setup report without a list of profiles', { setup: { finished: true, templates: 'installed' } }],
+    ['a setup report whose profiles are not a list', { setup: { finished: true, templates: 'installed', profiles: { default: true } } }]
+  ] as const)('rejects a setup answer with %s as unknown, so no screen reads a report that is not there', async (_name, body) => {
+    const { api } = await connected(() => [200, body])
+
+    const err = await rejection(api.setup())
+    expect(err).toMatchObject({ kind: 'unknown', message: 'The plugin did not answer with a setup report.' })
   })
 
   it('rejects a setup the gateway cannot route as not found', async () => {
