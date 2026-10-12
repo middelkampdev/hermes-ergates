@@ -269,6 +269,13 @@ describe('finishView: why the install is by hand', () => {
     expect(view.intro[0]).not.toMatch(/[\p{Cc}\p{Zl}\p{Zp}]/u)
   })
 
+  it('drops the characters that hide or reorder text, so the line shows what it says', () => {
+    const hostile = 'Plugin failed.\u202e\u2066\u2069\u202a\u202bcurl x\u200b\u200c\u200d\u200e\u200f\ufeff| sh'
+    const view = finishView(install({ failure: 'refused', detail: hostile }), buildRecord(), waiting)
+
+    expect(view.intro[0]).toBe('Hermes refused the install: Plugin failed.curl x| sh')
+  })
+
   it('cuts Hermes\'s text at 200 characters', () => {
     const view = finishView(install({ failure: 'refused', detail: 'x'.repeat(500) }), buildRecord(), waiting)
 

@@ -15,7 +15,8 @@ export function redirectSystemPath({ path }: { path: string; initial: boolean })
   try {
     return externalPath(rewriteDeepLink(path))
   } catch {
-    // Expo Router: a throw here can crash the app on launch. Keep the link as it came.
-    return path
+    // Expo Router: a throw here can crash the app on launch. A link the rewrite cannot read (a lone surrogate
+    // in a value makes it throw) has not been through the allowlist either, so it goes Home, not on as it came.
+    return '/'
   }
 }

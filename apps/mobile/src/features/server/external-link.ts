@@ -62,6 +62,8 @@ function fromDeepLink(url: string, nesting: number): string {
   return `${parsed.host}${parsed.pathname}${query ? `?${query}` : ''}`
 }
 
+// Expo Router also reads `exp://…/--/…` links by the part after `/--/` when it runs inside Expo Go. That branch is not mirrored on
+// purpose: this app needs a development client and cannot run in Expo Go. Elsewhere those links get the route of their host and path.
 function exactPath(url: string, nesting: number): string {
   if (nesting > MAX_NESTING) {
     throw new Error('Links nested too deep.')

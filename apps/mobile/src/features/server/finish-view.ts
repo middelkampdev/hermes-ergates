@@ -176,12 +176,17 @@ function installCommand(commit: string, force: boolean): string {
   return ['hermes plugins install', PLUGIN_IDENTIFIER, ...(force ? ['--force'] : []), `--ref ${commit}`, '--enable'].join(' ')
 }
 
-/** White space and the characters that end a line or do not show: the control characters (U+0000 to U+001F and U+007F to U+009F, U+0085 among them) and the line and paragraph separators. Written out, because the app's JavaScript engine may lack Unicode property escapes. */
+/**
+ * White space and the characters that end a line or do not show: the control characters (U+0000 to U+001F and U+007F to U+009F, U+0085 among them) and the
+ * line and paragraph separators. Written out, because the app's JavaScript engine may lack Unicode property escapes.
+ */
 const LINE_BREAKING = /[\s\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g
+/** The characters that hide or reorder text: zero-width marks, the direction marks, and the bidirectional embeddings, overrides and isolates. */
+const HIDING = /[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g
 
-/** Hermes's text on one line: a line break would let it put a line of its own beside the command. */
+/** Hermes's text on one line and in the order it is written: a line break would let it put a line of its own beside the command, and a hidden or reordering character would let it show something else. */
 function oneLine(text: string | null): string | null {
-  const line = text?.replace(LINE_BREAKING, ' ').trim().slice(0, MAX_DETAIL).trim()
+  const line = text?.replace(HIDING, '').replace(LINE_BREAKING, ' ').trim().slice(0, MAX_DETAIL).trim()
   return line ? line : null
 }
 
