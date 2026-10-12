@@ -166,6 +166,14 @@ export interface ErgatesApi {
 }
 
 /**
+ * How long an install may run before the app gives up on it. An install
+ * answers when it ends and Hermes shows no progress. Each of its three git
+ * phases (clone, fetch, checkout) may take up to `plugins.clone_timeout_seconds`,
+ * 300 s by default.
+ */
+export const PLUGIN_INSTALL_TIMEOUT_MS = 900_000
+
+/**
  * Hermes's own plugin routes, behind the connection's auth. An install can run
  * for minutes (a git download in up to three phases) and answers only when it
  * ends. A refusal rejects with `GatewayError`; for `install` its `code` is a

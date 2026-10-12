@@ -13,20 +13,13 @@
  */
 
 import { GatewayError, mapHttpError, redact } from '../errors'
-import type { PluginsApi } from '../port'
+import { PLUGIN_INSTALL_TIMEOUT_MS, type PluginsApi } from '../port'
 import type * as T from '../types'
 import messages from './hermes-plugin-messages.json'
 import type { HttpClient } from './http'
 
 const HUB_PATH = '/api/dashboard/plugins/hub'
 const AGENT_PLUGINS_PATH = '/api/dashboard/agent-plugins'
-
-/**
- * An install answers when it ends and Hermes shows no progress. Each of its
- * three git phases (clone, fetch, checkout) may take up to
- * `plugins.clone_timeout_seconds`, 300 s by default.
- */
-export const PLUGIN_INSTALL_TIMEOUT_MS = 900_000
 
 const MESSAGE_LIMIT = 200
 const RUNTIME_STATUSES: readonly T.HermesPluginRow['runtime_status'][] = ['enabled', 'disabled', 'inactive']

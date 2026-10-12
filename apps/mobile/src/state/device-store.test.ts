@@ -218,6 +218,20 @@ describe('persistence', () => {
     expect(state2.prefs.themeName).toBe('dark')
   })
 
+  it('keeps a connection\'s pending plugin setup across a restart', async () => {
+    const storage = createMemoryStorageJson<PersistedDeviceState>()
+    const commit = 'e'.repeat(40)
+    const a = createDeviceStore(storage, new MemorySecretStore())
+    await waitForHydration(a)
+    a.getState().addConnection(conn1)
+    a.getState().updateConnection('c1', { pendingPluginSetup: commit })
+
+    const b = createDeviceStore(storage, new MemorySecretStore())
+    await waitForHydration(b)
+
+    expect(b.getState().connections).toEqual([{ ...conn1, pendingPluginSetup: commit }])
+  })
+
   it('recovers submitting outbox items as unconfirmed and drops expired ones on rehydrate', async () => {
     const storage = createMemoryStorageJson<PersistedDeviceState>()
     const secrets = new MemorySecretStore()

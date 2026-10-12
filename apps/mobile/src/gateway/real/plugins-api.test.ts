@@ -7,9 +7,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { isGatewayError, type GatewayError } from '../errors'
+import { PLUGIN_INSTALL_TIMEOUT_MS } from '../port'
 import type { PluginInstallRequest } from '../types'
 import messages from './hermes-plugin-messages.json'
-import { PLUGIN_INSTALL_TIMEOUT_MS } from './plugins-api'
 import { RealGateway } from './real-gateway'
 import { MemorySecretStore } from './secrets'
 

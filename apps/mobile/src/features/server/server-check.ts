@@ -7,7 +7,7 @@
 
 import { isGatewayError } from '@/gateway/errors'
 import type { GatewayPort } from '@/gateway/port'
-import type { ErgatesHealth, PluginProbe } from '@/gateway/types'
+import type { ErgatesHealth, HermesPluginRow, PluginProbe } from '@/gateway/types'
 
 import { PLUGIN_NAME, type BuildRecord } from './build-record'
 import { hermesFit, type HermesFit } from './hermes-version'
@@ -53,7 +53,7 @@ async function hermesVersionOf(port: GatewayPort): Promise<string | null> {
 }
 
 /** The plugin's own row in Hermes's plugin list. A failed list counts as no row; a 401 is the caller's to handle. */
-async function hubRow(port: GatewayPort) {
+export async function hubRow(port: GatewayPort): Promise<HermesPluginRow | undefined> {
   try {
     return (await port.plugins.hub()).find(row => row.name === PLUGIN_NAME)
   } catch (error) {
