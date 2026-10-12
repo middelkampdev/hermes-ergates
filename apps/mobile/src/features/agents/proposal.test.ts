@@ -37,6 +37,7 @@ const input = (over: Partial<ProposalViewInput>): ProposalViewInput => ({
   step: null,
   outcome: null,
   busy: false,
+  notice: null,
   ...over
 })
 
@@ -76,9 +77,28 @@ describe('proposalView', () => {
     expect(proposalView(input({ receiptError: pruned })).hidden).toBe(true)
   })
 
-  it('says so when the gateway has no Ergates plugin', () => {
+  describe('when the gateway has no Ergates route', () => {
     const missing = new GatewayError('not_found', 'Not Found', { status: 404 })
-    expect(proposalView(input({ receiptError: missing }))).toMatchObject({ status: 'closed', actions: [] })
+
+    it('says what the server check found and offers its action', () => {
+      const notice = { text: 'The Ergates plugin is turned off on this server.', action: { label: 'Turn on', route: '/server' } } as const
+      expect(proposalView(input({ receiptError: missing, notice }))).toEqual({ hidden: false, status: 'closed', text: notice.text, actions: ['server_setup'] })
+    })
+
+    it('offers nothing to tap for a notice without an action', () => {
+      const notice = { text: "This server's Ergates plugin needs a newer version of this app. Update Ergates.", action: null }
+      expect(proposalView(input({ receiptError: missing, notice }))).toEqual({ hidden: false, status: 'closed', text: notice.text, actions: [] })
+    })
+
+    it('says the plugin is not set up while the server check has no notice', () => {
+      expect(proposalView(input({ receiptError: missing, notice: null }))).toEqual({ hidden: false, status: 'closed', text: 'Ergates is not set up on this server.', actions: [] })
+    })
+
+    it('keeps its Ergates not_found hidden, whatever the notice says', () => {
+      const pruned = new GatewayError('not_found', 'no proposal', { status: 404, code: 'not_found' })
+      const notice = { text: 'Ergates is not set up on this server.', action: { label: 'Set up', route: '/server' } } as const
+      expect(proposalView(input({ receiptError: pruned, notice })).hidden).toBe(true)
+    })
   })
 
   it('reports each outcome of a run with the action it allows', () => {

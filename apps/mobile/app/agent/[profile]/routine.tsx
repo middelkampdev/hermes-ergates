@@ -25,10 +25,12 @@ import {
   type ReminderResult,
   type RoutineDraft
 } from '@/features/routines'
+import { pluginNotice, useServerCheck, type NoticeRoute } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
 import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
 import type { CronJob, CronRun } from '@/gateway/types'
+import { buildRecord } from '@/lib/build-info'
 import { softFill } from '@/theme/fill'
 import { useTheme } from '@/theme/provider'
 import { LEADING, RADIUS, SIZE, SPACE, TYPE } from '@/theme/tokens'
@@ -46,7 +48,7 @@ export default function RoutineScreen() {
   if (!connection || !profile) {
     return null
   }
-  return <RoutineEditor connection={connection} profile={profile} id={id ?? 'new'} onClose={() => router.back()} />
+  return <RoutineEditor connection={connection} profile={profile} id={id ?? 'new'} onClose={() => router.back()} onOpenSetup={route => router.push(route)} />
 }
 
 function runTimeMs(run: CronRun): number {
@@ -73,12 +75,14 @@ function RoutineEditor({
   connection,
   profile,
   id,
-  onClose
+  onClose,
+  onOpenSetup
 }: {
   connection: NonNullable<ReturnType<typeof usePrimaryConnection>>
   profile: string
   id: string
   onClose: () => void
+  onOpenSetup: (route: NoticeRoute) => void
 }) {
   const theme = useTheme()
   // The badge sits inside a Card, so it takes the fill that differs from the Card's.
@@ -89,6 +93,11 @@ function RoutineEditor({
   const mutations = useRoutineMutations(gateway, connection.id, profile)
   const createReminder = useCreateReminder(gateway, connection.id, profile)
   const [notice, setNotice] = useState<ReminderResult | null>(null)
+  // A new routine goes through the plugin: while the server check finds it unable to, the form says so instead of failing on Save.
+  const build = useMemo(() => buildRecord(), [])
+  const serverCheck = useServerCheck(connection, build)
+  const serverNotice = isNew ? pluginNotice(serverCheck.data) : null
+  const setupAction = serverNotice?.action ?? null
   const runs = useRoutineRuns(gateway, connection.id, profile, isNew ? null : id)
   const tz = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
 
@@ -257,6 +266,14 @@ function RoutineEditor({
             </View>
           ) : null}
 
+          {serverNotice ? (
+            <View style={styles.serverNotice}>
+              <Text style={[styles.hint, { color: theme.colors.destructive }]} accessibilityRole="alert">
+                {serverNotice.text}
+              </Text>
+              {setupAction ? <Button label={setupAction.label} variant="ghost" compact onPress={() => onOpenSetup(setupAction.route)} /> : null}
+            </View>
+          ) : null}
           {notice && notice.kind !== 'created' ? (
             <Text style={[styles.hint, { color: notice.kind === 'uncertain' ? theme.colors.mutedForeground : theme.colors.destructive }]} accessibilityRole="alert">
               {notice.message}
@@ -267,6 +284,7 @@ function RoutineEditor({
               label={saveBusy ? 'Saving…' : notice?.kind === 'uncertain' ? 'Try again' : 'Save'}
               onPress={() => void onSave()}
               loading={saveBusy}
+              disabled={serverNotice !== null}
               accessibilityLabel="Save routine"
             />
             {job ? (
@@ -333,6 +351,7 @@ function RoutineEditor({
 
 const styles = StyleSheet.create({
   hint: { ...TYPE.footnote, lineHeight: LEADING.footnote, marginTop: SPACE.extraSmall },
+  serverNotice: { alignItems: 'flex-start' },
   switchWrap: { marginTop: SPACE.large },
   actions: { marginTop: SPACE.extraLarge, gap: SPACE.small, marginBottom: SPACE.huge },
   history: { marginBottom: SPACE.giant },

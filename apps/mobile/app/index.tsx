@@ -1,6 +1,7 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useFocusEffect, useRouter, Redirect } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, BackHandler, Pressable, StyleSheet, Text } from 'react-native'
+import { Alert, BackHandler, Pressable, StyleSheet, Text, type StyleProp, type TextStyle } from 'react-native'
 
 import {
   NO_SELECTION,
@@ -25,9 +26,11 @@ import {
   type MembershipSnapshot,
   type Selection
 } from '@/features/agents'
+import { finishPendingSetup, pluginNotice, serverCheckKey, useServerCheck, type NoticeRoute, type PluginNotice } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
 import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
+import { buildRecord } from '@/lib/build-info'
 import { lightTap } from '@/lib/haptics'
 import { useDeviceStore } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
@@ -67,6 +70,11 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
   const connection = useDeviceStore(s => s.connections.find(c => c.id === connectionId))!
   const gateway = useGateway(connection)
   const home = useHome(gateway, connectionId)
+  const queryClient = useQueryClient()
+  // What the server says about the plugin. A refused session is Home's sign-in line below, so the check's own error is not shown.
+  const build = useMemo(() => buildRecord(), [])
+  const check = useServerCheck(connection, build)
+  const serverNotice = pluginNotice(check.data)
   // Per-action selectors, never `useDeviceStore()`: the whole-store selector
   // re-rendered this screen (and its whole roster list) on every keystroke
   // typed in the chat below it. Action references are stable.
@@ -143,13 +151,14 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
   )
 
   const refetchHome = home.refetch
+  const refetchCheck = check.refetch
   useFocusEffect(
     useCallback(() => {
       setActiveConnection(connectionId)
       let focused = true
       void gateway.restore().then(found => {
         if (found !== 'none') {
-          return refetchHome()
+          return Promise.all([refetchHome(), refetchCheck()])
         }
         // No sign-in on this phone for the connection (a rooted phone keeps none
         // across restarts). Only while Home is on screen: a late answer must not replace another screen.
@@ -160,8 +169,25 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
       return () => {
         focused = false
       }
-    }, [connectionId, gateway, refetchHome, router, setActiveConnection])
+    }, [connectionId, gateway, refetchHome, refetchCheck, router, setActiveConnection])
   )
+
+  // An install that was cut short left a pending setup: once the plugin answers, run it. It does nothing without that flag, and a
+  // failure stays quiet here, because the flag stays and the next ready check tries again (`dataUpdatedAt` moves with every check).
+  const checked = check.data
+  useEffect(() => {
+    if (checked?.kind !== 'ready') {
+      return
+    }
+    finishPendingSetup(gateway, connection, checked).then(
+      report => {
+        if (report !== null) {
+          void queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
+        }
+      },
+      () => undefined
+    )
+  }, [checked, check.dataUpdatedAt, gateway, connection, queryClient])
 
   // Every roster read (docs/05 section 3): the one-time first sync (on a new
   // install, the concierge pin when Hermes has no value for it), then new
@@ -302,6 +328,8 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
             <Text style={errorStyle} accessibilityRole="alert">
               {errorLine.text}
             </Text>
+          ) : serverNotice ? (
+            <PluginLine notice={serverNotice} style={errorStyle} onOpen={(route: NoticeRoute) => router.push(route)} />
           ) : null
         }
         footer={empty ? <Text style={[styles.line, { color: theme.colors.mutedForeground, paddingHorizontal: gutter }]}>No assistants yet. Tap + to create one.</Text> : null}
@@ -322,6 +350,26 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
   )
 }
 
+/** The plugin notice as one line in the style of Home's error line; a tap anywhere on it opens the screen that fixes it. */
+function PluginLine({ notice, style, onOpen }: { notice: PluginNotice; style: StyleProp<TextStyle>; onOpen: (route: NoticeRoute) => void }) {
+  const { action } = notice
+  if (!action) {
+    return (
+      <Text style={style} accessibilityRole="alert">
+        {notice.text}
+      </Text>
+    )
+  }
+  return (
+    <Pressable onPress={() => onOpen(action.route)} accessibilityRole="button" accessibilityLabel={`${notice.text} ${action.label}`}>
+      <Text style={style}>
+        {notice.text} <Text style={styles.action}>{action.label}</Text>
+      </Text>
+    </Pressable>
+  )
+}
+
 const styles = StyleSheet.create({
-  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: SPACE.huge, textAlign: 'center' }
+  line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: SPACE.huge, textAlign: 'center' },
+  action: { ...TYPE.calloutStrong }
 })

@@ -18,6 +18,7 @@ export {
 } from './finish-view'
 export { hermesFit, parseHermesVersion, type HermesFit } from './hermes-version'
 export { clearPendingSetup, finishPendingSetup, markPendingSetup } from './pending-setup'
+export { MISSING_NOTICE, pluginNotice, pluginRowSubtitle, type NoticeRoute, type PluginNotice } from './plugin-notice'
 export { checkServer, isSignedOut, pluginFits, type InstallKind, type PluginFit, type ServerCheck } from './server-check'
 export { isSetupRunning, lastManualOutcome, runSetup, type ManualFailure, type ManualOutcome, type SetupDeps, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
 export { SETUP_TITLE, opensFinish, setupView, signedOutView, stepStatusWord, type SetupAction, type SetupRunState, type SetupView } from './setup-view'

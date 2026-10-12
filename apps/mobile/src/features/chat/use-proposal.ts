@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { collectProposals, proposalView, provisionAgent, provisionDeps, provisionOnce, rosterKey, shouldForgetRun, type ProposalView, type ProvisionOutcome } from '@/features/agents'
+import type { PluginNotice } from '@/features/server'
 import type { AgentProposal, ProvisionStep } from '@/gateway/types'
 import { useDeviceStore } from '@/state/device-store'
 import { withStartedAt } from '@/state/provisioning'
@@ -41,7 +42,8 @@ export function useProposals(): AgentProposal[] {
   }, [runs, connectionId, profile, items, rows])
 }
 
-export function useProposal(proposal: AgentProposal): ProposalCardState {
+/** `notice` is what the server check says about the plugin; the card shows it when the proposal route is missing. */
+export function useProposal(proposal: AgentProposal, notice: PluginNotice | null): ProposalCardState {
   const { connectionId, profile, port } = useChatSession()
   const client = useQueryClient()
   const id = proposal.proposal_id
@@ -123,7 +125,7 @@ export function useProposal(proposal: AgentProposal): ProposalCardState {
 
   const refetch = receipt.refetch
   return {
-    view: proposalView({ proposal, receipt: receipt.data, receiptError: receipt.error, step, outcome, busy }),
+    view: proposalView({ proposal, receipt: receipt.data, receiptError: receipt.error, step, outcome, busy, notice }),
     accept: () => run(false),
     reject,
     retry: () => run(false),

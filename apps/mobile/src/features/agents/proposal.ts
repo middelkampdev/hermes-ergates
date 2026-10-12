@@ -4,6 +4,7 @@
  * never Markdown, an attachment, or a clarify option that claims to be one.
  */
 
+import { MISSING_NOTICE, type PluginNotice } from '@/features/server'
 import { isGatewayError, userMessage } from '@/gateway/errors'
 import { PROVISION_STEPS, type AgentProposal, type ProposalReceipt, type ProvisionStep } from '@/gateway/types'
 
@@ -85,7 +86,8 @@ const STEP_TEXT: Record<ProvisionStep | 'accept', string> = {
   briefing: 'sending its briefing'
 }
 
-export type ProposalAction = 'accept' | 'reject' | 'retry' | 'resend_briefing' | 'open_chat' | 'reload'
+/** `server_setup` opens the screen that fixes the plugin on the server (the card labels it with its notice's action). */
+export type ProposalAction = 'accept' | 'reject' | 'retry' | 'resend_briefing' | 'open_chat' | 'reload' | 'server_setup'
 
 export interface ProposalView {
   /** Nothing to show: the proposal ended before this screen opened, or the server pruned it. */
@@ -106,6 +108,8 @@ export interface ProposalViewInput {
   outcome: ProvisionOutcome | null
   /** An accept or reject call is in flight. */
   busy: boolean
+  /** What the server check says about the plugin (`pluginNotice`); null while it has nothing to say. */
+  notice: PluginNotice | null
 }
 
 const view = (status: ProposalView['status'], text: string | null, actions: ProposalAction[] = []): ProposalView => ({ hidden: false, status, text, actions })
@@ -120,7 +124,7 @@ const SETTLED_STATES = new Set<ProposalReceipt['state']>(['complete', 'expired',
  * another device may finish the setup, and "Try again" would then only meet a
  * refusal.
  */
-export function proposalView({ proposal, receipt, receiptError, step, outcome, busy }: ProposalViewInput): ProposalView {
+export function proposalView({ proposal, receipt, receiptError, step, outcome, busy, notice }: ProposalViewInput): ProposalView {
   const title = proposal.agent.title
   if (step) {
     return view('working', `Setting up ${title}: ${STEP_TEXT[step]} (${PROVISION_STEPS.indexOf(step) + 1} of ${PROVISION_STEPS.length}).`)
@@ -154,9 +158,11 @@ export function proposalView({ proposal, receipt, receiptError, step, outcome, b
   if (receiptError) {
     if (isGatewayError(receiptError) && receiptError.kind === 'not_found') {
       // With an Ergates error code the server pruned the receipt; without one the route itself is missing.
-      return receiptError.code === 'not_found'
-        ? { hidden: true, status: 'closed', text: null, actions: [] }
-        : view('closed', 'Ergates is not installed on this gateway, so this proposal cannot be answered here.')
+      if (receiptError.code === 'not_found') {
+        return { hidden: true, status: 'closed', text: null, actions: [] }
+      }
+      // The button belongs to the notice the card was given; the fallback words come without one.
+      return notice ? view('closed', notice.text, notice.action ? ['server_setup'] : []) : view('closed', MISSING_NOTICE.text)
     }
     return view('failed', userMessage(receiptError), ['reload'])
   }

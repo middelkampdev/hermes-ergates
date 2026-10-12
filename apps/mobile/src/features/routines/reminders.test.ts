@@ -109,6 +109,6 @@ describe('reminderResult', () => {
     const gone = new GatewayError('not_found', "profile 'nora' does not exist", { status: 404, code: 'unknown_profile' })
     expect(reminderResult(undefined, gone)).toEqual({ kind: 'failed', message: 'This agent no longer exists on the gateway.' })
     const missing = new GatewayError('not_found', 'Not Found', { status: 404 })
-    expect(reminderResult(undefined, missing)).toEqual({ kind: 'failed', message: 'Ergates is not installed on this gateway, so routines cannot be created here.' })
+    expect(reminderResult(undefined, missing)).toEqual({ kind: 'failed', message: 'Ergates is not set up on this server.' })
   })
 })

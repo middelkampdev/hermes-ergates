@@ -14,6 +14,7 @@
  * Pure: the screen renders this.
  */
 
+import { MISSING_NOTICE } from '@/features/server'
 import { isGatewayError, userMessage } from '@/gateway/errors'
 import type { ReminderOutcome, ReminderRequest } from '@/gateway/types'
 
@@ -89,7 +90,8 @@ export function reminderResult(outcome: ReminderOutcome | undefined, error: unkn
       return { kind: 'failed', message: 'This agent no longer exists on the gateway.' }
     }
     if (error.kind === 'not_found') {
-      return { kind: 'failed', message: 'Ergates is not installed on this gateway, so routines cannot be created here.' }
+      // The form shows the server check's own notice when it has one; this is the answer when it has not been read yet.
+      return { kind: 'failed', message: MISSING_NOTICE.text }
     }
   }
   return { kind: 'failed', message: userMessage(error) }

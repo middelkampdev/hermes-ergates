@@ -9,9 +9,9 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useEffect, useState } from 'react'
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Alert, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 
-import { afterSignIn } from '@/features/server'
+import { afterSignIn, SIGNED_OUT_HINT } from '@/features/server'
 import { BLANK_CREDENTIALS, connectionToSignIn, credentialsFrom, credentialsReady, firstProvider, signInAgain, usePrimaryConnection, type CredentialValues } from '@/features/settings'
 import { useGateway, useGatewayRegistry } from '@/gateway/registry'
 import { buildRecord } from '@/lib/build-info'
@@ -100,6 +100,17 @@ function SignIn({ connection }: { connection: Connection }) {
               {connection.baseUrl}
             </Text>
             {currentDeviceTrust() === 'rooted' ? <Text style={[styles.hint, { color: theme.colors.mutedForeground }]}>{rootedReasonLine(Platform.OS)}</Text> : null}
+            <Text style={[styles.hint, { color: theme.colors.mutedForeground }]}>{SIGNED_OUT_HINT.text}</Text>
+            <View style={styles.link}>
+              <Button
+                label={SIGNED_OUT_HINT.label}
+                variant="ghost"
+                compact
+                onPress={() => {
+                  Linking.openURL(SIGNED_OUT_HINT.url).catch(() => Alert.alert('Could not open the guide', SIGNED_OUT_HINT.url))
+                }}
+              />
+            </View>
           </View>
           <CredentialFields mode={mode} values={credentials} onChange={patch => setCredentials(c => ({ ...c, ...patch }))} />
           <Button label={busy ? 'Signing in…' : 'Sign in'} onPress={signIn} loading={busy} disabled={!credentialsReady(mode, credentials) || busy} />
@@ -125,5 +136,6 @@ const styles = StyleSheet.create({
   title: { ...TYPE.largeTitle },
   subtitle: { ...TYPE.body, lineHeight: LEADING.body },
   hint: { ...TYPE.callout, lineHeight: LEADING.callout },
+  link: { alignItems: 'flex-start' },
   error: { ...TYPE.callout, lineHeight: LEADING.callout, marginTop: SPACE.extraSmall }
 })
