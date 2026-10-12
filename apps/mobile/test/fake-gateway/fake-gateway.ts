@@ -327,13 +327,24 @@ export class FakeGateway implements GatewayPort {
   beforeConfigure: ((params: T.ConfigureParams) => void) | null = null
   /** Test hook: while true, `profiles.list` and `profiles.configure` fail like a lost connection. */
   profilesOffline = false
+  /** What `setHermesVersion` set; null keeps the version of the recorded status. */
+  private hermesVersion: string | Error | null = null
 
   constructor(script: FakeScript = {}) {
     this.script = script
   }
 
   async status(): Promise<T.BackendStatus> {
-    return clone(statusFixture) as T.BackendStatus
+    if (this.hermesVersion instanceof Error) {
+      throw this.hermesVersion
+    }
+    const status = clone<T.BackendStatus>(statusFixture)
+    return this.hermesVersion === null ? status : { ...status, version: this.hermesVersion }
+  }
+
+  /** Test hook: the Hermes version `status` reports from now on (as the server words it, `unknown` included), or an error it rejects with. */
+  setHermesVersion(version: string | Error): void {
+    this.hermesVersion = version
   }
 
   async login(): Promise<T.AuthIdentity | null> {
