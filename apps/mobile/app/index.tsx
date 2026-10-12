@@ -26,7 +26,7 @@ import {
   type MembershipSnapshot,
   type Selection
 } from '@/features/agents'
-import { finishPendingSetup, pluginNotice, serverCheckKey, useServerCheck, type NoticeRoute, type PluginNotice } from '@/features/server'
+import { finishPendingSetup, serverCheckKey, usePluginNotice, type NoticeRoute, type PluginNotice } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
 import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
@@ -73,8 +73,7 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
   const queryClient = useQueryClient()
   // What the server says about the plugin. A refused check is Home's sign-in line below.
   const build = useMemo(() => buildRecord(), [])
-  const check = useServerCheck(connection, build)
-  const serverNotice = pluginNotice(check.data)
+  const { check, notice: serverNotice } = usePluginNotice(connection, build)
   // Per-action selectors, never `useDeviceStore()`: the whole-store selector
   // re-rendered this screen (and its whole roster list) on every keystroke
   // typed in the chat below it. Action references are stable.

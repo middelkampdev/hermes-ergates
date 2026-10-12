@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { devInjectFrames, peerKey, useChatSession, useProposals, type Line } from '@/features/chat'
 import { attachDocument, attachImage, composeOutgoingText, pickDocument, pickImage, type PendingAttachment } from '@/features/files'
-import { pluginNotice, useServerCheck, type NoticeRoute } from '@/features/server'
+import type { NoticeRoute } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
 import { realSpeech, SPEECH_DISCLOSURE } from '@/features/voice'
 import { userMessage } from '@/gateway/errors'
@@ -101,11 +101,10 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
   const liveId = session.state.liveSessionId
   // Agent proposals sit under the newest message until they are answered (docs/11 section 4.1).
   const proposals = useProposals()
-  // A proposal card whose route is missing says why. The setup screens act on the primary connection, so only its chat reads the server check, and only when a card is there.
+  // A proposal card whose route is missing says why. The setup screens act on the primary connection, so only its chat reads the server check, and only a card reads it.
   const primary = usePrimaryConnection()
   const build = useMemo(() => buildRecord(), [])
-  const serverCheck = useServerCheck(proposals.length > 0 && primary?.id === connectionId ? primary : null, build)
-  const serverNotice = pluginNotice(serverCheck.data)
+  const proposalServer = useMemo(() => ({ connection: primary?.id === connectionId ? primary : null, build }), [primary, connectionId, build])
   const openServerSetup = useCallback((route: NoticeRoute) => router.push(route), [router])
   const openAgentChat = useCallback((target: string) => router.push({ pathname: '/chat/[profile]', params: { profile: target } }), [router])
 
@@ -356,7 +355,7 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
             proposals.length > 0 ? (
               <View>
                 {proposals.map(p => (
-                  <ProposalCard key={p.proposal_id} proposal={p} onOpenChat={openAgentChat} notice={serverNotice} onOpenSetup={openServerSetup} />
+                  <ProposalCard key={p.proposal_id} proposal={p} onOpenChat={openAgentChat} server={proposalServer} onOpenSetup={openServerSetup} />
                 ))}
               </View>
             ) : null

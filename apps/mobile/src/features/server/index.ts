@@ -22,4 +22,5 @@ export { MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, type N
 export { checkServer, isSignedOut, pluginFits, type InstallKind, type PluginFit, type ServerCheck } from './server-check'
 export { isSetupRunning, lastManualOutcome, runSetup, type ManualFailure, type ManualOutcome, type SetupDeps, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
 export { SETUP_TITLE, opensFinish, setupScreenView, setupView, stepStatusWord, type HeldCheck, type SetupAction, type SetupRunState, type SetupView } from './setup-view'
+export { usePluginNotice } from './use-plugin-notice'
 export { serverCheckKey, useServerCheck } from './use-server-check'

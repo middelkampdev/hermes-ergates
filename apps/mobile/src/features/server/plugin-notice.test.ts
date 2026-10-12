@@ -8,7 +8,7 @@ import { FAKE_PLUGIN_HEALTH } from '@test/fake-gateway/fake-ergates'
 
 import { GatewayError } from '@/gateway/errors'
 
-import { MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle } from './plugin-notice'
+import { CHECKING_NOTICE, featureNotice, isBareNotFound, MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, recheckState } from './plugin-notice'
 import type { ServerCheck } from './server-check'
 
 const health = FAKE_PLUGIN_HEALTH
@@ -100,5 +100,77 @@ describe('noticeForError', () => {
 
   it('has nothing to show without a notice', () => {
     expect(noticeForError(null, new GatewayError('not_found', 'Not Found', { status: 404 }))).toBeNull()
+  })
+})
+
+describe('isBareNotFound', () => {
+  it('is a 404 without an Ergates code: the route itself is missing', () => {
+    expect(isBareNotFound(new GatewayError('not_found', 'Not found on the gateway.', { status: 404 }))).toBe(true)
+  })
+
+  it('is not a record the plugin did not find, a session Hermes no longer holds, or any other error', () => {
+    expect(isBareNotFound(new GatewayError('not_found', 'No such proposal.', { status: 404, code: 'not_found' }))).toBe(false)
+    expect(isBareNotFound(new GatewayError('not_found', 'session not found', { code: 4007 }))).toBe(false)
+    expect(isBareNotFound(new GatewayError('network', 'No connection to the gateway.'))).toBe(false)
+    expect(isBareNotFound(new Error('Not found'))).toBe(false)
+    expect(isBareNotFound(null)).toBe(false)
+  })
+})
+
+describe('featureNotice: a feature whose route is missing while the cached check says ready', () => {
+  const missingRoute = new GatewayError('not_found', 'Not found on the gateway.', { status: 404 })
+  const quiet = { notice: null, checking: false, recheck: false }
+  const checking = { notice: CHECKING_NOTICE, checking: true }
+
+  it('asks the check again once, and says it is checking', () => {
+    expect(featureNotice(ready, missingRoute, 'not_asked')).toEqual({ ...checking, recheck: true })
+  })
+
+  it('keeps saying it is checking, without asking again, until the fresh check answers', () => {
+    expect(featureNotice(ready, missingRoute, 'asking')).toEqual({ ...checking, recheck: false })
+    expect(CHECKING_NOTICE).toEqual({ text: 'Checking your server…', action: null })
+  })
+
+  it('shows the notice of the fresh check once it found the plugin off, missing or not loaded', () => {
+    expect(featureNotice(disabled, missingRoute, 'answered')).toEqual({ notice: pluginNotice(disabled), checking: false, recheck: false })
+    expect(featureNotice(missing, missingRoute, 'asking')).toEqual({ notice: MISSING_NOTICE, checking: false, recheck: false })
+    expect(featureNotice(notLoaded, missingRoute, 'not_asked')).toEqual({ notice: pluginNotice(notLoaded), checking: false, recheck: false })
+  })
+
+  it("leaves the feature its own error when the fresh check still says ready, and does not ask again", () => {
+    expect(featureNotice(ready, missingRoute, 'answered')).toEqual(quiet)
+  })
+
+  it('does nothing extra for any other error, or for no error', () => {
+    const pruned = new GatewayError('not_found', 'No such proposal.', { status: 404, code: 'not_found' })
+
+    expect(featureNotice(ready, pruned, 'not_asked')).toEqual(quiet)
+    expect(featureNotice(ready, new GatewayError('network', 'No connection to the gateway.'), 'not_asked')).toEqual(quiet)
+    expect(featureNotice(ready, null, 'not_asked')).toEqual(quiet)
+    expect(featureNotice(disabled, undefined, 'not_asked')).toEqual({ notice: pluginNotice(disabled), checking: false, recheck: false })
+  })
+
+  it('does not ask before the check has answered at all, or when it could not tell', () => {
+    expect(featureNotice(undefined, missingRoute, 'not_asked')).toEqual(quiet)
+    expect(featureNotice({ kind: 'unknown' }, missingRoute, 'not_asked')).toEqual(quiet)
+  })
+})
+
+describe('recheckState', () => {
+  const error = new GatewayError('not_found', 'Not found on the gateway.', { status: 404 })
+
+  it('has not asked for an error before it asks', () => {
+    expect(recheckState(null, error, 1_000)).toBe('not_asked')
+  })
+
+  it('has not asked for a new error, even after it asked for an earlier one', () => {
+    const earlier = new GatewayError('not_found', 'Not found on the gateway.', { status: 404 })
+
+    expect(recheckState({ error: earlier, after: 1_000 }, error, 2_000)).toBe('not_asked')
+  })
+
+  it('is asking until the check answers or fails after the moment it asked', () => {
+    expect(recheckState({ error, after: 1_000 }, error, 1_000)).toBe('asking')
+    expect(recheckState({ error, after: 1_000 }, error, 1_001)).toBe('answered')
   })
 })

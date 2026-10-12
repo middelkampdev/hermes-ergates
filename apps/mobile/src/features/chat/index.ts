@@ -6,4 +6,4 @@ export { useExchangeAcknowledgement } from './agent-traffic/use-exchange-acknowl
 export { ChatSessionProvider, useChatSession } from './chat-session-context'
 export { devInjectFrames } from './dev-inject'
 export type { ChatItem } from './history'
-export { useProposal, useProposals, type ProposalCardState } from './use-proposal'
+export { useProposal, useProposals, type ProposalCardState, type ProposalServer } from './use-proposal'

@@ -77,3 +77,61 @@ export function noticeForError(notice: PluginNotice | null, error: unknown): Plu
   const keepsOwnMessage = isGatewayError(error) && (error.kind === 'network' || error.kind === 'timeout' || error.kind === 'unauthorized')
   return keepsOwnMessage ? null : notice
 }
+
+/** The neutral line a feature shows while the server check is asked again (`featureNotice`). */
+export const CHECKING_NOTICE: PluginNotice = { text: 'Checking your server…', action: null }
+
+/**
+ * Whether a failed call answered 404 without an Ergates error code: the route
+ * itself is missing (the plugin is off, gone or not loaded), not a record the
+ * plugin could not find.
+ */
+export function isBareNotFound(error: unknown): boolean {
+  return isGatewayError(error) && error.kind === 'not_found' && error.code === undefined
+}
+
+/** How far asking the check again for one error has got: not asked yet, asked and not answered, or answered. */
+export type Recheck = 'not_asked' | 'asking' | 'answered'
+
+export interface FeatureNotice {
+  /** What the feature shows in place of its own error; null to show that error (or nothing). */
+  notice: PluginNotice | null
+  /** True while the check is asked again: `notice` is the neutral `CHECKING_NOTICE`. */
+  checking: boolean
+  /** Ask the check again now. */
+  recheck: boolean
+}
+
+/**
+ * The notice for a feature that calls the plugin, given its last error. A
+ * cached check can say `ready` for up to a minute after the plugin was turned
+ * off, so a missing route under a ready check asks the check again, once for
+ * that error, and shows `CHECKING_NOTICE` until the fresh check answers. Then
+ * the fresh check's notice shows, or, when it still says ready, the feature's
+ * own error.
+ */
+export function featureNotice(check: ServerCheck | undefined, error: unknown, recheck: Recheck): FeatureNotice {
+  const routeMissingUnderReady = check?.kind === 'ready' && isBareNotFound(error)
+  if (!routeMissingUnderReady || recheck === 'answered') {
+    return { notice: pluginNotice(check), checking: false, recheck: false }
+  }
+  return { notice: CHECKING_NOTICE, checking: true, recheck: recheck === 'not_asked' }
+}
+
+/** The error the check was asked again for, and the moment of the check's last answer or failure at that time (epoch ms). */
+export interface AskedRecheck {
+  error: unknown
+  after: number
+}
+
+/**
+ * Where asking again stands for `error`. `answeredAt` is the moment of the
+ * check's last answer or failure (epoch ms): a later one than when it was
+ * asked is the fresh answer.
+ */
+export function recheckState(asked: AskedRecheck | null, error: unknown, answeredAt: number): Recheck {
+  if (asked === null || asked.error !== error) {
+    return 'not_asked'
+  }
+  return answeredAt > asked.after ? 'answered' : 'asking'
+}

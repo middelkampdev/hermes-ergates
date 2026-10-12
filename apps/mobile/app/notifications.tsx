@@ -10,7 +10,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native'
 
 import { draftFromPrefs, prefsFromDraft, scopeLabel, useAttentionPrefs, type PrefsDraft } from '@/features/attention'
-import { noticeForError, pluginNotice, useServerCheck, type NoticeRoute } from '@/features/server'
+import { noticeForError, usePluginNotice, type NoticeRoute } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
 import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
@@ -45,9 +45,10 @@ function Notifications({ connection, profile, onClose, onOpenSetup }: Notificati
   const gateway = useGateway(connection)
   const { prefs, save } = useAttentionPrefs(gateway, connection.id, profile)
   // When the settings cannot be read, the server check says whether the plugin is the reason (a lost connection or a refused session keeps its own message).
+  // A missing route under a check that still says ready asks the check again, and the line says so meanwhile.
   const build = useMemo(() => buildRecord(), [])
-  const serverCheck = useServerCheck(connection, build)
-  const serverNotice = noticeForError(pluginNotice(serverCheck.data), prefs.error)
+  const plugin = usePluginNotice(connection, build, prefs.error)
+  const serverNotice = noticeForError(plugin.notice, prefs.error)
   const setupAction = serverNotice?.action ?? null
   const [draft, setDraft] = useState<PrefsDraft | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -81,7 +82,7 @@ function Notifications({ connection, profile, onClose, onOpenSetup }: Notificati
     <Sheet title={title} onClose={onClose}>
       {prefs.isError ? (
         <View style={styles.failure}>
-          <Text style={[styles.line, { color: theme.colors.destructive }]} accessibilityRole="alert">
+          <Text style={[styles.line, { color: plugin.checking ? theme.colors.mutedForeground : theme.colors.destructive }]} accessibilityRole="alert">
             {serverNotice ? serverNotice.text : userMessage(prefs.error)}
           </Text>
           {setupAction ? <Button label={setupAction.label} variant="ghost" onPress={() => onOpenSetup(setupAction.route)} /> : null}

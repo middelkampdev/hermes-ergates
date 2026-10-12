@@ -9,8 +9,8 @@ import React from 'react'
 import { Alert, StyleSheet, Text, View } from 'react-native'
 
 import type { ProposalAction } from '@/features/agents'
-import { useProposal } from '@/features/chat'
-import type { NoticeRoute, PluginNotice } from '@/features/server'
+import { useProposal, type ProposalServer } from '@/features/chat'
+import type { NoticeRoute } from '@/features/server'
 import { userMessage } from '@/gateway/errors'
 import type { AgentProposal } from '@/gateway/types'
 import { useTheme } from '@/theme/provider'
@@ -32,15 +32,15 @@ const VARIANTS: Partial<Record<ProposalAction, ButtonVariant>> = { reject: 'seco
 interface ProposalCardProps {
   proposal: AgentProposal
   onOpenChat: (profile: string) => void
-  /** What the server check says about the plugin; the card shows it when the proposal route is missing. */
-  notice: PluginNotice | null
+  /** The server whose check the card reads when the proposal route is missing. */
+  server: ProposalServer
   onOpenSetup: (route: NoticeRoute) => void
 }
 
-export function ProposalCard({ proposal, onOpenChat, notice, onOpenSetup }: ProposalCardProps) {
+export function ProposalCard({ proposal, onOpenChat, server, onOpenSetup }: ProposalCardProps) {
   const theme = useTheme()
-  const card = useProposal(proposal, notice)
-  const { view } = card
+  const card = useProposal(proposal, server)
+  const { view, notice } = card
   if (view.hidden) {
     return null
   }

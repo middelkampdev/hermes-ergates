@@ -38,6 +38,7 @@ const input = (over: Partial<ProposalViewInput>): ProposalViewInput => ({
   outcome: null,
   busy: false,
   notice: null,
+  checking: false,
   ...over
 })
 
@@ -88,6 +89,11 @@ describe('proposalView', () => {
     it('offers nothing to tap for a notice without an action', () => {
       const notice = { text: "This server's Ergates plugin needs a newer version of this app. Update Ergates.", action: null }
       expect(proposalView(input({ receiptError: missing, notice }))).toEqual({ hidden: false, status: 'closed', text: notice.text, actions: [] })
+    })
+
+    it('says it is checking the server, with nothing to tap, while the server check is asked again', () => {
+      const notice = { text: 'Checking your server…', action: null }
+      expect(proposalView(input({ receiptError: missing, notice, checking: true }))).toEqual({ hidden: false, status: 'loading', text: notice.text, actions: [] })
     })
 
     it('does not claim the plugin is missing when the server check has no notice, and offers a reload', () => {

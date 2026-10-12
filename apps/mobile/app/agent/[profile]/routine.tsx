@@ -25,7 +25,7 @@ import {
   type ReminderResult,
   type RoutineDraft
 } from '@/features/routines'
-import { pluginNotice, useServerCheck, type NoticeRoute } from '@/features/server'
+import { usePluginNotice, type NoticeRoute } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
 import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
@@ -94,10 +94,16 @@ function RoutineEditor({
   const createReminder = useCreateReminder(gateway, connection.id, profile)
   const [notice, setNotice] = useState<ReminderResult | null>(null)
   // A new routine goes through the plugin: while the server check finds it unable to, the form says so instead of failing on Save. Editing uses Hermes's own cron, so it asks nothing.
+  // A Save that finds the route missing under a check that still says ready asks the check again, and the form says so meanwhile.
   const build = useMemo(() => buildRecord(), [])
-  const serverCheck = useServerCheck(isNew ? connection : null, build)
-  const serverNotice = pluginNotice(serverCheck.data)
+  const { notice: serverNotice, checking: checkingServer } = usePluginNotice(isNew ? connection : null, build, createReminder.error)
   const setupAction = serverNotice?.action ?? null
+  // The server's notice replaces the failure of the last Save, so that failure does not come back once the server is fixed.
+  useEffect(() => {
+    if (serverNotice !== null && !checkingServer) {
+      setNotice(null)
+    }
+  }, [serverNotice, checkingServer])
   const runs = useRoutineRuns(gateway, connection.id, profile, isNew ? null : id)
   const tz = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
 
@@ -268,13 +274,13 @@ function RoutineEditor({
 
           {serverNotice ? (
             <View style={styles.serverNotice}>
-              <Text style={[styles.hint, { color: theme.colors.destructive }]} accessibilityRole="alert">
+              <Text style={[styles.hint, { color: checkingServer ? theme.colors.mutedForeground : theme.colors.destructive }]} accessibilityRole="alert">
                 {serverNotice.text}
               </Text>
               {setupAction ? <Button label={setupAction.label} variant="ghost" compact onPress={() => onOpenSetup(setupAction.route)} /> : null}
             </View>
           ) : null}
-          {notice && notice.kind !== 'created' ? (
+          {notice && notice.kind !== 'created' && serverNotice === null ? (
             <Text style={[styles.hint, { color: notice.kind === 'uncertain' ? theme.colors.mutedForeground : theme.colors.destructive }]} accessibilityRole="alert">
               {notice.message}
             </Text>

@@ -108,8 +108,10 @@ export interface ProposalViewInput {
   outcome: ProvisionOutcome | null
   /** An accept or reject call is in flight. */
   busy: boolean
-  /** What the server check says about the plugin (`pluginNotice`); null while it has nothing to say. */
+  /** What the server check says about the plugin (`usePluginNotice`); null while it has nothing to say. */
   notice: PluginNotice | null
+  /** True while the server check is asked again after this card's route answered 404: `notice` then says so, neutrally. */
+  checking: boolean
 }
 
 const view = (status: ProposalView['status'], text: string | null, actions: ProposalAction[] = []): ProposalView => ({ hidden: false, status, text, actions })
@@ -124,7 +126,7 @@ const SETTLED_STATES = new Set<ProposalReceipt['state']>(['complete', 'expired',
  * another device may finish the setup, and "Try again" would then only meet a
  * refusal.
  */
-export function proposalView({ proposal, receipt, receiptError, step, outcome, busy, notice }: ProposalViewInput): ProposalView {
+export function proposalView({ proposal, receipt, receiptError, step, outcome, busy, notice, checking }: ProposalViewInput): ProposalView {
   const title = proposal.agent.title
   if (step) {
     return view('working', `Setting up ${title}: ${STEP_TEXT[step]} (${PROVISION_STEPS.indexOf(step) + 1} of ${PROVISION_STEPS.length}).`)
@@ -162,7 +164,10 @@ export function proposalView({ proposal, receipt, receiptError, step, outcome, b
         return { hidden: true, status: 'closed', text: null, actions: [] }
       }
       // Only the server check knows why the route is missing. Without its notice (the plugin is ready, or the check has not answered) the card claims nothing and lets the user read again.
-      return notice ? view('closed', notice.text, notice.action ? ['server_setup'] : []) : view('failed', 'This proposal could not be loaded.', ['reload'])
+      if (notice === null) {
+        return view('failed', 'This proposal could not be loaded.', ['reload'])
+      }
+      return checking ? view('loading', notice.text) : view('closed', notice.text, notice.action ? ['server_setup'] : [])
     }
     return view('failed', userMessage(receiptError), ['reload'])
   }

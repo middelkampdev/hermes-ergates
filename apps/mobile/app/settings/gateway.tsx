@@ -1,5 +1,5 @@
 /**
- * Settings > Gateway (docs/10 "Settings and agent details"): how this phone
+ * Settings › Gateway (docs/10 "Settings and agent details"): how this phone
  * signs in, which Hermes answers, and the connection id push links name.
  */
 
@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
 import React, { useMemo } from 'react'
 
-import { pluginNotice, pluginRowSubtitle, useServerCheck, type NoticeRoute } from '@/features/server'
+import { pluginRowSubtitle, usePluginNotice, type NoticeRoute } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
 import { useGateway } from '@/gateway/registry'
 import { buildRecord } from '@/lib/build-info'
@@ -34,8 +34,8 @@ function GatewaySettings({ connection, onBack, onOpenSetup }: GatewaySettingsPro
   const gateway = useGateway(connection)
   const status = useQuery({ queryKey: ['status', connection.id], queryFn: () => gateway.status(), staleTime: 60_000 })
   const build = useMemo(() => buildRecord(), [])
-  const plugin = useServerCheck(connection, build)
-  const pluginAction = pluginNotice(plugin.data)?.action ?? null
+  const { check: plugin, notice } = usePluginNotice(connection, build)
+  const pluginAction = notice?.action ?? null
   return (
     <Page title="Gateway" onBack={onBack}>
       <Group>
