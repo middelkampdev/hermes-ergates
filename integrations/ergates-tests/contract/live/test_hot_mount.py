@@ -22,6 +22,7 @@ scanner on the same files without the live suite.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,7 @@ import yaml
 
 API = "/api/plugins/ergates"
 INSTALL = "/api/dashboard/agent-plugins/install"
+SWEEP_WAIT_SECONDS = 60
 
 
 @pytest.fixture
@@ -90,6 +92,25 @@ def test_plugin_installed_after_start_serves_health_without_restart(web_without_
     assert installed.is_dir() and not installed.is_symlink()
     scanned, blocking = scan(installed)
     assert (scanned.verdict, blocking) == ("safe", [])
+
+
+def test_the_installed_plugin_sweeps_inside_hermes_serve(web_without_plugin, token_headers, plugin_git_repo):
+    """The hot mount imports ``dashboard/api.py``, which starts the periodic sweep in the server
+    itself: its first pass ends seconds later, with no host cron line and no restart."""
+    web = web_without_plugin
+    result = install_through_dashboard(web, token_headers, identifier=plugin_git_repo.url, ref=plugin_git_repo.sha,
+                                       enable=True)
+    assert result["ok"] is True
+
+    deadline = time.monotonic() + SWEEP_WAIT_SECONDS
+    sweep = web.get(f"{API}/health", headers=token_headers).json()["sweep"]
+    while sweep["last_run_at"] is None and time.monotonic() < deadline:
+        time.sleep(0.5)
+        sweep = web.get(f"{API}/health", headers=token_headers).json()["sweep"]
+
+    assert sweep["interval_seconds"] == 120
+    assert isinstance(sweep["last_run_at"], float)
+    assert sweep["last_error"] is None
 
 
 def test_the_install_scan_finds_this_plugin_safe(plugin_git_repo):

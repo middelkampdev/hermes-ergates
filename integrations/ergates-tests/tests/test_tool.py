@@ -891,6 +891,48 @@ def test_on_a_store_too_new_the_gate_still_decides_and_a_tool_records_nothing(tm
     assert rows(store, "proposal_receipts") == []
 
 
+@pytest.fixture
+def hooks_on_a_store_too_new(tmp_path, profile_process):
+    """The registered hooks of a process whose store a plugin at schema 99 moved on, with one
+    pending approval recorded before that. Push is configured, so a hook would also send."""
+    store = ControlStore(store_path(tmp_path))
+    AttentionService(store).approval_requested(
+        session_key="s-1", pattern_key=None, command="cmd", surface="gateway", profile="thijs")
+    with store.transaction() as conn:
+        conn.execute("UPDATE store_meta SET value = '99' WHERE key = ?", (MIN_SCHEMA_KEY,))
+        conn.execute("PRAGMA user_version = 99")
+    _write_root_settings(tmp_path, server="https://ntfy.example.internal", topic="alerts", connection_id="conn-1")
+    ctx = _RecordingCtx()
+    tool.register(ctx)
+    return store, ctx.hooks, rows(store, "attention_events"), rows(store, "attention_outbox")
+
+
+def test_the_approval_request_hook_on_a_store_too_new_returns_none_and_records_nothing(hooks_on_a_store_too_new):
+    store, hooks, events, outbox = hooks_on_a_store_too_new
+
+    assert hooks["pre_approval_request"](command="cmd", session_key="s-2", surface="gateway") is None
+
+    assert (rows(store, "attention_events"), rows(store, "attention_outbox")) == (events, outbox)
+
+
+def test_the_approval_response_hook_on_a_store_too_new_returns_none_and_resolves_nothing(hooks_on_a_store_too_new):
+    store, hooks, events, outbox = hooks_on_a_store_too_new
+
+    assert hooks["post_approval_response"](command="cmd", session_key="s-1", surface="gateway", choice="once",
+                                           decided_by="user") is None
+
+    assert (rows(store, "attention_events"), rows(store, "attention_outbox")) == (events, outbox)
+    assert [event["state"] for event in events] == ["pending"]
+
+
+def test_the_turn_completed_hook_on_a_store_too_new_returns_none_and_records_nothing(hooks_on_a_store_too_new):
+    store, hooks, events, outbox = hooks_on_a_store_too_new
+
+    assert hooks["post_llm_call"](session_id="cron-1", platform="cron") is None
+
+    assert (rows(store, "attention_events"), rows(store, "attention_outbox")) == (events, outbox)
+
+
 def test_the_gate_opens_the_store_once_it_can(tmp_path, profile_process):
     _store_folder_is_a_file(tmp_path)
     gate = _gate(_RecordingCtx())

@@ -28,6 +28,7 @@ RESEARCHER = {"template_id": "researcher", "soul": "You look things up.",
 RECEIPT_KEYS = {"id", "request_id", "profile", "state", "job_id", "timezone_advisory", "payload_hash"}
 PROPOSAL_RECEIPT_KEYS = {"proposal_id", "state", "reserved_profile_name", "expires_at", "completed_steps",
                          "step_status", "next_step", "template"}
+SWEEP_STATUS = {"interval_seconds": 120, "last_run_at": 1_760_000_000.0, "last_error": None}
 
 
 class FakeHermes:
@@ -108,7 +109,7 @@ def ops_on_a_v4_store(store, cron, clock, hermes, tmp_path):
     return _operations(ControlStore(store.path), cron, clock, hermes, tmp_path)
 
 
-def _operations(store, cron, clock, hermes, tmp_path):
+def _operations(store, cron, clock, hermes, tmp_path, sweep_status=lambda: dict(SWEEP_STATUS)):
     directory = templates_dir(tmp_path)
     directory.mkdir(parents=True)
     (directory / "bookkeeper.json").write_text(json.dumps(TEMPLATE), encoding="utf-8")
@@ -120,7 +121,7 @@ def _operations(store, cron, clock, hermes, tmp_path):
         store, cron=cron, profile_exists=hermes.profile_exists, plugin_enabled=hermes.plugin_enabled,
         enable_plugin=hermes.enable_plugin, profile_names=hermes.profile_names, check_schedule=hermes.check_schedule,
         check_prompt=hermes.check_prompt, check_gateway_lifecycle=hermes.check_gateway_lifecycle,
-        templates=directory, bundled_templates=bundled, clock=clock,
+        templates=directory, bundled_templates=bundled, sweep_status=sweep_status, clock=clock,
     )
 
 
@@ -142,7 +143,21 @@ def test_health_reports_the_schema_and_the_plugin_version(ops):
     reply = ops.health()
 
     assert (reply.status, reply.body) == (
-        200, {"ok": True, "schema_version": 2, "plugin_version": ergates.__version__})
+        200, {"ok": True, "schema_version": 2, "plugin_version": ergates.__version__, "sweep": SWEEP_STATUS})
+
+
+def test_health_reports_the_sweep_as_it_is_at_each_call(store, cron, clock, hermes, tmp_path):
+    states = iter([
+        {"interval_seconds": 120, "last_run_at": None, "last_error": None},
+        {"interval_seconds": 120, "last_run_at": 1_760_000_120.0, "last_error": "StoreReadOnly"},
+    ])
+    ops = _operations(store, cron, clock, hermes, tmp_path, sweep_status=lambda: next(states))
+
+    first, second = ops.health(), ops.health()
+
+    assert first.body["sweep"] == {"interval_seconds": 120, "last_run_at": None, "last_error": None}
+    assert second.body["sweep"] == {"interval_seconds": 120, "last_run_at": 1_760_000_120.0,
+                                    "last_error": "StoreReadOnly"}
 
 
 def test_health_is_503_when_the_store_is_unavailable(ops, store):

@@ -3,7 +3,8 @@
 import logging
 
 from ergates.delivery import NtfySettings
-from ergates.settings import load_settings, push_settings, settings_from_config
+from ergates.settings import load_settings, push_settings, settings_from_config, sweep_interval
+from ergates.sweep import SWEEP_INTERVAL_SECONDS
 
 SETTINGS = {"server": "https://ntfy.example.internal", "topic": "ergates-alerts", "token": "tok",
             "connection_id": "conn-1"}
@@ -113,3 +114,51 @@ def test_a_dollar_braces_token_does_not_block_the_other_settings(tmp_path):
 
     assert settings == NtfySettings(server="https://ntfy.example.internal", topic="ergates-alerts",
                                     token="", connection_id="conn-1")
+
+
+# --- the periodic sweep's interval ----------------------------------------------
+
+SWEEP_KEY = "plugins.entries.ergates.settings.sweep.interval_seconds"
+
+
+def _write_sweep_interval(home, value):
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "config.yaml").write_text(
+        f"plugins:\n  entries:\n    ergates:\n      settings:\n        sweep:\n          interval_seconds: {value}\n",
+        encoding="utf-8",
+    )
+
+
+def test_sweep_interval_reads_the_root_setting_and_falls_back_on_nonsense(tmp_path, caplog):
+    assert sweep_interval(tmp_path) == SWEEP_INTERVAL_SECONDS  # no config.yaml
+    _write_config(tmp_path)
+    assert sweep_interval(tmp_path) == SWEEP_INTERVAL_SECONDS  # a config without the setting
+    for value, expected in (("60", 60), ("0", 0), ("3600", 3600)):
+        _write_sweep_interval(tmp_path, value)
+        assert sweep_interval(tmp_path) == expected, value
+    assert caplog.records == []
+
+    for nonsense in ("-5", "fast", "1.5", "true", "null", "[60]"):
+        caplog.clear()
+        _write_sweep_interval(tmp_path, nonsense)
+        with caplog.at_level(logging.WARNING, logger="ergates.settings"):
+            assert sweep_interval(tmp_path) == SWEEP_INTERVAL_SECONDS, nonsense
+        assert SWEEP_KEY in caplog.text, nonsense
+        assert nonsense not in caplog.text.replace(SWEEP_KEY, ""), nonsense
+
+
+def test_sweep_interval_is_read_from_the_root_only(tmp_path):
+    _write_sweep_interval(tmp_path / "profiles" / "thijs", "0")
+
+    assert sweep_interval(tmp_path) == SWEEP_INTERVAL_SECONDS
+
+
+def test_sweep_interval_is_the_default_when_config_yaml_is_unreadable(tmp_path, caplog):
+    """The sweep must not stop over a config typo; the log names the error class, never the file's text."""
+    (tmp_path / "config.yaml").write_text("plugins: [unclosed\n", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger="ergates.settings"):
+        assert sweep_interval(tmp_path) == SWEEP_INTERVAL_SECONDS
+
+    assert "ParserError" in caplog.text
+    assert "unclosed" not in caplog.text

@@ -25,7 +25,7 @@ integrations/ergates/
   __init__.py          # Hermes entry point: register(ctx)
   dashboard/
     manifest.json      # tells `hermes serve` to mount api.py (no dashboard page)
-    api.py             # the HTTP routes under /api/plugins/ergates (FastAPI router)
+    api.py             # the HTTP routes under /api/plugins/ergates (FastAPI router); starts the sweep
     index.js           # empty dashboard bundle, so the dashboard reports no error
   templates/           # the proposal templates the plugin ships, one <template_id>.json each
   ergates/             # the actual logic, plain importable package
@@ -38,11 +38,12 @@ integrations/ergates/
     setup.py           # installs the shipped templates there, enables the plugin in every profile
     attention.py       # AttentionService: events, outbox rows, prefs, expiry, retention
     delivery.py        # DeliveryWorker: leased outbox delivery to ntfy, deep link
-    settings.py        # the install-wide push settings in the root's config.yaml
+    settings.py        # the install-wide push and sweep settings in the root's config.yaml
     operations.py      # every HTTP route as a framework-free method
     policy.py          # the pre_tool_call tool gate
     tool.py            # ctx.register_tool / ctx.register_hook wiring
-    flush.py           # `python -m ergates.flush`: due pushes, expiry, retention
+    flush.py           # one sweep (due pushes, expiry, retention); `python -m ergates.flush`
+    sweep.py           # the thread in `hermes serve` that runs a sweep every interval
     install.py         # `python -m ergates.install`: the templates, the plugin in every profile
 ```
 
@@ -115,15 +116,18 @@ owns creates, writes and changes the owner of nothing there. Its store does
 not open, so every route answers 503 `store_unavailable` and the tool gate
 blocks every tool call. It installs no templates, and the log says
 `setup: templates failed (run hermes serve as the owner of the Hermes root)`.
+The sweep thread of `hermes serve` starts, but every pass stops before it
+creates anything (the log names `StoreError`).
 `python -m ergates.install` and `python -m ergates.flush` refuse to start. A
 Hermes root that root owns, such as root's own home, works as before.
 
 ## Configuration
 
 Install-wide settings live in the Hermes root's `config.yaml` (the default
-profile's), under `plugins.entries.ergates.settings`. Every profile's hooks
-and `python -m ergates.flush` read them there (`ergates/settings.py`), so a
-push goes to the same place whichever profile raised it:
+profile's), under `plugins.entries.ergates.settings`. Every profile's hooks,
+the sweep and `python -m ergates.flush` read them there
+(`ergates/settings.py`), so a push goes to the same place whichever profile
+raised it:
 
 | Key | Default | Purpose |
 |---|---|---|
@@ -131,6 +135,7 @@ push goes to the same place whichever profile raised it:
 | `ntfy.topic` | unset (push disabled) | ntfy topic to publish attention events to |
 | `ntfy.token` | unset | ntfy publish token (Bearer), or `user:pass` for Basic |
 | `ntfy.connection_id` | unset | app connection id used to build the `Click` deep link |
+| `sweep.interval_seconds` | `120` | seconds between two sweeps inside `hermes serve` (see "Periodic sweep"); `0` turns the sweep off |
 
 Values are read as written; `${VAR}` references are not expanded. One
 setting is per profile, read with `ctx.get_config` from that profile's own
@@ -149,9 +154,10 @@ is unset; the event and its outbox row are still recorded.
 An install that ran version 0.1.0 needs three changes by hand:
 
 - **The sweep takes no `--profile`.** `python -m ergates.flush --profile <name>`
-  now exits 2 (`unrecognized arguments`) and sweeps nothing. Remove the
-  flag from the crontab line: the sweep opens the store and reads the push
-  settings under the Hermes root, whichever `HERMES_HOME` it runs with.
+  now exits 2 (`unrecognized arguments`) and sweeps nothing. `hermes serve`
+  runs the sweep itself now (see "Periodic sweep"), so the crontab line can
+  go. If you keep it, drop the flag: the sweep opens the store and reads the
+  push settings under the Hermes root, whichever `HERMES_HOME` it runs with.
 - **Push settings live in the root's `config.yaml` only.** `ntfy.*` settings
   kept in a named profile's `config.yaml` are ignored, and
   `ntfy.default_profile` is gone. Move `ntfy.server`, `ntfy.topic`,
@@ -183,7 +189,7 @@ refuses in its own shape (400, or 404 `Profile '<name>' does not exist.`, as
 
 | Method and path | Success | Errors |
 |---|---|---|
-| `GET /health` | 200 `{"ok": true, "schema_version": 2, "plugin_version": "<version>"}`, the version in `plugin.yaml` | 503 `store_unavailable` |
+| `GET /health` | 200 `{"ok": true, "schema_version": 2, "plugin_version": "<version>", "sweep": {...}}`, the version in `plugin.yaml` and the sweep's state (see "Periodic sweep") | 503 `store_unavailable` |
 | `POST /reminders` `{profile, schedule, timezone, prompt, request_id, label?}` | 201 new, 200 existing, 202 uncertain; body `{"receipt"}` | 409 `conflict` (with `receipt`), 400 `invalid`, 404 `unknown_profile` |
 | `GET /proposals/{id}` | 200 `{"proposal"}` | 404 `not_found` |
 | `POST /proposals/{id}/accept` `{proposal}` | 200 `{"proposal"}` with `template` | 409 `hash_mismatch` / `not_acceptable` / `name_taken`, 410 `expired`, 422 `unknown_template` |
@@ -346,7 +352,7 @@ opened a store is not supported.
 
 ### Retention and expiry
 
-`python -m ergates.flush` applies these (nothing inside Hermes runs a timer):
+The periodic sweep applies these (see "Periodic sweep"):
 
 | Record | Rule |
 |---|---|
@@ -444,23 +450,53 @@ of that profile (ADR-032).
 
 ## Periodic sweep
 
+`hermes serve` runs the sweep itself. When Hermes imports `dashboard/api.py`
+(at server start, or on the first request after an install), the plugin
+starts one daemon thread, `ergates-sweep`. Its first pass runs 5 seconds
+later, then one every `sweep.interval_seconds` (120 by default). A pass sends
+every due push from the outbox, expires approvals past their timeout, applies
+the retention rules above, and asks Hermes cron whether each reminder's job
+still exists. It reads the install-wide push settings from the root's
+`config.yaml` on every pass. Only a process that loads Hermes's dashboard
+server imports that file, so the gateway and cron processes, which load
+only the plugin's hooks, start no sweep.
+
+`GET /health` reports the sweep:
+
+```json
+"sweep": {"interval_seconds": 120, "last_run_at": 1760000000.0, "last_error": null}
+```
+
+`last_run_at` is the Unix time the last pass ended, `null` before the first
+one. `last_error` is that pass's error class, or `null` when it succeeded. A
+failing pass never stops the thread, and the next one runs on time. The log
+names the error class once, until a pass fails with another class or
+succeeds. On a store a newer plugin made read-only, every pass fails with
+`StoreReadOnly` and writes nothing. When the thread cannot start at all, the
+log names the error class, `last_error` names it too, and the routes still
+serve. With `sweep.interval_seconds: 0` no thread starts and `health`
+reports `"interval_seconds": 0`.
+
+More than one sweep can run on one store: a host cron line left from an
+older setup, Hermes Desktop and `hermes serve` on one Hermes root, or one
+plugin host per profile under `plugins.isolation: host`. Each write takes
+the store's write lock, and a worker leases a due push before it sends it,
+so every push still goes out once.
+
+`python -m ergates.flush` runs one pass by hand and prints its counts:
+
 ```bash
 HERMES_HOME=/opt/data python -m ergates.flush [--quiet]
 # ergates.flush: retried=0 expired_notifications=0 pruned_notifications=0 pruned_proposals=0 pruned_reminders=0
 ```
 
-It opens the store under the Hermes root, reads the install-wide push
-settings from the root's `config.yaml`, and asks Hermes cron whether each
-reminder's job still exists. No credential is ever passed as an argument or
-printed. `deploy/README.md` schedules it from host cron every two minutes,
-inside the container.
-
-Run it as the user that owns the Hermes root (`hermes` in the container). As
-root it refuses to start when another user owns the Hermes root (see
-"Install"). SQLite creates the store's `-wal` and `-shm` files as the user
-that opens the store, so a root run would leave files the Hermes user cannot
-open, and every hook would fail. If an older plugin left such files, repair
-them inside the container with `chown -R hermes:hermes /opt/data/ergates`.
+No credential is ever passed as an argument or printed. Run it as the user
+that owns the Hermes root (`hermes` in the container). As root it refuses to
+start when another user owns the Hermes root (see "Install"). SQLite creates
+the store's `-wal` and `-shm` files as the user that opens the store, so a
+root run would leave files the Hermes user cannot open, and every hook would
+fail. If an older plugin left such files, repair them inside the container
+with `chown -R hermes:hermes /opt/data/ergates`.
 
 Quiet hours are read in the time zone Hermes cron uses: `HERMES_TIMEZONE`
 (which the multiplexed gateway ignores), else `timezone` in the

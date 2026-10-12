@@ -32,7 +32,7 @@ from .paths import hermes_root, store_path
 from .proposals import HERMES_RESERVED_PROFILE_NAMES, ProposalError, ProposalService, validate_proposal
 from .reminders import ReminderError, ReminderService
 from .settings import push_settings
-from .store import ControlStore, StoreError
+from .store import ControlStore, StoreError, StoreReadOnly
 
 logger = logging.getLogger(__name__)
 
@@ -448,7 +448,9 @@ def register(ctx: Any) -> None:
 
     The gate is registered first. While the control store cannot open, the
     gate blocks every tool call (``policy.BLOCK_UNVERIFIED``), the tools
-    answer an error, and the attention hooks raise, which Hermes logs.
+    answer an error, and the attention hooks raise, which Hermes logs. On a
+    store a newer plugin made read-only, the attention hooks record nothing
+    and return ``None``.
     """
     services = _services_on_first_use()
 
@@ -487,24 +489,36 @@ def register(ctx: Any) -> None:
             **kwargs,
         )
 
+    # On a store a newer plugin made read-only, an attention hook records nothing and
+    # returns: the store has logged that once, and a raise would be logged per call.
     def handle_pre_approval(**kwargs: Any) -> None:
         opened = services()
-        on_approval_request(
-            opened.attention, worker=_delivery_worker(opened.store), profile=_resolve_profile(ctx), **kwargs,
-        )
+        try:
+            on_approval_request(
+                opened.attention, worker=_delivery_worker(opened.store), profile=_resolve_profile(ctx), **kwargs,
+            )
+        except StoreReadOnly:
+            return None
 
     def handle_post_approval(**kwargs: Any) -> None:
-        on_approval_response(services().attention, **kwargs)
+        attention = services().attention
+        try:
+            on_approval_response(attention, **kwargs)
+        except StoreReadOnly:
+            return None
 
     def handle_turn_completed(**kwargs: Any) -> None:
         platforms = completed_platforms(ctx.get_config("attention.completed_platforms", None))
         if kwargs.get("platform") not in platforms:
             return
         opened = services()
-        on_turn_completed(
-            opened.attention, worker=_delivery_worker(opened.store), profile=_resolve_profile(ctx),
-            platforms=platforms, **kwargs,
-        )
+        try:
+            on_turn_completed(
+                opened.attention, worker=_delivery_worker(opened.store), profile=_resolve_profile(ctx),
+                platforms=platforms, **kwargs,
+            )
+        except StoreReadOnly:
+            return None
 
     ctx.register_hook("pre_tool_call", handle_pre_tool_call)
     ctx.register_tool(

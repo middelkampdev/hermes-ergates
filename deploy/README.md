@@ -303,57 +303,63 @@ already done above, before first start.
    `POST /setup`. `python -m ergates.install` does it by hand, for a server
    the app has not reached yet.
 
-5. **Schedule the plugin's retry/retention sweep** (below). A failed push is
-   scheduled for a retry that nothing in Hermes runs, so without this step
-   the retry machinery and every retention rule are dead code.
+5. **Check the plugin's sweep** (below). `hermes-serve` runs it on its own
+   thread, so there is nothing to schedule.
 
 ## Periodic sweep: ntfy retries and retention
 
-The plugin's hooks fire only on an approval or a finished turn -- there is
-no periodic-timer hook in that surface -- so the push outbox and the
-retention rules need an external driver. `python -m ergates.flush` is that
-driver: it sends every due push from the outbox of the control store
+The plugin's hooks fire only on an approval or a finished turn, and Hermes
+runs no timer for a plugin, so `hermes-serve` runs the plugin's sweep on a
+thread of its own. The thread starts when the server mounts the plugin's
+routes, makes its first pass 5 seconds later, and then makes one every two
+minutes. Each pass sends every due push from the outbox of the control store
 (`/opt/data/ergates/control.sqlite3`), expires approvals older than the
-approval timeout, and applies retention to attention events, proposal
-receipts and reminder receipts.
+approval timeout, applies retention to attention events, proposal receipts
+and reminder receipts, and asks Hermes cron whether each reminder's job still
+exists, so a job deleted in the Routines screen drops its receipt. Only
+`hermes-serve` runs it: `hermes-gateway` loads the plugin's hooks but not
+its routes.
 
-It reads the ntfy server, topic, token and connection id from the Hermes root's `config.yaml`
+The sweep reads the ntfy server, topic, token and connection id from the Hermes root's `config.yaml`
 (the same install-wide `plugins.entries.ergates.settings.ntfy.*` keys every hook reads),
 so **no credential is ever passed as an argument** and none appears in a
-process listing or in the log line it prints (04 section 6). The only
-argument is `--quiet`. It also asks Hermes cron whether each reminder's job
-still exists, so a job deleted in the Routines screen drops its receipt.
+process listing or in a log line (04 section 6).
+`plugins.entries.ergates.settings.sweep.interval_seconds` in the same file
+sets the interval (120 by default; `0` turns the sweep off). Two minutes is
+chosen against the plugin's 30s / 2min / 10min publish backoff, so a due
+retry waits at most about 2 minutes past its schedule.
 
-Add this to the host's crontab (`crontab -e`), every two minutes:
+The plugin's `health` route shows that the sweep runs. Sign in at
+`http://<TAILSCALE_IP>:9119/login` in a browser (see `VERIFY.md` V4), then
+open `http://<TAILSCALE_IP>:9119/api/plugins/ergates/health`. Its `sweep`
+field looks like this:
 
-```cron
-*/2 * * * * cd /srv/ergates/deploy && /usr/bin/docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-serve python -m ergates.flush >> /var/log/ergates-flush.log 2>&1
+```json
+"sweep": {"interval_seconds": 120, "last_run_at": 1760000000.0, "last_error": null}
 ```
 
-- `-T` disables the pseudo-TTY, which a cron job has no use for.
-- `-u hermes` runs the sweep as the image's `hermes` user, the user every
-  Hermes service runs as. `docker compose exec` runs as root otherwise. As
-  root, the plugin writes nothing into a Hermes root that `hermes` owns, so
-  the sweep refuses to start: SQLite would create the store's `-wal` and
-  `-shm` files as root, and every Hermes hook would then fail to open the
-  store. If an older plugin left root-owned files there, repair them with
-  `docker compose exec hermes-serve chown -R hermes:hermes /opt/data/ergates`.
-- `PYTHONPATH=/opt/data/plugins/ergates` puts the mounted plugin directory
-  on the import path; the package inside it is `ergates/`.
-- Adjust `cd /srv/ergates/deploy` to wherever you cloned this repo, and
-  `/usr/bin/docker` to `which docker` on the host (cron's `PATH` is minimal).
+`last_run_at` (Unix time) moves forward every two minutes, and `last_error`
+stays `null` while the passes succeed. Otherwise it names the error class of
+the last pass, which the `hermes-serve` log also names.
 
-Run it once by hand first; it prints one line of counts:
+An earlier version of this runbook ran the sweep from host cron
+(`python -m ergates.flush`). That crontab line can go. If it stays, it does
+no harm: two sweeps on one store send each due push once, because a push is
+leased before it is sent. To run one pass by hand, as the `hermes` user:
 
 ```bash
 docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-serve python -m ergates.flush
 # ergates.flush: retried=0 expired_notifications=0 pruned_notifications=0 pruned_proposals=0 pruned_reminders=0
 ```
 
-A systemd timer is equally fine; the requirement is only that *something*
-runs it on a short interval. Two minutes is chosen against the plugin's
-30s / 2min / 10min publish backoff, so a due retry waits at most ~2 minutes
-past its schedule.
+`docker compose exec` runs as root otherwise. As root, the plugin writes
+nothing into a Hermes root that `hermes` owns, so the command refuses to
+start: SQLite would create the store's `-wal` and `-shm` files as root, and
+every Hermes hook would then fail to open the store. If an older plugin left
+root-owned files there, repair them with
+`docker compose exec hermes-serve chown -R hermes:hermes /opt/data/ergates`.
+`PYTHONPATH=/opt/data/plugins/ergates` puts the mounted plugin directory on
+the import path; the package inside it is `ergates/`.
 
 ## Update
 

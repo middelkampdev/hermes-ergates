@@ -28,8 +28,9 @@
 #   - The integration plugin is bind-mounted read-only into both controllers
 #     at /opt/data/plugins/ergates, the user-plugin folder Hermes scans. The
 #     reviewed proposal templates sit in the plugin's own templates/ folder, so
-#     they need no mount of their own. Host cron runs `python -m ergates.flush`
-#     (deploy/README.md).
+#     they need no mount of their own. hermes-serve runs the plugin's periodic
+#     sweep on a thread of its own; no host cron line is needed
+#     (deploy/README.md "Periodic sweep").
 #
 # No credentials live in this file or in .env.example -- every secret is a
 # required, unset-by-default variable resolved from a real .env you create

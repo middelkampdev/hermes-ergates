@@ -8,15 +8,18 @@ through Hermes's real middleware, including its auth.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
+import logging
 import os
 import sys
+import threading
 from pathlib import Path
 
 import pytest
 
 import ergates
-from ergates import hermes_adapter
+from ergates import hermes_adapter, settings
 from ergates.operations import Operations
 from ergates.paths import bundled_templates_dir, store_path, templates_dir
 from ergates.proposals import PROVISION_STEPS, ProposalService, validate_proposal
@@ -50,11 +53,45 @@ def _reminder(profile, **overrides):
     return {**body, **overrides}
 
 
+SWEEP_OFF = {"interval_seconds": 0, "last_run_at": None, "last_error": None}
+
+
 def test_hermes_serve_mounts_the_router_and_health_answers(web, token_headers):
     reply = web.get(f"{API}/health", headers=token_headers)
 
     assert (reply.status_code, reply.json()) == (
-        200, {"ok": True, "schema_version": SCHEMA_VERSION, "plugin_version": ergates.__version__})
+        200, {"ok": True, "schema_version": SCHEMA_VERSION, "plugin_version": ergates.__version__,
+              "sweep": SWEEP_OFF})
+
+
+def test_the_session_server_runs_no_sweep_when_the_interval_is_0(web, token_headers):
+    """``conftest.py`` sets ``sweep.interval_seconds: 0`` in the session root, so no background
+    pass expires, prunes or sends while another test reads the store."""
+    reply = web.get(f"{API}/health", headers=token_headers)
+
+    assert reply.json()["sweep"] == SWEEP_OFF
+    assert [thread for thread in threading.enumerate() if thread.name == "ergates-sweep"] == []
+
+
+def test_a_sweep_that_cannot_start_leaves_the_router_whole_and_names_its_error(web, monkeypatch, caplog):
+    """The file imported the way Hermes mounts it (``spec_from_file_location``, then
+    ``exec_module``) while the sweep cannot start: the import does not raise, the router is
+    complete, and the status names the error class."""
+    def unreadable(root):
+        raise RuntimeError("/secret/hermes/config.yaml")
+
+    monkeypatch.setattr(settings, "sweep_interval", unreadable)
+    path = Path(_module().__file__)
+    spec = importlib.util.spec_from_file_location("hermes_dashboard_plugin_ergates_again", path)
+    again = importlib.util.module_from_spec(spec)
+
+    with caplog.at_level(logging.WARNING, logger="ergates.dashboard"):
+        spec.loader.exec_module(again)
+
+    assert sorted(route.path for route in again.router.routes) == sorted(
+        route.path for route in _module().router.routes)
+    assert again.sweep_status() == {"interval_seconds": 120, "last_run_at": None, "last_error": "RuntimeError"}
+    assert "RuntimeError" in caplog.text and "secret" not in caplog.text
 
 
 @pytest.mark.parametrize(("method", "path"), ROUTES)
@@ -404,7 +441,8 @@ def _operations_with(root, **adapter):
         "profile_exists", "plugin_enabled", "enable_plugin", "profile_names", "check_schedule", "check_prompt",
         "check_gateway_lifecycle")}
     return Operations(ControlStore(store_path(root)), cron=hermes_adapter.HermesCron(), templates=templates_dir(root),
-                      bundled_templates=bundled_templates_dir(), **{**functions, **adapter})
+                      bundled_templates=bundled_templates_dir(), sweep_status=_module().sweep_status,
+                      **{**functions, **adapter})
 
 
 def test_a_failure_the_route_cannot_name_is_500_internal_and_logs_the_class_only(web, token_headers, monkeypatch,

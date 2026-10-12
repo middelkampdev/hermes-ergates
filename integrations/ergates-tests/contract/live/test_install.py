@@ -110,9 +110,13 @@ def prepared_root(tmp_path) -> Path:
     plugin = root / "plugins" / "ergates"
     plugin.symlink_to(PLUGIN_DIR, target_is_directory=True)
     old_config = {"_config_version": OLD_PIN_CONFIG_VERSION, "plugins": {"enabled": ["ergates"]}}
-    # Not the installer's: the live suite's guard against lazy `uv pip install` (see conftest.py).
-    (root / "config.yaml").write_text(yaml.safe_dump({**old_config, "security": {"allow_lazy_installs": False}}),
-                                      encoding="utf-8")
+    # Not the installer's: the live suite's guard against lazy `uv pip install`, and the
+    # sweep turned off, so no background pass prunes the receipt a test reads (see conftest.py).
+    sweep_off = {"entries": {"ergates": {"settings": {"sweep": {"interval_seconds": 0}}}}}
+    (root / "config.yaml").write_text(
+        yaml.safe_dump({**old_config, "plugins": {**old_config["plugins"], **sweep_off},
+                        "security": {"allow_lazy_installs": False}}),
+        encoding="utf-8")
     home = root / "profiles" / PREPARED_PROFILE
     (home / "plugins").mkdir(parents=True)
     (home / "plugins" / "ergates").symlink_to(plugin, target_is_directory=True)

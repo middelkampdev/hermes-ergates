@@ -166,6 +166,45 @@ def test_the_store_never_carries_content_after_a_flush(tmp_path, store):
     assert b"secret-project" not in raw_bytes(store)
 
 
+# --- one sweep: what hermes serve runs every interval -------------------------
+
+
+def test_sweep_once_reads_the_root_push_settings_and_asks_hermes_cron(tmp_path, store, monkeypatch):
+    _write_config(tmp_path)
+    cron = FakeCron()
+    monkeypatch.setattr(flush, "HermesCron", lambda: cron)
+    swept = []
+    sweep = flush.flush_once
+
+    def spy(root, settings, **kwargs):
+        swept.append((root, dict(settings), kwargs["cron"]))
+        return sweep(root, {}, **kwargs)  # no network in a test: the delivery pass is skipped
+
+    monkeypatch.setattr(flush, "flush_once", spy)
+
+    counts = flush.sweep_once(tmp_path)
+
+    assert swept == [(tmp_path, SETTINGS, cron)]
+    assert counts["retried"] == 0
+
+
+def test_sweep_once_skips_push_when_config_yaml_is_unreadable(tmp_path, store, monkeypatch, caplog):
+    """A config.yaml a YAML parser refuses turns push off for this pass only: expiry and
+    retention still run, the due push stays due, and the log names the error class only."""
+    monkeypatch.setattr(flush, "HermesCron", FakeCron)
+    (tmp_path / "config.yaml").write_text("plugins: [unclosed\n", encoding="utf-8")
+    _approval(store, time.time() - RETENTION_SECONDS - APPROVAL_TTL_SECONDS - 60)
+    _approval(store, time.time(), command="still due")
+
+    with caplog.at_level(logging.WARNING, logger="ergates.flush"):
+        counts = flush.sweep_once(tmp_path)
+
+    assert (counts["retried"], counts["expired_notifications"], counts["pruned_notifications"]) == (0, 1, 1)
+    assert [row["state"] for row in rows(store, "attention_outbox")] == ["due"]
+    assert "ParserError" in caplog.text
+    assert "unclosed" not in caplog.text
+
+
 # --- the command line -------------------------------------------------------
 
 

@@ -18,6 +18,14 @@ process. It is built on first use, not at import, so a store that cannot be
 opened answers 503 ``store_unavailable`` instead of keeping the router from
 mounting. Building it also installs the plugin's proposal templates.
 
+Importing this file also starts the plugin's periodic sweep (``ergates.sweep``):
+due pushes, expiry and retention, on one daemon thread, every
+``sweep.interval_seconds`` (``ergates.settings.sweep_interval``). Only Hermes's
+dashboard server imports this file, at its start or when it mounts the routes
+on their first request after an install, so the gateway and cron processes
+start no sweep. A sweep that cannot start is logged by error class and named
+in ``GET /health``; the router still mounts.
+
 Hermes imports this file under its own module name, outside any package, so
 the plugin folder is added to ``sys.path`` to import the ``ergates`` package.
 The Hermes boundary
@@ -26,6 +34,7 @@ imports here; this file needs none, because every Hermes call goes through
 ``ergates.hermes_adapter``.
 """
 
+import functools
 import json
 import logging
 import sqlite3
@@ -42,10 +51,12 @@ _PLUGIN_DIR = str(Path(__file__).resolve().parents[1])
 if _PLUGIN_DIR not in sys.path:
     sys.path.append(_PLUGIN_DIR)
 
-from ergates import hermes_adapter, setup  # noqa: E402
+from ergates import flush, hermes_adapter, setup  # noqa: E402
 from ergates.operations import Operations, Reply, internal_error, store_unavailable  # noqa: E402
 from ergates.paths import bundled_templates_dir, hermes_root, store_path, templates_dir  # noqa: E402
+from ergates.settings import sweep_interval  # noqa: E402
 from ergates.store import ControlStore, StoreError  # noqa: E402
+from ergates.sweep import SWEEP_INTERVAL_SECONDS, Sweep  # noqa: E402
 
 logger = logging.getLogger("ergates.dashboard")
 
@@ -53,6 +64,37 @@ router = APIRouter()
 
 _lock = threading.Lock()
 _operations: Optional[Operations] = None
+_sweep: Optional[Sweep] = None
+_sweep_failure: Optional[dict] = None
+
+
+def _start_sweep() -> None:
+    """Start the periodic sweep of this Hermes root. Never raises: a failure is logged and kept for ``sweep_status``.
+
+    As root on a Hermes root another user owns, the thread starts and every
+    pass stops where the store refuses to open, before it creates anything
+    (``flush.sweep_once``); ``GET /health`` answers 503 there anyway.
+    """
+    global _sweep, _sweep_failure
+    interval = SWEEP_INTERVAL_SECONDS
+    try:
+        root = hermes_root()
+        interval = sweep_interval(root)
+        sweep = Sweep(functools.partial(flush.sweep_once, root), interval=interval)
+        sweep.start()
+    except Exception as exc:
+        logger.warning("ergates: the periodic sweep did not start (%s)", type(exc).__name__)
+        _sweep, _sweep_failure = None, {"interval_seconds": interval, "last_run_at": None,
+                                        "last_error": type(exc).__name__}
+        return
+    _sweep, _sweep_failure = sweep, None
+
+
+def sweep_status() -> dict:
+    """The sweep's ``status()``, or the interval and the error class when it could not start."""
+    if _sweep is None:
+        return dict(_sweep_failure or {})
+    return _sweep.status()
 
 
 def operations() -> Operations:
@@ -82,6 +124,7 @@ def operations() -> Operations:
                 check_gateway_lifecycle=hermes_adapter.check_gateway_lifecycle,
                 templates=templates_dir(root),
                 bundled_templates=bundled,
+                sweep_status=sweep_status,
             )
         return _operations
 
@@ -215,3 +258,7 @@ async def get_prefs(request: Request) -> JSONResponse:
 async def set_prefs(request: Request) -> JSONResponse:
     body = await _body(request)
     return await _answer(lambda ops: ops.set_prefs(body))
+
+
+# Last, so a file that fails to import part way never leaves a sweep running.
+_start_sweep()

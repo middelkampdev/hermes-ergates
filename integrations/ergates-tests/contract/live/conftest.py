@@ -65,8 +65,11 @@ def pytest_configure(config: pytest.Config) -> None:
     # security.allow_lazy_installs: false blocks Hermes's lazy `uv pip install` in both
     # sealed and unsealed venvs (tools/lazy_deps.py:321-322); without it a test that
     # imports an optional provider stack can wait out the whole 300 s install timeout.
+    # sweep.interval_seconds: 0 keeps the session server's periodic sweep off, so no
+    # background pass expires, prunes or sends while another test reads the store.
     (root / "config.yaml").write_text(
-        "plugins:\n  enabled:\n  - ergates\nsecurity:\n  allow_lazy_installs: false\n", encoding="utf-8",
+        "plugins:\n  enabled:\n  - ergates\n  entries:\n    ergates:\n      settings:\n        sweep:\n"
+        "          interval_seconds: 0\nsecurity:\n  allow_lazy_installs: false\n", encoding="utf-8",
     )
     os.environ.update({"HOME": str(home), "HERMES_HOME": str(root), "HERMES_DASHBOARD_SESSION_TOKEN": SESSION_TOKEN})
     # Hermes computes some paths at import time; nothing has imported it yet here, so

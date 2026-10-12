@@ -214,22 +214,27 @@ installer; the app enables the plugin in the profiles it creates.
 
 Result:
 
-### V6 The sweep runs as `hermes`, and refuses root
+### V6 The sweep runs inside `hermes-serve`, and refuses root
+
+Signed in at `http://<TAILSCALE_IP>:9119/login` in a browser (V4), open
+`http://<TAILSCALE_IP>:9119/api/plugins/ergates/health` twice, two or three
+minutes apart. Then run one pass by hand, once as `hermes` and once as root:
 
 ```bash
 $EXEC python -m ergates.flush
 docker compose exec -T -e PYTHONPATH=/opt/data/plugins/ergates hermes-serve python -m ergates.flush; echo "exit $?"
-tail -5 /var/log/ergates-flush.log
 ```
 
-Expected: one `ergates.flush: retried=...` line; the root run prints
-`refusing to run as root` and `exit 2`; the cron log gains a line every two
-minutes.
+Expected: in both answers `sweep.interval_seconds` is `120` and
+`sweep.last_error` is `null`, and `sweep.last_run_at` is a number that moved
+forward between the two. The `hermes` run prints one
+`ergates.flush: retried=...` line; the root run prints
+`refusing to run as root` and `exit 2`.
 
 The one-line summary also proves the image's `python` can `import
 hermes_cli` and PyYAML (the sweep needs `HermesCron` and the root's
-settings) and that a `hermes` user exists to run it as -- either missing
-would show up here as a traceback instead of that line.
+settings) and that a `hermes` user exists to run it as. If either were
+missing, this check would show a traceback instead of that line.
 
 Result:
 

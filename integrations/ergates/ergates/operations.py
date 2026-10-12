@@ -156,9 +156,10 @@ class Operations:
         enable_plugin: Callable[[str], None], profile_names: Callable[[], list[str]],
         check_schedule: Callable[[str, str], None], check_prompt: Callable[[str], None],
         check_gateway_lifecycle: Callable[[str, str], None], templates: Path, bundled_templates: Path,
-        clock: Callable[[], float] = time.time,
+        sweep_status: Callable[[], dict], clock: Callable[[], float] = time.time,
     ) -> None:
         self._store = store
+        self._sweep_status = sweep_status
         self._profile_exists = profile_exists
         self._plugin_enabled = plugin_enabled
         self._enable_plugin = enable_plugin
@@ -175,8 +176,10 @@ class Operations:
     # GET /health
     @_guard_store
     def health(self) -> Reply:
+        """The store's schema, the plugin version and the periodic sweep's ``status()`` (``ergates.sweep``)."""
         schema_version = self._store.schema_version
-        return Reply(200, {"ok": True, "schema_version": schema_version, "plugin_version": __version__})
+        return Reply(200, {"ok": True, "schema_version": schema_version, "plugin_version": __version__,
+                           "sweep": self._sweep_status()})
 
     # POST /reminders
     @_guard_store

@@ -36,6 +36,7 @@ import logging
 import os
 import re
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -165,6 +166,10 @@ MIN_SCHEMA_KEY = "min_schema_version"
 _WHOLE_NUMBER = re.compile(r"[0-9]+")
 _READ_ONLY = "the control store needs a newer Ergates plugin to write it"
 ROOT_REFUSAL = "run hermes serve as the owner of the Hermes root"
+# The store files this process has already logged as read-only. The periodic
+# sweep opens a new store object every pass, and the warning comes once.
+_READ_ONLY_LOGGED: set[str] = set()
+_READ_ONLY_LOGGED_LOCK = threading.Lock()
 
 
 class StoreError(Exception):
@@ -345,13 +350,17 @@ class ControlStore:
             raise StoreReadOnly(_READ_ONLY)
 
     def _refuse_writes(self, conn: sqlite3.Connection) -> None:
-        """Refuse every later write of this store object, and say so once in the log.
+        """Refuse every later write of this store object, and say so in the log once per process and file.
 
         A store never becomes writable again for the same plugin: its schema
         version and its marker only go up. The log line names versions only,
         never the path.
         """
         self._read_only = True
+        with _READ_ONLY_LOGGED_LOCK:
+            if str(self._path) in _READ_ONLY_LOGGED:
+                return
+            _READ_ONLY_LOGGED.add(str(self._path))
         logger.warning(
             "ergates: the control store is at schema %d and only plugin schema %d or newer may write it; "
             "this plugin is at schema %d, so it reads the store and refuses every write",

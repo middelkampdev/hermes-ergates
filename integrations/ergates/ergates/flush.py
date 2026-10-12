@@ -1,21 +1,21 @@
-"""Periodic maintenance entry point: ``python -m ergates.flush``.
+"""Periodic maintenance: one sweep of the control store, and ``python -m ergates.flush``.
 
-Two jobs this package cannot do for itself from inside Hermes:
+Two jobs no hook does, because the hooks fire only on an event and Hermes
+runs no timer for a plugin:
 
-1. **Send due pushes.** The approval hooks fire only on an approval event,
-   so nothing inside Hermes runs a timer. A push whose first attempt failed,
-   or whose process died mid-send, stays due in the control store's outbox
-   until this sweep sends it (:class:`~ergates.delivery.DeliveryWorker`).
+1. **Send due pushes.** A push whose first attempt failed, or whose process
+   died mid-send, stays due in the control store's outbox until a sweep
+   sends it (:class:`~ergates.delivery.DeliveryWorker`).
 2. **Apply retention and expiry.** Every service has an ``expire`` or a
    ``prune``; nothing calls them from inside a hook (04 section 8; 11
    sections 4.1-4.3).
 
-Run it from the host, inside the container, every two minutes -- see
-``deploy/README.md``. The ntfy credentials are the install-wide push
-settings in the Hermes root's ``config.yaml`` (:mod:`ergates.settings`), the
-same ones every hook reads, so **no token ever appears on a command line, in
-a process listing, or in this module's output**. The only argument is
-``--quiet``.
+``hermes serve`` runs :func:`sweep_once` on its own thread every
+``sweep.interval_seconds``, two minutes by default (:mod:`ergates.sweep`);
+``python -m ergates.flush`` runs it once, by hand. The ntfy credentials are the install-wide push settings in the Hermes
+root's ``config.yaml`` (:mod:`ergates.settings`), the same ones every hook
+reads, so **no token ever appears on a command line, in a process listing,
+or in this module's output**. The only argument is ``--quiet``.
 
 Inside the Hermes runtime the reminder sweep asks Hermes cron
 (:class:`~ergates.hermes_adapter.HermesCron`) whether each receipt's job
@@ -96,6 +96,27 @@ def flush_once(
     return counts
 
 
+def sweep_once(root: Path) -> Dict[str, int]:
+    """One sweep of the Hermes root ``root`` with its install-wide push settings and Hermes cron.
+
+    What ``python -m ergates.flush`` runs once and the ``hermes serve``
+    thread runs every interval. Every write goes through the store, so as
+    root on a Hermes root another user owns the pass raises ``StoreError``
+    before it creates anything (``store.root_run_would_break``).
+    """
+    try:
+        settings = load_settings(root)
+    except Exception as exc:
+        # A config.yaml a YAML parser refuses must not stop expiry, retention
+        # or pruning (settings.py's own invariant, mirrored from
+        # tool.py's _delivery_worker): push is off for this run, everything
+        # else still runs, and only the exception class name is logged --
+        # a YAML parser error can quote the offending line.
+        logger.warning("ergates.flush: config.yaml unreadable (%s); push skipped this run", type(exc).__name__)
+        settings = {}
+    return flush_once(root, settings, cron=HermesCron())
+
+
 def main(argv: Optional[list] = None) -> int:
     """CLI entry point. Prints one line of counts; exits non-zero only on a hard failure."""
     parser = argparse.ArgumentParser(
@@ -123,17 +144,7 @@ def main(argv: Optional[list] = None) -> int:
             file=sys.stderr,
         )
         return 2
-    try:
-        settings = load_settings(root)
-    except Exception as exc:
-        # A config.yaml a YAML parser refuses must not stop expiry, retention
-        # or pruning (settings.py's own invariant, mirrored from
-        # tool.py's _delivery_worker): push is off for this run, everything
-        # else still runs, and only the exception class name is logged --
-        # a YAML parser error can quote the offending line.
-        logger.warning("ergates.flush: config.yaml unreadable (%s); push skipped this run", type(exc).__name__)
-        settings = {}
-    counts = flush_once(root, settings, cron=HermesCron())
+    counts = sweep_once(root)
     if not args.quiet:
         print(
             "ergates.flush: retried={retried} expired_notifications={expired_notifications} "
