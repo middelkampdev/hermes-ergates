@@ -137,6 +137,7 @@ Windows is not supported.
 ```
 integrations/ergates/
   plugin.yaml          # Hermes directory-plugin manifest
+  LICENSE              # a copy of the repository's MIT license, for an install of this folder alone
   __init__.py          # Hermes entry point: register(ctx)
   dashboard/
     manifest.json      # tells `hermes serve` to mount api.py (no dashboard page)

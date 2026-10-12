@@ -19,7 +19,7 @@ import yaml
 
 from ergates.policy import BLOCK_UNVERIFIED
 from pinned import HERMES_PIN_VERSION, PinnedSource
-from plugin_tree import PLUGIN_DIR
+from plugin_tree import PLUGIN_DIR, copy_tracked_files
 
 REPOSITORY = "https://github.com/middelkampdev/hermes-ergates"
 DISCLOSURE_HEADING = "## What this plugin does on your server"
@@ -58,6 +58,14 @@ def test_the_manifest_names_the_license_and_the_home_of_the_plugin():
     assert manifest().get("license") == "MIT"
     assert license_file.startswith("MIT License")
     assert manifest().get("homepage") == REPOSITORY
+
+
+def test_an_install_of_the_plugin_folder_alone_carries_the_license_text(tmp_path):
+    """An install of this subdirectory keeps only this folder of the clone
+    (`hermes_cli/plugins_cmd_install.py:383` at the pin), so the folder carries its own copy."""
+    copy_tracked_files(tmp_path)
+
+    assert (tmp_path / "LICENSE").read_bytes() == (PLUGIN_DIR.parents[1] / "LICENSE").read_bytes()
 
 
 def test_the_readme_discloses_what_the_plugin_does_on_a_server():
