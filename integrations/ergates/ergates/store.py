@@ -155,6 +155,14 @@ class Migration:
     migration). A migration that changes or removes anything sets
     ``additive=False``; opening the store then raises ``min_schema_version`` to
     that migration's version, and every older plugin only reads from then on.
+
+    An older plugin still reads the store, and its tool gate runs two queries
+    on it: ``proposal_receipts.state`` (``accepted`` holds a profile back) and
+    the ``configured`` step row in ``proposal_steps`` (it marks a profile
+    Ergates provisioned). A migration that is not additive must either keep
+    the meaning of those queries or make them fail, for example by renaming
+    the table, so that an older plugin's gate blocks instead of admitting a
+    profile it should not.
     """
 
     statements: tuple[str, ...]

@@ -69,8 +69,8 @@ services:
     environment:
       <<: *through-the-egress-proxy
       HERMES_HOME: /opt/data
-      # The plugin here is a read-only mount, not an install Hermes made and
-      # recorded. This marker is how the plugin's `health` route says so.
+      # The plugin here is a read-only mount, so Hermes made and recorded no
+      # install. This marker is how the plugin's `health` route says so.
       # Only this service answers `health`.
       ERGATES_INSTALL_KIND: deployment
       HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:?set in .env -- never commit a real value}

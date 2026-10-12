@@ -257,7 +257,7 @@ def test_hermes_serve_listens_on_its_container_network_for_the_ingress() -> None
 
 
 def test_hermes_serve_says_it_is_a_deployment() -> None:
-    """The plugin on the VPS is a read-only mount, not an install Hermes made, so it has no install record; the
+    """The plugin on the VPS is a read-only mount and Hermes made no install, so it has no install record; the
     marker is how ``GET /health`` tells the app. Only hermes-serve answers ``health``."""
     assert INSTALL_KIND_ENV == "ERGATES_INSTALL_KIND"
     assert SERVICES["hermes-serve"]["environment"][INSTALL_KIND_ENV] == "deployment"

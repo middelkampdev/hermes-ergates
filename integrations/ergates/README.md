@@ -19,9 +19,6 @@ contracts this package implements.
 
 ## What this plugin does on your server
 
-What the plugin does on a Hermes server, for anyone deciding whether to
-install it.
-
 ### Network
 
 The plugin makes one kind of network call: an HTTP POST to the ntfy server in
@@ -69,8 +66,8 @@ the thread off). A pass sends the pushes that are due, expires approvals past
 their timeout, applies the retention rules and asks Hermes cron whether each
 reminder's job still exists. Several sweeps on one store are safe: a lease
 keeps two sweeps from sending the same push at the same moment. The approval
-hook also sends its push on a short-lived thread. Besides these threads the plugin starts no process and runs no shell
-command.
+hook also sends its push on a short-lived thread. Besides these threads the
+plugin starts no process and runs no shell command.
 
 ### What it reads outside its own data
 
