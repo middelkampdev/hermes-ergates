@@ -1,0 +1,5 @@
+{
+  "install": "hermes plugins install {identifier} --ref {commit} --enable --yes-deps",
+  "update": "hermes plugins install {identifier} --force --ref {commit} --enable --yes-deps",
+  "enable": "hermes plugins enable {name}"
+}
