@@ -620,3 +620,31 @@ def test_a_secret_field_with_env_is_stored_under_that_name(hermes: PinnedSource)
     token = manifest["config_schema"]["ntfy.token"]
     assert token["type"] == "secret"
     assert token["env"] == settings.TOKEN_ENV == "ERGATES_NTFY_TOKEN"
+
+
+def test_a_scope_stamped_with_another_home_than_the_launch_home_never_reads_the_process_environment(
+        hermes: PinnedSource) -> None:
+    """Why ``install_secret`` stamps the root's scope with the root: in a process launched for a
+    named profile (``HERMES_HOME=<root>/profiles/<name>``, whose ``.env`` Hermes loaded into
+    ``os.environ``), a scope stamped with another home than the launch home counts as a routed
+    profile, so a miss in the root's ``.env`` returns the default instead of the process
+    environment, also without multiplexing."""
+    # agent/secret_scope.py:104-107
+    assert hermes.lines(SECRET_SCOPE, 104, 107) == (
+        "    own = hermes_home_key(get_routing_process_hermes_home())\n"
+        "    bound = _SECRET_SCOPE.get()\n"
+        "    if bound is not None and bound.profile_home and hermes_home_key(bound.profile_home) != own:\n"
+        "        return True"
+    )
+    # hermes_constants.py:199-202 and 168-169: the launch home is the host's pin, else the
+    # process's own HERMES_HOME (never the context-local override).
+    assert hermes.lines(CONSTANTS, 199, 202) == (
+        "def get_routing_process_hermes_home() -> Path:\n"
+        '    """Launch home for routed-profile decisions: the pinned home, else :func:`get_process_hermes_home`."""\n'
+        "    pinned = _PINNED_PROCESS_HERMES_HOME\n"
+        "    return _expand_hermes_home(pinned) if pinned else get_process_hermes_home()"
+    )
+    assert hermes.lines(CONSTANTS, 168, 169) == (
+        '    val = os.environ.get("HERMES_HOME", "").strip()\n'
+        "    return _expand_hermes_home(val) if val else _get_platform_default_hermes_home()"
+    )

@@ -83,10 +83,15 @@ def install_secret(name: str) -> str | None:
     A miss is ``None`` under multiplexing and in a process launched for a
     named profile: Hermes then never reads the process environment. Only a
     process launched for the root, without multiplexing, falls back to its
-    own environment, as Hermes does for every credential there.
+    own environment, as Hermes does for every credential there. The stamp
+    is what covers the named-profile process, whose environment holds that
+    profile's ``.env``: Hermes counts a scope stamped with another home
+    than the process's launch home as a routed profile
+    (``agent/secret_scope.py`` ``serves_routed_profile``).
     ``integrations/ergates-tests/contract/test_hermes_adapter.py`` pins the
-    calls and ``contract/live/test_adapter.py`` runs them. ``None`` outside a
-    Hermes runtime. The value is never logged.
+    calls and that rule, and ``contract/live/test_adapter.py`` runs the
+    multiplexed and the named-profile cases. ``None`` outside a Hermes
+    runtime. The value is never logged.
     """
     try:
         from agent.secret_scope import build_profile_secret_scope, get_secret, reset_secret_scope, set_secret_scope

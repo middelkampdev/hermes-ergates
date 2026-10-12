@@ -338,3 +338,28 @@ def test_install_secret_never_falls_back_to_the_process_environment_under_multip
             assert install_secret("ERGATES_NTFY_TOKEN") is None
         finally:
             reset_multiplex_context(multiplex_token)
+
+
+def test_install_secret_in_a_named_profile_process_reads_only_the_root_env(root, make_profile, monkeypatch):
+    """A process launched for a named profile (``hermes -p wout ...``) runs with
+    ``HERMES_HOME=<root>/profiles/wout``, without multiplexing, and Hermes has loaded that
+    profile's .env into its environment. The token still comes from the root's .env only."""
+    from agent.secret_scope import is_multiplex_active
+    from hermes_constants import get_default_hermes_root, get_routing_process_hermes_home
+
+    home = make_profile("wout")
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    assert get_routing_process_hermes_home() == home
+    assert get_default_hermes_root() == root
+    assert is_multiplex_active() is False
+
+    # The root's .env lacks the token and the process environment has it: no token.
+    monkeypatch.setenv("ERGATES_NTFY_TOKEN", "from-the-profile-environment")
+    with _root_env(root, "OTHER_SECRET=x\n"):
+        assert install_secret("ERGATES_NTFY_TOKEN") is None
+
+    # The profile's own .env has another token and the root's .env has one: the root's.
+    (home / ".env").write_text("ERGATES_NTFY_TOKEN=other\n", encoding="utf-8")
+    monkeypatch.setenv("ERGATES_NTFY_TOKEN", "other")
+    with _root_env(root, "ERGATES_NTFY_TOKEN=tok\n"):
+        assert install_secret("ERGATES_NTFY_TOKEN") == "tok"
