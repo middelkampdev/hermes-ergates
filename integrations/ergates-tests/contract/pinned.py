@@ -10,6 +10,9 @@ from pathlib import Path
 
 # Same pin in scripts/ci-local.sh (HERMES_PIN) and .github/workflows/ci.yml (contract job `ref`).
 HERMES_PIN = "818c13be1dc4fd28987e1e881a9408224afd4535"
+# The release HERMES_PIN is (its tag `v0.21.6`). Move it with HERMES_PIN: the plugin's `requires_hermes`
+# floor is this release, and the catalog refuses a floor newer than the current release.
+HERMES_PIN_VERSION = "0.21.6"
 
 
 def expected_ref() -> str:

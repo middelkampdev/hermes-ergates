@@ -55,6 +55,7 @@ job_integration() {
 }
 
 # Same pin in integrations/ergates-tests/contract/pinned.py and .github/workflows/ci.yml (contract job `ref`).
+# pinned.py also holds the release's version (HERMES_PIN_VERSION), which the plugin's `requires_hermes` names.
 HERMES_PIN="818c13be1dc4fd28987e1e881a9408224afd4535"
 
 # Fails unless $1 is a Hermes checkout at the expected commit without local
@@ -119,10 +120,12 @@ prepare_hermes_source() {
 
 # Two pytest runs. `contract/` reads the pinned source as text and runs the
 # pinned install scanner (standard library only) on the plugin folder, which
-# must rate it `safe`; it needs no Hermes dependency. `contract/live/`
-# imports the pinned Hermes itself and installs the plugin through it, so it
-# runs with Hermes's locked runtime dependencies, exported from the pin's own
-# uv.lock into .cache/ (the export writes nothing in the Hermes checkout).
+# must rate it `safe` (test_install_scan.py); it needs no Hermes dependency.
+# `contract/live/` imports the pinned Hermes itself and installs the plugin
+# through it, and runs `hermes plugins validate`, the catalog's admission
+# check, on the plugin folder (test_catalog_validate.py), so it runs with
+# Hermes's locked runtime dependencies, exported from the pin's own uv.lock
+# into .cache/ (the export writes nothing in the Hermes checkout).
 job_contract() {
   prepare_hermes_source
   cd "$TESTS_DIR"
@@ -130,9 +133,9 @@ job_contract() {
   contract_live
 }
 
-# Only `contract/live/`. The text suite pins exact Hermes line numbers, which
-# move in nearly every release, so the weekly run against the newest release
-# skips it.
+# Only `contract/live/`, the install scan and the catalog validator included.
+# The text suite pins exact Hermes line numbers, which move in nearly every
+# release, so the weekly run against the newest release skips it.
 job_contract_live() {
   prepare_hermes_source
   contract_live

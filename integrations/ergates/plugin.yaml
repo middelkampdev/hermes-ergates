@@ -1,6 +1,11 @@
 name: ergates
 label: Ergates
 version: 0.2.0
+license: MIT
+homepage: https://github.com/middelkampdev/hermes-ergates
+# The release the plugin is tested against, the floor the catalog expects (a SemVer floor, never newer
+# than the current Hermes release). Moves with the pin: integrations/ergates-tests/contract/pinned.py.
+requires_hermes: ">=0.21.6"
 description: >-
   Server side of the Ergates mobile companion: agent proposals, reminders that
   a retry never duplicates, a tool gate, and approval and finished-routine

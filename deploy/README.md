@@ -414,12 +414,14 @@ docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-
 A new Hermes image is a new Hermes. The integration's contract tests are
 pinned to one Hermes commit (`HERMES_PIN` in `scripts/ci-local.sh`), and the
 image in `docker-compose.yml` is built from that same commit, v0.21.6. Move
-both together: change `HERMES_PIN`, put the digest of the new commit's image
-in `docker-compose.yml`, and rerun `scripts/ci-local.sh contract` before you
-deploy. Take the digest from the release's final candidate tag, here
-`rc.4-v0.21.6`, or from `stable` while the release is the newest. The
-registry's plain `v0.21.6` tag is an older build from an abandoned
-candidate.
+both together: change `HERMES_PIN` (and `HERMES_PIN_VERSION`, the release it
+names, in `integrations/ergates-tests/contract/pinned.py`, with
+`requires_hermes` in the plugin's `plugin.yaml`), put the digest of the new
+commit's image in `docker-compose.yml`, and rerun `scripts/ci-local.sh
+contract` before you deploy. Take the digest from the release's final
+candidate tag, here `rc.4-v0.21.6`, or from `stable` while the release is the
+newest. The registry's plain `v0.21.6` tag is an older build from an
+abandoned candidate.
 
 Both `hermes-serve` and `hermes-gateway` read from the same `/opt/data`
 volume, so no separate data migration step is expected for a same-major

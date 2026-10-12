@@ -10,7 +10,8 @@ only runtime code.
 The pinned scanner is standard-library Python, so this test runs it in a
 child process, with ``-B`` so no bytecode lands in the pinned checkout, and
 this test process never imports Hermes. ``live/test_hot_mount.py`` checks the
-same verdict through a real install.
+same verdict through a real install, and ``live/test_catalog_validate.py``
+checks it again as one of the catalog validator's checks.
 """
 
 from __future__ import annotations

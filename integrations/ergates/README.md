@@ -17,6 +17,110 @@ See `docs/11-implementation-readiness.md` section 4 and
 `docs/03-technical-design.md` sections 8-9 in the repository root for the
 contracts this package implements.
 
+## What this plugin does on your server
+
+What the plugin does on a Hermes server, for anyone deciding whether to
+install it.
+
+### Network
+
+The plugin makes one kind of network call: an HTTP POST to the ntfy server in
+`ntfy.server`, to the topic in `ntfy.topic`, once per push. With either
+setting unset it makes no call at all. It posts to whatever URL it is given,
+and the token travels in a request header, so set an `https://` URL. A push
+has a fixed body, a title, and a link that holds the session id, the profile
+name and the app's connection id. It never carries message text, a command or
+a tool argument. The plugin contacts no other host.
+
+### What it writes
+
+- `<hermes root>/ergates/control.sqlite3`, the control store, with its `-wal`
+  and `-shm` files. It holds identifiers, states, times and hashes, and no
+  prompt or message text.
+- `<hermes root>/ergates/templates/`, the proposal templates the plugin
+  ships. The plugin copies them there the first time its routes serve a
+  request and keeps the folder equal to what it ships, so it removes any
+  other file in it.
+- A profile's `plugins/ergates` link and its `config.yaml`. When the app
+  calls `POST /setup` or `POST /profiles/{name}/plugin`, or you run
+  `python -m ergates.install`, the plugin links `<profile>/plugins/ergates`
+  to the root's copy and adds `ergates` to that profile's `plugins.enabled`
+  (and takes it out of `plugins.disabled`). It writes that `config.yaml`
+  with Hermes's own `save_config` and changes no setting besides those two
+  lists. A profile whose `plugins/ergates` is a real folder is reported, not
+  replaced.
+- Hermes cron jobs. A reminder that the app or an agent creates (through the
+  `ergates_create_reminder` tool) becomes a job in that profile's Hermes
+  cron.
+
+A process that runs as root on a Hermes root another user owns writes
+nothing there.
+
+### Background work
+
+In each process that loads the plugin's dashboard routes, the plugin starts
+one daemon thread, `ergates-sweep`. Those processes are `hermes serve`,
+Hermes Desktop's backend, a TUI gateway process once it imports Hermes's
+dashboard server, and a plugin host under `plugins.isolation: host`. The
+messaging gateway and cron processes load only the plugin's hooks and tools
+and start no such thread. The first pass runs 5 seconds after the thread
+starts, then one runs every `sweep.interval_seconds` (120 by default; 0 turns
+the thread off). A pass sends the pushes that are due, expires approvals past
+their timeout, applies the retention rules and asks Hermes cron whether each
+reminder's job still exists. Several sweeps on one store are safe: each due
+push goes out once. The approval hook also sends its push on a short-lived
+thread. Besides these threads the plugin starts no process and runs no shell
+command.
+
+### What it reads outside its own data
+
+- The Hermes root's `config.yaml`, for the push and sweep settings, and each
+  profile's `config.yaml`, for the toolsets and MCP servers the profile
+  grants, `attention.completed_platforms` and the time zone.
+- One secret, `ERGATES_NTFY_TOKEN`, from the root's `.env`, through Hermes's
+  `get_secret`. The plugin reads no other name from that file.
+- Hermes's install metadata for the plugin
+  (`<hermes root>/plugins/.install-metadata.json`) and the environment
+  variable `ERGATES_INSTALL_KIND`, so that `GET /health` can say how the
+  plugin was installed. The Compose file in `deploy/` sets the variable.
+- Tool names, session ids and platform names in its hooks, and the `action`
+  of a `cronjob_manage` call. The approval hooks see the pending command and
+  store only its SHA-256 hash. No hook reads message text.
+
+### The ntfy token
+
+`ERGATES_NTFY_TOKEN` is a Hermes plugin secret, and Hermes keeps it in the
+root's `.env`. The plugin sends it only to the ntfy server, in the
+`Authorization` header. Hermes also loads the root's `.env` into the
+environment of the processes it starts for that root, and its local terminal
+backend strips the provider keys it knows but not this name. On a local
+terminal backend, a command the agent runs can therefore read the token. The
+Compose deployment runs commands in Docker with `docker_forward_env: []`,
+which keeps the token out. Whichever backend you use, give the ntfy token
+publish access to that one topic only.
+
+### Tool calls
+
+The `pre_tool_call` hook can only block a tool call. It never approves one,
+and it does not change Hermes's approval settings or answer an approval
+request. It blocks `cronjob_manage` with `action: create` in every profile,
+because agents create reminders through `ergates_create_reminder`. In a
+profile the app provisioned from a role template, it also blocks every tool
+until setup is done and any tool outside the toolsets the profile's
+configuration grants.
+
+### What it never does
+
+The plugin sends no telemetry and no usage data. It never updates itself and
+never downloads code: it checks for no new version, and a newer version
+reaches you only through Hermes (`hermes plugins update`). It uses the Python
+standard library only and declares no dependency.
+
+### Platforms
+
+Linux and macOS. Enabling the plugin in a named profile creates a symlink, so
+Windows is not supported.
+
 ## Layout
 
 ```
@@ -57,14 +161,19 @@ integrations/ergates-tests/
   tests/               # pytest suite, no Hermes needed; test_hermes_boundary.py
                        # fails when a module other than ergates/hermes_adapter.py
                        # or dashboard/api.py imports Hermes
-  contract/            # facts read from the pinned Hermes source as text, and
-                       # Hermes's install scan of this folder
+  contract/            # facts read from the pinned Hermes source as text,
+                       # Hermes's install scan of this folder, and the
+                       # catalog rules the plugin's own files can break
     live/              # the adapter, the routes and the gate run against the
-                       # pinned Hermes itself; `scripts/ci-local.sh contract`
+                       # pinned Hermes itself, and `hermes plugins validate`
+                       # runs on this folder; `scripts/ci-local.sh contract`
                        # runs both suites
 ```
 
 ## Install
+
+The plugin needs Hermes 0.21.6 or later (`requires_hermes` in `plugin.yaml`);
+an older Hermes skips it.
 
 Hermes loads a user plugin from the ACTIVE home's `plugins/` folder, and only
 when that home's `config.yaml` lists it in `plugins.enabled`
@@ -664,3 +773,21 @@ cannot show; `dangerous` blocks the install even with `force`. Both contract
 suites scan the files git tracks in this folder and fail unless the verdict
 is `safe`, and the live hot-mount install runs with the scan on. Keep test
 code and its fixtures in `integrations/ergates-tests`.
+
+The Hermes plugin catalog admits a plugin only when `hermes plugins validate`
+passes on it. The live suite
+(`contract/live/test_catalog_validate.py`) runs that command on the files git
+tracks in this folder, next to the install scan, and fails on any failed
+check or any warning. The command imports the plugin in a scratch process
+and compares what `register()` registers with the tools and hooks
+`plugin.yaml` declares, so declare a new tool or hook there when you add one.
+It also refuses code that replaces or rebinds a Hermes function, method or
+module attribute at runtime, checks that `requires_hermes` parses, and reads
+the dependency declaration (the plugin declares none). The weekly
+`contract-latest` job runs the live suite, and so the validator, against the
+newest Hermes release. `requires_hermes` is the release that `HERMES_PIN`
+names (`HERMES_PIN_VERSION` in
+`integrations/ergates-tests/contract/pinned.py`): move the two together.
+`contract/test_catalog_rules.py` checks that floor, the license and the home
+in `plugin.yaml`, and that the section "What this plugin does on your server"
+names each thing the catalog asks a plugin to disclose.
