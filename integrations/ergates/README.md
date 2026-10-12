@@ -369,9 +369,13 @@ is slow, so `setup` and `push` are reused for 10 seconds (`POST /setup` and
 - The grant (`hermes_adapter.granted_toolsets`) is the toolset pin that
   `profiles.configure` writes, `platform_toolsets.cli` in the profile's
   `config.yaml` (the app sets it from the template), resolved with Hermes's
-  own `_get_platform_tools`, plus the toolset `mcp-<server>` of every MCP
-  server the profile enables. The legacy `tools.enabled_toolsets` counts only
-  when `platform_toolsets.cli` is absent. The grant is read at every tool
+  own `_get_platform_tools`. Hermes's answer also lists the MCP servers an
+  app session gets: none when the list holds `no_mcp`, only the named ones
+  when it names servers, and every enabled server otherwise. Each of those
+  servers adds its toolset `mcp-<server>`. The legacy `tools.enabled_toolsets`
+  counts only when `platform_toolsets.cli` is absent, and then every MCP
+  server the profile enables adds its toolset. A server switched off with the
+  legacy `disabled` key is never granted. The grant is read at every tool
   call, so a toolset or MCP server taken away is blocked at the next call, in
   a running session too. Hermes builds an app session's tools from the same
   list, but `profiles.configure` rebuilds no running session, and gateway

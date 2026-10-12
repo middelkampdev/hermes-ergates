@@ -239,26 +239,117 @@ def test_rule_3_a_pinned_name_grants_the_toolsets_its_tools_are_registered_under
     assert gate("wim", "terminal", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
 
 
-def test_rule_3_an_mcp_server_the_profile_turned_off_is_blocked(gate, provision, configure):
-    from hermes_cli.config import load_config, save_config
+@pytest.fixture
+def mcp_tool():
+    """``mcp_tool(server, tool)`` registers ``tool`` the way Hermes's MCP runtime registers a
+    connected server's tool: under the toolset ``mcp-<server>``, with the server's name as an alias
+    of that toolset (``tools/mcp_tool_registration.py`` ``_register_candidates``). Each one is
+    removed when the test ends, and its alias with it."""
     from tools.registry import registry
 
-    provision("mira", ["web"])
-    with _profile_home("mira"):
+    registered = []
+
+    def register(server: str, tool: str) -> None:
+        registry.register(name=tool, toolset=f"mcp-{server}",
+                          schema={"name": tool, "parameters": {"type": "object", "properties": {}}},
+                          handler=lambda args, **kwargs: "{}")
+        registered.append(tool)
+        registry.register_toolset_alias(server, f"mcp-{server}")
+
+    yield register
+    for tool in registered:
+        registry.deregister(tool)
+
+
+def _edit_config(profile: str, edit) -> None:
+    """Applies ``edit`` to the profile's config with Hermes's own ``load_config`` and ``save_config``."""
+    from hermes_cli.config import load_config, save_config
+
+    with _profile_home(profile):
         config = load_config()
-        config["mcp_servers"] = {"notes": {"url": "https://notes.invalid/mcp"}}
+        edit(config)
         save_config(config)
-    registry.register(name="mcp_notes_search", toolset="mcp-notes",
-                      schema={"name": "mcp_notes_search", "parameters": {"type": "object", "properties": {}}},
-                      handler=lambda args, **kwargs: "{}")
-    try:
-        assert gate("mira", "mcp_notes_search", {}) == []
 
-        configure("mira", enabled_mcp_servers=[])  # Hermes writes `enabled: false` for the server
 
-        assert gate("mira", "mcp_notes_search", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
-    finally:
-        registry.deregister("mcp_notes_search")
+def _url(server: str) -> dict:
+    return {"url": f"https://{server}.invalid/mcp"}
+
+
+def test_rule_3_an_mcp_server_the_profile_turned_off_is_blocked(gate, provision, configure, mcp_tool):
+    provision("mira", ["web"])
+    _edit_config("mira", lambda config: config.update(mcp_servers={"notes": _url("notes")}))
+    mcp_tool("notes", "mcp_notes_search")
+    assert gate("mira", "mcp_notes_search", {}) == []
+
+    configure("mira", enabled_mcp_servers=[])  # Hermes writes `enabled: false` for the server
+
+    assert gate("mira", "mcp_notes_search", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
+
+
+def test_rule_3_no_mcp_in_the_app_pin_blocks_every_mcp_server(gate, provision, mcp_tool):
+    """Hermes gives an app session no MCP server when ``platform_toolsets.cli`` holds ``no_mcp``
+    (``hermes_cli/tools_config.py`` ``_merge_mcp_servers``), and neither does the grant."""
+    provision("teun", ["web"])
+
+    def no_mcp(config):
+        config["mcp_servers"] = {"notes": _url("notes")}
+        config["platform_toolsets"]["cli"] = ["web", "no_mcp"]
+
+    _edit_config("teun", no_mcp)
+    mcp_tool("notes", "mcp_notes_search")
+
+    assert gate("teun", "mcp_notes_search", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
+    assert gate("teun", "web_search", {}) == []
+
+
+def test_rule_3_an_mcp_allowlist_in_the_app_pin_grants_only_the_listed_server(gate, provision, mcp_tool):
+    """A server name in ``platform_toolsets.cli`` makes the list an MCP allowlist for Hermes."""
+    provision("maud", ["web"])
+
+    def allow_notes(config):
+        config["mcp_servers"] = {"notes": _url("notes"), "calendar": _url("calendar")}
+        config["platform_toolsets"]["cli"] = ["web", "notes"]
+
+    _edit_config("maud", allow_notes)
+    mcp_tool("notes", "mcp_notes_search")
+    mcp_tool("calendar", "mcp_calendar_list")
+
+    assert gate("maud", "mcp_notes_search", {}) == []
+    assert gate("maud", "mcp_calendar_list", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
+
+
+def test_rule_3_an_mcp_server_off_by_the_legacy_disabled_key_is_blocked_on_the_app_pin(gate, provision, mcp_tool):
+    """Hermes reads only ``enabled``, so it still selects and connects a server that a config written
+    before v0.21.6 turned off with ``disabled: true`` (until config migration 46 rewrites it). The grant
+    leaves that server out, and its name too: through the alias it would resolve to the server's tools."""
+    provision("femke", ["web"])
+    _edit_config("femke", lambda config: config.update(mcp_servers={"drafts": {**_url("drafts"), "disabled": True}}))
+    mcp_tool("drafts", "mcp_drafts_list")
+
+    assert gate("femke", "mcp_drafts_list", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
+
+
+def test_rule_3_the_legacy_pin_still_grants_every_enabled_mcp_server(gate, provision, mcp_tool):
+    """A profile configured before v0.21.6 pins ``tools.enabled_toolsets``, which no Hermes surface
+    reads, so there is no MCP selection of Hermes's to follow: every enabled server counts, and a
+    server turned off with either key does not."""
+    provision("lars", ["web"])
+
+    def legacy_pin(config):
+        config.pop("platform_toolsets")
+        config["tools"] = {"enabled_toolsets": ["web"]}
+        config["mcp_servers"] = {"notes": _url("notes"), "calendar": {**_url("calendar"), "enabled": False},
+                                 "drafts": {**_url("drafts"), "disabled": True}}
+
+    _edit_config("lars", legacy_pin)
+    mcp_tool("notes", "mcp_notes_search")
+    mcp_tool("calendar", "mcp_calendar_list")
+    mcp_tool("drafts", "mcp_drafts_list")
+
+    assert gate("lars", "mcp_notes_search", {}) == []
+    assert gate("lars", "mcp_calendar_list", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
+    assert gate("lars", "mcp_drafts_list", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
+    assert gate("lars", "terminal", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
 
 
 def test_rule_3_a_grant_hermes_cannot_read_blocks_the_call(gate, provision, root):

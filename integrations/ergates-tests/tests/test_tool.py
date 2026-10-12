@@ -684,14 +684,22 @@ def _cli_list_as_is(config, platform, *, include_default_mcp_servers=True):
     return set(_parse_platform_toolsets_value(config["platform_toolsets"][platform]))
 
 
-def _stub_hermes_grant_modules(monkeypatch, config, *, drop_mcp_reader=False, platform_tools=_cli_list_as_is):
+def _enabled_mcp_server_names(config):
+    """Stand-in for Hermes's ``enabled_mcp_server_names``: every configured server whose ``enabled`` is not false."""
+    servers = config.get("mcp_servers") or {}
+    return {name for name, entry in servers.items() if isinstance(entry, dict) and entry.get("enabled", True) is not False}
+
+
+def _stub_hermes_grant_modules(monkeypatch, config, *, drop_mcp_reader=False, platform_tools=_cli_list_as_is,
+                               mcp_servers=_enabled_mcp_server_names):
     """Fake the Hermes modules ``granted_toolsets`` imports, so its real import
     and config-reading logic runs without a Hermes install. ``drop_mcp_reader``
     leaves ``tools.mcp_tool_common`` without the symbol the grant reads, the
     way a Hermes upgrade that renames or removes it would (v0.21.6 removed the
     one read before, ``tools.mcp_tool_registration._server_enabled``).
-    ``platform_tools`` stands in for ``hermes_cli.tools_config._get_platform_tools``
-    (``None`` leaves it out)."""
+    ``platform_tools`` and ``mcp_servers`` stand in for ``_get_platform_tools``
+    and ``enabled_mcp_server_names`` of ``hermes_cli.tools_config`` (``None``
+    leaves one out)."""
     monkeypatch.setattr(hermes_adapter, "_profile_home", _fake_profile_home)
     hermes_config = types.ModuleType("hermes_cli.config")
     hermes_config.load_config_readonly = lambda: config
@@ -703,6 +711,8 @@ def _stub_hermes_grant_modules(monkeypatch, config, *, drop_mcp_reader=False, pl
     tools_config = types.ModuleType("hermes_cli.tools_config")
     if platform_tools is not None:
         tools_config._get_platform_tools = platform_tools
+    if mcp_servers is not None:
+        tools_config.enabled_mcp_server_names = mcp_servers
     monkeypatch.setitem(sys.modules, "hermes_cli.tools_config", tools_config)
     model_tools = types.ModuleType("model_tools")
     model_tools.get_toolset_for_tool = lambda tool_name: None
@@ -825,13 +835,32 @@ def test_with_both_pins_the_app_pin_decides_and_the_legacy_one_is_ignored(monkey
     assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "terminal"})
 
 
-def test_every_mcp_server_the_profile_enables_adds_its_toolset(monkeypatch):
-    _stub_hermes_grant_modules(monkeypatch, {
-        "platform_toolsets": {"cli": ["web"]},
-        "mcp_servers": {"notes": {}, "off": {"enabled": False}, "legacy": {"disabled": True}, "broken": "x"},
-    })
+MCP_SERVERS = {"notes": {}, "calendar": {}, "off": {"enabled": False}, "legacy": {"disabled": True}, "broken": "x"}
 
-    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "mcp-notes"})
+
+def test_on_the_app_pin_only_the_mcp_servers_hermes_selects_add_their_toolsets(monkeypatch):
+    """Hermes's ``_get_platform_tools`` applies ``no_mcp`` and an MCP allowlist in the list; here
+    it selects ``notes`` and ``legacy``. ``calendar`` is enabled but not selected, and ``legacy``
+    is selected but turned off with the key Hermes no longer reads, so neither its name nor its
+    ``mcp-`` toolset is granted."""
+    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": ["web", "notes", "legacy"]},
+                                             "mcp_servers": MCP_SERVERS})
+
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "notes", "mcp-notes"})
+
+
+def test_on_the_legacy_pin_every_mcp_server_the_profile_enables_adds_its_toolset(monkeypatch):
+    _stub_hermes_grant_modules(monkeypatch, {"tools": {"enabled_toolsets": ["web"]}, "mcp_servers": MCP_SERVERS})
+
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "mcp-notes", "mcp-calendar"})
+
+
+@pytest.mark.parametrize("mcp_servers", [None, _raises], ids=["missing", "raising"])
+def test_a_hermes_mcp_server_reader_that_is_missing_or_raises_blocks(provisioned_thijs, monkeypatch, mcp_servers):
+    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": ["web"]}, "mcp_servers": MCP_SERVERS},
+                               mcp_servers=mcp_servers)
+
+    assert _gate(_RecordingCtx())(tool_name="web_search", args={}) == {"action": "block", "message": BLOCK_UNVERIFIED}
 
 
 def _store_folder_is_a_file(root):

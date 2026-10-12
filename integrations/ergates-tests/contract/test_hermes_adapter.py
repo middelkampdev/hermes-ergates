@@ -449,8 +449,13 @@ def test_the_registry_names_the_toolset_of_a_tool(hermes: PinnedSource) -> None:
 
 
 def test_an_mcp_servers_tools_are_the_toolset_mcp_server_name(hermes: PinnedSource) -> None:
-    # tools/mcp_tool_registration.py:334 (in _register_candidates)
+    # tools/mcp_tool_registration.py:334 and 365-366 (in _register_candidates): the server's
+    # name becomes an alias of that toolset, so it resolves to the server's tools.
     assert hermes.lines(MCP_REGISTRATION, 334, 334) == '    toolset_name = f"mcp-{name}"'
+    assert hermes.lines(MCP_REGISTRATION, 365, 366) == (
+        "    if registered:\n"
+        "        registry.register_toolset_alias(name, toolset_name)"
+    )
     # tools/mcp_tool_common.py:140-144: the one reader of `enabled` (v0.21.6 removed the
     # registration module's private `_server_enabled`, which the adapter read before).
     assert _arguments(hermes.function(MCP_COMMON, "mcp_server_enabled")) == ["cfg"]
@@ -487,6 +492,52 @@ def test_profiles_configure_turns_an_mcp_server_off_with_enabled_false(hermes: P
     )
     assert hermes.lines(MIGRATIONS, 820, 820) == "    (46, _migrate_to_46),"
     assert _arguments(hermes.function(UTILS, "is_truthy_value")) == ["value", "default"]
+
+
+def test_hermes_merges_mcp_servers_with_no_mcp_and_an_allowlist(hermes: PinnedSource) -> None:
+    """On the app pin the grant takes its MCP servers from ``_get_platform_tools(config, "cli")``:
+    ``no_mcp`` in the list selects none, server names in the list select only those, and a list
+    that names no enabled server selects every enabled one. ``enabled_mcp_server_names`` says
+    which servers are enabled: ``enabled`` not false, or added by a portable plugin. It never
+    reads the legacy ``disabled`` key, so the grant still leaves such a server out itself."""
+    function = hermes.function(TOOLS_CONFIG, "enabled_mcp_server_names")
+    assert function.lineno == 410
+    assert _arguments(function) == ["config"]
+    assert ast.unparse(function.returns) == "Set[str]"
+    # hermes_cli/tools_config.py:416-420 and 422-424
+    assert hermes.lines(TOOLS_CONFIG, 416, 420) == (
+        '    mcp_servers = (config or {}).get("mcp_servers") or {}\n'
+        "    names = {\n"
+        "        str(name) for name, server_cfg in mcp_servers.items()\n"
+        "        if isinstance(server_cfg, dict) and mcp_server_enabled(server_cfg)\n"
+        "    }"
+    )
+    assert hermes.lines(TOOLS_CONFIG, 422, 424) == (
+        "        from hermes_cli.plugins import get_portable_mcp_server_names_nowait\n"
+        "        portable = get_portable_mcp_server_names_nowait()\n"
+        "        names |= portable - set(mcp_servers)  # native config wins on a name collision (mirrors _load_mcp_config)"
+    )
+    # hermes_cli/tools_config.py:634-635 (in _get_platform_tools): the list's unknown names go to the merge.
+    assert hermes.lines(TOOLS_CONFIG, 634, 635) == (
+        "    explicit_passthrough = {ts for ts in toolset_names if ts not in explicit_known_keys and ts not in platform_default_keys}\n"
+        "    enabled_toolsets |= _merge_mcp_servers(config, toolset_names, explicit_passthrough, include_default_mcp_servers)"
+    )
+    # hermes_cli/tools_config.py:698-710
+    assert hermes.lines(TOOLS_CONFIG, 698, 710) == (
+        "def _merge_mcp_servers(\n"
+        "    config: dict, toolset_names: List[str], explicit_passthrough: Set[str], include_default_mcp_servers: bool\n"
+        ") -> Set[str]:\n"
+        '    """Explicit passthrough entries plus this platform\'s MCP servers: listed names form an allowlist, else every\n'
+        '    globally enabled server (when ``include_default_mcp_servers``); the ``no_mcp`` sentinel disables all."""\n'
+        "    enabled_mcp_servers = enabled_mcp_server_names(config)\n"
+        "    result = explicit_passthrough - enabled_mcp_servers\n"
+        '    if "no_mcp" in toolset_names:\n'
+        '        return result - {"no_mcp"}\n'
+        "    explicit_mcp_servers = explicit_passthrough & enabled_mcp_servers\n"
+        "    if include_default_mcp_servers and not explicit_mcp_servers:\n"
+        "        return result | enabled_mcp_servers\n"
+        "    return result | explicit_mcp_servers"
+    )
 
 
 # --- the gateway lifecycle guard: check_gateway_lifecycle() ----------------------

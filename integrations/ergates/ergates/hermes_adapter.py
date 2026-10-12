@@ -453,12 +453,17 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
     toolsets. The legacy pin is its names as listed. A granted name whose
     tools Hermes registers under other toolsets (``browser`` bundles
     ``browser-cdp``) grants those toolsets too.
-    Every MCP server the profile's config enables adds its toolset,
-    ``mcp-<server>``: enabled for Hermes
-    (``tools.mcp_tool_common.mcp_server_enabled``: ``enabled``, true unless
-    set) and not switched off with the legacy ``disabled`` key, which
-    ``profiles.configure`` wrote before v0.21.6 and Hermes's own MCP runtime
-    never read.
+    An MCP server's toolset is ``mcp-<server>``. On ``platform_toolsets.cli``
+    it is granted only for a server Hermes selects for ``cli``: the answer of
+    ``_get_platform_tools`` holds the servers an app session gets, after
+    ``no_mcp`` (none) and an allowlist of server names in the list (only
+    those), and ``enabled_mcp_server_names`` tells a server from the other
+    names in it. On the legacy pin, which Hermes no longer reads, every server
+    the config enables counts (``tools.mcp_tool_common.mcp_server_enabled``:
+    ``enabled``, true unless set). Either way a server switched off with the
+    legacy ``disabled`` key, which ``profiles.configure`` wrote before v0.21.6
+    and Hermes's MCP runtime never reads, is left out, and so is its name:
+    once the server connects, its name is an alias of its ``mcp-`` toolset.
 
     ``None`` means the profile pins no toolsets, so Hermes alone decides its
     tools and Ergates cannot tell a narrower grant; outside a Hermes runtime
@@ -480,7 +485,7 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
         from hermes_cli.config import load_config_readonly
     except ImportError:
         return None
-    from hermes_cli.tools_config import _get_platform_tools
+    from hermes_cli.tools_config import _get_platform_tools, enabled_mcp_server_names
     from hermes_cli.toolset_validation import parse_platform_toolsets_value
     from model_tools import get_toolset_for_tool
     from tools.mcp_tool_common import mcp_server_enabled
@@ -498,17 +503,20 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
         if pin is None:
             return None
         key, pinned = pin
+        servers = config.get("mcp_servers")
+        servers = servers if isinstance(servers, dict) else {}
+        legacy_off = {str(server) for server, entry in servers.items()
+                      if isinstance(entry, dict) and is_truthy_value(entry.get("disabled", False))}
         if key == _APP_PIN:
             # Read-only: _get_platform_tools never writes to the config it is given.
-            pinned = _get_platform_tools(config, _APP_PLATFORM, include_default_mcp_servers=True)
-        granted = toolsets_granted_by(pinned)
-        servers = config.get("mcp_servers")
-        if isinstance(servers, dict):
-            granted.update(
-                f"mcp-{server}" for server, entry in servers.items()
-                if isinstance(entry, dict) and mcp_server_enabled(entry)
-                and not is_truthy_value(entry.get("disabled", False))
-            )
+            selected = set(_get_platform_tools(config, _APP_PLATFORM, include_default_mcp_servers=True)) - legacy_off
+            granted = toolsets_granted_by(selected)
+            granted_servers = selected & enabled_mcp_server_names(config)
+        else:
+            granted = toolsets_granted_by(pinned)
+            granted_servers = {str(server) for server, entry in servers.items()
+                               if isinstance(entry, dict) and mcp_server_enabled(entry)} - legacy_off
+        granted.update(f"mcp-{server}" for server in granted_servers)
     return frozenset(granted)
 
 
