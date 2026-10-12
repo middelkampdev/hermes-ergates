@@ -9,7 +9,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { collectProposals, proposalView, provisionAgent, provisionDeps, provisionOnce, rosterKey, shouldForgetRun, type ProposalView, type ProvisionOutcome } from '@/features/agents'
+import { collectProposals, proposalView, provisionAgent, provisionDeps, provisionOnce, rosterKey, shouldForgetRun, shouldReloadReceipt, type ProposalView, type ProvisionOutcome } from '@/features/agents'
 import type { PluginNotice } from '@/features/server'
 import type { AgentProposal, ProvisionStep } from '@/gateway/types'
 import { useDeviceStore } from '@/state/device-store'
@@ -108,6 +108,18 @@ export function useProposal(proposal: AgentProposal, notice: PluginNotice | null
     }
   }, [receiptData, receiptErr, busy, removeRun, id])
 
+  // The card closed on the server check's notice and its button sent the user to set the server up: read the receipt again once the notice is gone.
+  const hasNotice = notice !== null
+  const hadNotice = useRef(hasNotice)
+  const refetchReceipt = receipt.refetch
+  useEffect(() => {
+    const reload = shouldReloadReceipt(hadNotice.current, hasNotice, receiptErr)
+    hadNotice.current = hasNotice
+    if (reload) {
+      void refetchReceipt()
+    }
+  }, [hasNotice, receiptErr, refetchReceipt])
+
   const reject = useCallback(async () => {
     setBusy(true)
     try {
@@ -123,13 +135,12 @@ export function useProposal(proposal: AgentProposal, notice: PluginNotice | null
     }
   }, [client, connectionId, id, port, removeRun])
 
-  const refetch = receipt.refetch
   return {
     view: proposalView({ proposal, receipt: receipt.data, receiptError: receipt.error, step, outcome, busy, notice }),
     accept: () => run(false),
     reject,
     retry: () => run(false),
     resendBriefing: () => run(true),
-    reload: () => void refetch()
+    reload: () => void refetchReceipt()
   }
 }

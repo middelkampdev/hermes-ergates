@@ -93,10 +93,10 @@ function RoutineEditor({
   const mutations = useRoutineMutations(gateway, connection.id, profile)
   const createReminder = useCreateReminder(gateway, connection.id, profile)
   const [notice, setNotice] = useState<ReminderResult | null>(null)
-  // A new routine goes through the plugin: while the server check finds it unable to, the form says so instead of failing on Save.
+  // A new routine goes through the plugin: while the server check finds it unable to, the form says so instead of failing on Save. Editing uses Hermes's own cron, so it asks nothing.
   const build = useMemo(() => buildRecord(), [])
-  const serverCheck = useServerCheck(connection, build)
-  const serverNotice = isNew ? pluginNotice(serverCheck.data) : null
+  const serverCheck = useServerCheck(isNew ? connection : null, build)
+  const serverNotice = pluginNotice(serverCheck.data)
   const setupAction = serverNotice?.action ?? null
   const runs = useRoutineRuns(gateway, connection.id, profile, isNew ? null : id)
   const tz = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])

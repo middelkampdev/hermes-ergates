@@ -10,7 +10,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native'
 
 import { draftFromPrefs, prefsFromDraft, scopeLabel, useAttentionPrefs, type PrefsDraft } from '@/features/attention'
-import { pluginNotice, useServerCheck, type NoticeRoute } from '@/features/server'
+import { noticeForError, pluginNotice, useServerCheck, type NoticeRoute } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
 import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
@@ -44,10 +44,10 @@ function Notifications({ connection, profile, onClose, onOpenSetup }: Notificati
   const theme = useTheme()
   const gateway = useGateway(connection)
   const { prefs, save } = useAttentionPrefs(gateway, connection.id, profile)
-  // When the settings cannot be read, the server check says whether the plugin is the reason.
+  // When the settings cannot be read, the server check says whether the plugin is the reason (a lost connection or a refused session keeps its own message).
   const build = useMemo(() => buildRecord(), [])
   const serverCheck = useServerCheck(connection, build)
-  const serverNotice = pluginNotice(serverCheck.data)
+  const serverNotice = noticeForError(pluginNotice(serverCheck.data), prefs.error)
   const setupAction = serverNotice?.action ?? null
   const [draft, setDraft] = useState<PrefsDraft | null>(null)
   const [error, setError] = useState<string | null>(null)

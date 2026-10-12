@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest'
 
 import { FAKE_PLUGIN_HEALTH } from '@test/fake-gateway/fake-ergates'
 
-import { MISSING_NOTICE, pluginNotice, pluginRowSubtitle } from './plugin-notice'
+import { GatewayError } from '@/gateway/errors'
+
+import { MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle } from './plugin-notice'
 import type { ServerCheck } from './server-check'
 
 const health = FAKE_PLUGIN_HEALTH
@@ -78,5 +80,25 @@ describe('pluginRowSubtitle', () => {
 
   it('keeps the last answer when a later check fails', () => {
     expect(pluginRowSubtitle(ready, true)).toBe(health.plugin_version)
+  })
+})
+
+describe('noticeForError', () => {
+  const notice = pluginNotice(missing)
+
+  it('keeps the notice for an error the plugin can cause', () => {
+    for (const error of [new GatewayError('not_found', 'Not Found', { status: 404 }), new GatewayError('unknown', 'Something broke.'), new GatewayError('forbidden', 'No.'), new Error('plain')]) {
+      expect(noticeForError(notice, error)).toBe(notice)
+    }
+  })
+
+  it('leaves a lost connection, a timeout and a refused session to their own message', () => {
+    for (const kind of ['network', 'timeout', 'unauthorized'] as const) {
+      expect(noticeForError(notice, new GatewayError(kind, 'x'))).toBeNull()
+    }
+  })
+
+  it('has nothing to show without a notice', () => {
+    expect(noticeForError(null, new GatewayError('not_found', 'Not Found', { status: 404 }))).toBeNull()
   })
 })

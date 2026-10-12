@@ -4,7 +4,7 @@
  * never Markdown, an attachment, or a clarify option that claims to be one.
  */
 
-import { MISSING_NOTICE, type PluginNotice } from '@/features/server'
+import type { PluginNotice } from '@/features/server'
 import { isGatewayError, userMessage } from '@/gateway/errors'
 import { PROVISION_STEPS, type AgentProposal, type ProposalReceipt, type ProvisionStep } from '@/gateway/types'
 
@@ -161,8 +161,8 @@ export function proposalView({ proposal, receipt, receiptError, step, outcome, b
       if (receiptError.code === 'not_found') {
         return { hidden: true, status: 'closed', text: null, actions: [] }
       }
-      // The button belongs to the notice the card was given; the fallback words come without one.
-      return notice ? view('closed', notice.text, notice.action ? ['server_setup'] : []) : view('closed', MISSING_NOTICE.text)
+      // Only the server check knows why the route is missing. Without its notice (the plugin is ready, or the check has not answered) the card claims nothing and lets the user read again.
+      return notice ? view('closed', notice.text, notice.action ? ['server_setup'] : []) : view('failed', 'This proposal could not be loaded.', ['reload'])
     }
     return view('failed', userMessage(receiptError), ['reload'])
   }
@@ -194,4 +194,13 @@ export function shouldForgetRun(receipt: ProposalReceipt | undefined, receiptErr
   // Matches the `hidden` branch above: an Ergates `not_found` code means the
   // server pruned the receipt; a bare 404 means the route itself is missing.
   return isGatewayError(receiptError) && receiptError.kind === 'not_found' && receiptError.code === 'not_found'
+}
+
+/**
+ * Whether the card reads its receipt again: the notice that explained a failed
+ * read is gone (the user set the server up from the card's button), so the
+ * failure it explained may be gone too. Once per change of the notice.
+ */
+export function shouldReloadReceipt(hadNotice: boolean, hasNotice: boolean, receiptError: unknown): boolean {
+  return hadNotice && !hasNotice && Boolean(receiptError)
 }

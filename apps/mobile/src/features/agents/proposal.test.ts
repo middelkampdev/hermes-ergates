@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { GatewayError } from '@/gateway/errors'
 import type { AgentProposal, ProposalReceipt } from '@/gateway/types'
 
-import { collectProposals, proposalView, shouldForgetRun, PROPOSE_TOOL, type ProposalViewInput } from './proposal'
+import { collectProposals, proposalView, shouldForgetRun, shouldReloadReceipt, PROPOSE_TOOL, type ProposalViewInput } from './proposal'
 
 const proposal = (id: string, name = 'pim'): AgentProposal => ({
   kind: 'ergates.agent-proposal.v1',
@@ -90,8 +90,13 @@ describe('proposalView', () => {
       expect(proposalView(input({ receiptError: missing, notice }))).toEqual({ hidden: false, status: 'closed', text: notice.text, actions: [] })
     })
 
-    it('says the plugin is not set up while the server check has no notice', () => {
-      expect(proposalView(input({ receiptError: missing, notice: null }))).toEqual({ hidden: false, status: 'closed', text: 'Ergates is not set up on this server.', actions: [] })
+    it('does not claim the plugin is missing when the server check has no notice, and offers a reload', () => {
+      expect(proposalView(input({ receiptError: missing, notice: null }))).toEqual({
+        hidden: false,
+        status: 'failed',
+        text: 'This proposal could not be loaded.',
+        actions: ['reload']
+      })
     })
 
     it('keeps its Ergates not_found hidden, whatever the notice says', () => {
@@ -176,5 +181,24 @@ describe('shouldForgetRun', () => {
     expect(shouldForgetRun(undefined, missingPlugin)).toBe(false)
     expect(shouldForgetRun(undefined, offline)).toBe(false)
     expect(shouldForgetRun(undefined, null)).toBe(false)
+  })
+})
+
+describe('shouldReloadReceipt', () => {
+  const failed = new GatewayError('not_found', 'Not Found', { status: 404 })
+
+  it('reloads once the notice that closed the card is gone and the receipt read had failed', () => {
+    expect(shouldReloadReceipt(true, false, failed)).toBe(true)
+  })
+
+  it('does not reload while the notice stays, appears for the first time, or was never there', () => {
+    expect(shouldReloadReceipt(true, true, failed)).toBe(false)
+    expect(shouldReloadReceipt(false, true, failed)).toBe(false)
+    expect(shouldReloadReceipt(false, false, failed)).toBe(false)
+  })
+
+  it('does not reload a receipt that read fine', () => {
+    expect(shouldReloadReceipt(true, false, null)).toBe(false)
+    expect(shouldReloadReceipt(true, false, undefined)).toBe(false)
   })
 })

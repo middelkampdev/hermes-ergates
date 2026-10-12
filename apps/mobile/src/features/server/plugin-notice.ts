@@ -6,6 +6,8 @@
  * "Not found". Pure: the screens render this.
  */
 
+import { isGatewayError } from '@/gateway/errors'
+
 import type { ServerCheck } from './server-check'
 
 /** The screens a notice can lead to: the setup screen and the Finish screen. */
@@ -64,4 +66,14 @@ export function pluginRowSubtitle(check: ServerCheck | undefined, failed: boolea
     return notice.text
   }
   return check === undefined && !failed ? 'Checking…' : 'Could not check'
+}
+
+/**
+ * The notice to show in place of a failed read's own message, or null to keep
+ * that message. A lost connection, a timeout and a refused session say
+ * something the notice does not (it may be out of date), so they keep theirs.
+ */
+export function noticeForError(notice: PluginNotice | null, error: unknown): PluginNotice | null {
+  const keepsOwnMessage = isGatewayError(error) && (error.kind === 'network' || error.kind === 'timeout' || error.kind === 'unauthorized')
+  return keepsOwnMessage ? null : notice
 }
