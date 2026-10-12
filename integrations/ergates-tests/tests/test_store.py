@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 import stat
 import subprocess
@@ -13,14 +14,18 @@ from pathlib import Path
 
 import pytest
 
-from conftest import rows
+from conftest import HERMES_UID, rows
 from ergates import store as store_module
-from ergates.store import MIGRATIONS, SCHEMA_VERSION, ControlStore, StoreError, root_run_would_break
+from ergates.paths import store_path
+from ergates.store import (
+    MIGRATIONS, MIN_SCHEMA_KEY, ROOT_REFUSAL, SCHEMA_VERSION, ControlStore, Migration, StoreError, StoreReadOnly,
+    root_run_would_break,
+)
 
 PLUGIN_DIR = Path(__file__).resolve().parents[2] / "ergates"
 TABLES = {
     "reminder_receipts", "proposal_receipts", "proposal_steps",
-    "attention_events", "attention_outbox", "attention_prefs",
+    "attention_events", "attention_outbox", "attention_prefs", "store_meta",
 }
 
 
@@ -31,8 +36,14 @@ def _add_prefs(conn: sqlite3.Connection, profile: str, now: float = 1.0) -> None
 
 
 def test_a_new_store_is_at_the_current_schema_version(store):
-    assert SCHEMA_VERSION == 1 == len(MIGRATIONS)
+    assert SCHEMA_VERSION == len(MIGRATIONS)
     assert store.schema_version == SCHEMA_VERSION
+
+
+def test_a_new_store_is_at_schema_2_with_the_oldest_plugin_marker_2(tmp_path):
+    store = ControlStore(tmp_path / "s.sqlite3")
+
+    assert (store.schema_version, store.min_schema_version, store.writable) == (2, 2, True)
 
 
 def test_a_new_store_has_every_table(store):
@@ -60,148 +71,74 @@ def test_the_store_file_and_folder_are_private(store):
     assert stat.S_IMODE(os.stat(store.path.parent).st_mode) == 0o700
 
 
-HERMES_OWNER = (4242, 4343)
+def _tree(folder: Path) -> dict:
+    """Every path under ``folder`` with its bytes, ``None`` for a folder."""
+    return {path.relative_to(folder): None if path.is_dir() else path.read_bytes() for path in folder.rglob("*")}
 
 
-@pytest.fixture
-def as_root(tmp_path, monkeypatch):
-    """This process runs as root, and the Hermes root ``tmp_path`` belongs to ``HERMES_OWNER``.
+@pytest.mark.parametrize("existing_store", [False, True], ids=["fresh root", "existing store"])
+def test_root_on_a_hermes_root_another_user_owns_opens_no_store_and_creates_nothing(tmp_path, as_root, monkeypatch,
+                                                                                    existing_store):
+    """Root writes nothing into a Hermes root another user owns: SQLite would make the -wal and -shm files root's,
+    and that user's processes could no longer open the store."""
+    if existing_store:
+        monkeypatch.setattr(os, "geteuid", lambda: HERMES_UID)
+        ControlStore(store_path(tmp_path)).close()
+        monkeypatch.setattr(os, "geteuid", lambda: 0)
+    before = _tree(tmp_path)
 
-    Returns the list of ``(path, uid, gid)`` calls to ``os.chown``, which is
-    recorded instead of run.
-    """
-    real_stat = os.stat
+    with pytest.raises(StoreError, match=f"^{re.escape(ROOT_REFUSAL)}$"):
+        ControlStore(store_path(tmp_path))
 
-    def stat_with_hermes_owner(path, *args, **kwargs):
-        result = real_stat(path, *args, **kwargs)
-        if not isinstance(path, (str, os.PathLike)) or Path(path) != tmp_path:
-            return result
-        values = list(result)
-        values[4], values[5] = HERMES_OWNER
-        return os.stat_result(values)
-
-    calls: list[tuple[Path, int, int]] = []
-    monkeypatch.setattr(os, "geteuid", lambda: 0)
-    monkeypatch.setattr(os, "stat", stat_with_hermes_owner)
-    monkeypatch.setattr(os, "chown", lambda path, uid, gid: calls.append((Path(path), uid, gid)))
-    return calls
+    assert ROOT_REFUSAL == "run hermes serve as the owner of the Hermes root"
+    assert _tree(tmp_path) == before
+    assert as_root.owner_changes == []
 
 
-def test_a_store_created_by_root_belongs_to_the_owner_of_the_hermes_root(tmp_path, as_root):
-    """A root `docker compose exec ... python -m ergates.flush` that runs before
-    any Hermes service must not leave a store the `hermes` user cannot open."""
-    path = tmp_path / "ergates" / "control.sqlite3"
-
-    ControlStore(path)
-
-    assert as_root == [(path.parent, *HERMES_OWNER), (path, *HERMES_OWNER)]
+def _root_on_its_own_hermes_root(as_root, monkeypatch):
+    as_root.root_owner = 0
 
 
-def test_root_also_hands_over_the_wal_files_sqlite_created_in_that_call(tmp_path, as_root, monkeypatch):
-    """Another connection that stays open keeps -wal and -shm on disk after the store is created."""
-    path = tmp_path / "ergates" / "control.sqlite3"
-    keeper: list[sqlite3.Connection] = []
-    use_wal = ControlStore._use_wal
-
-    def use_wal_then_hold_the_file_open(self, conn):
-        use_wal(self, conn)
-        keeper.append(sqlite3.connect(path))
-        keeper[0].execute("SELECT count(*) FROM sqlite_master").fetchone()
-
-    monkeypatch.setattr(ControlStore, "_use_wal", use_wal_then_hold_the_file_open)
-    try:
-        ControlStore(path)
-        wal, shm = (path.with_name(path.name + suffix) for suffix in ("-wal", "-shm"))
-        assert wal.exists() and shm.exists()
-    finally:
-        keeper[0].close()
-
-    assert as_root == [(path.parent, *HERMES_OWNER), (path, *HERMES_OWNER), (wal, *HERMES_OWNER),
-                       (shm, *HERMES_OWNER)]
+def _not_root(as_root, monkeypatch):
+    monkeypatch.setattr(os, "geteuid", lambda: HERMES_UID)
 
 
-def test_a_file_that_vanished_before_its_chown_is_skipped(tmp_path, monkeypatch):
-    """A -wal or -shm file disappears when the last connection closes."""
-    monkeypatch.setattr(os, "geteuid", lambda: 0)
-
-    def chown_a_vanished_file(path, uid, gid):
-        raise FileNotFoundError(path)
-
-    monkeypatch.setattr(os, "chown", chown_a_vanished_file)
-
-    assert ControlStore(tmp_path / "ergates" / "control.sqlite3").schema_version == SCHEMA_VERSION
+def _no_geteuid(as_root, monkeypatch):
+    monkeypatch.delattr(os, "geteuid")
 
 
-def test_root_without_the_right_to_change_owners_warns_and_continues(tmp_path, as_root, monkeypatch, caplog):
-    """A rootless container's root has no CAP_CHOWN. Hermes's own container setup
-    warns and continues when its chown fails; so does the store."""
-    def chown_refused(path, uid, gid):
-        raise PermissionError(1, "Operation not permitted")
+@pytest.mark.parametrize("process", [_root_on_its_own_hermes_root, _not_root, _no_geteuid],
+                         ids=["root on a root it owns", "not root", "no geteuid"])
+def test_every_other_process_opens_the_store_as_before_and_changes_no_owner(tmp_path, as_root, monkeypatch, process):
+    process(as_root, monkeypatch)
 
-    monkeypatch.setattr(os, "chown", chown_refused)
+    store = ControlStore(store_path(tmp_path))
+    with store.transaction() as conn:
+        _add_prefs(conn, "thijs")
 
-    assert ControlStore(tmp_path / "ergates" / "control.sqlite3").schema_version == SCHEMA_VERSION
-    assert "could not hand ergates to the Hermes user (PermissionError)" in caplog.text
-    assert str(tmp_path) not in caplog.text
+    assert store.schema_version == SCHEMA_VERSION
+    assert stat.S_IMODE(os.lstat(store.path).st_mode) == 0o600
+    assert as_root.owner_changes == []
 
 
 def test_a_root_run_breaks_only_a_hermes_root_that_another_user_owns(tmp_path, as_root, monkeypatch):
-    """SQLite creates -wal and -shm as the user that opens the store and does not
-    hand them over, so root must not open a store the Hermes user owns."""
     assert root_run_would_break(tmp_path) is True
 
-    real_stat = os.stat
-
-    def owned_by_root(path, *args, **kwargs):
-        values = list(real_stat(path, *args, **kwargs))
-        values[4] = values[5] = 0
-        return os.stat_result(values)
-
-    monkeypatch.setattr(os, "stat", owned_by_root)
+    as_root.root_owner = 0
     assert root_run_would_break(tmp_path) is False  # root owns the Hermes root, so root is the Hermes user
 
-    monkeypatch.setattr(os, "geteuid", lambda: 1000)
+    assert root_run_would_break(tmp_path / "not-there-yet") is False  # root would make it its own
+
+    monkeypatch.setattr(os, "geteuid", lambda: HERMES_UID)
     assert root_run_would_break(tmp_path) is False
 
     monkeypatch.delattr(os, "geteuid")
     assert root_run_would_break(tmp_path) is False
 
 
-def test_a_store_created_by_another_user_changes_no_owner(tmp_path, as_root, monkeypatch):
-    monkeypatch.setattr(os, "geteuid", lambda: 1000)
-
-    ControlStore(tmp_path / "ergates" / "control.sqlite3")
-
-    assert as_root == []
-
-
-def test_a_platform_without_geteuid_changes_no_owner(tmp_path, as_root, monkeypatch):
-    monkeypatch.delattr(os, "geteuid")
-
-    ControlStore(tmp_path / "ergates" / "control.sqlite3")
-
-    assert as_root == []
-
-
-def test_root_leaves_an_existing_store_alone(tmp_path, monkeypatch):
-    path = tmp_path / "ergates" / "control.sqlite3"
-    ControlStore(path)
-    calls = []
-    monkeypatch.setattr(os, "geteuid", lambda: 0)
-    monkeypatch.setattr(os, "chown", lambda *args: calls.append(args))
-
-    ControlStore(path)
-
-    assert calls == []
-
-
-def test_root_leaves_an_existing_folder_alone_and_hands_over_only_the_new_file(tmp_path, as_root):
-    path = tmp_path / "ergates" / "control.sqlite3"
-    path.parent.mkdir()
-
-    ControlStore(path)
-
-    assert as_root == [(path, *HERMES_OWNER)]
+def test_root_creates_a_missing_hermes_root_as_its_own(tmp_path, as_root):
+    """A root that does not exist yet has no other owner: root makes it, and it is root's."""
+    assert ControlStore(store_path(tmp_path / "new-root")).schema_version == SCHEMA_VERSION
 
 
 def test_reopening_keeps_the_data_and_does_not_migrate_again(store):
@@ -214,25 +151,190 @@ def test_reopening_keeps_the_data_and_does_not_migrate_again(store):
     assert [row["profile"] for row in rows(again, "attention_prefs")] == ["thijs"]
 
 
-def test_a_schema_written_by_a_newer_plugin_is_refused(store):
-    with store.transaction() as conn:
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+def _schema_1_store(path: Path) -> None:
+    """The store as plugin 0.2.0 leaves it: schema 1 in WAL mode, with one prefs row for ``thijs``."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    conn = sqlite3.connect(path, isolation_level=None)
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("BEGIN")
+        for statement in MIGRATIONS[0].statements:
+            conn.execute(statement)
+        conn.execute("PRAGMA user_version = 1")
+        _add_prefs(conn, "thijs")
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
 
-    with pytest.raises(StoreError, match="upgrade the plugin"):
-        ControlStore(store.path)
+
+def _file_state(path: Path) -> tuple[int, set[str], list[str]]:
+    """``(user_version, table names, attention_prefs profiles)``, read straight from the file."""
+    conn = sqlite3.connect(path)
+    try:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        profiles = [row[0] for row in conn.execute("SELECT profile FROM attention_prefs")] if tables else []
+    finally:
+        conn.close()
+    return version, tables, profiles
+
+
+def _store_moved_on_by_a_newer_plugin(path: Path, *, version: int, marker: str | None) -> None:
+    """Take the store at ``path`` to ``version`` the way a newer plugin would, with one table this
+    plugin does not know. ``marker`` is the new ``min_schema_version`` value; ``None`` leaves it."""
+    with ControlStore(path).transaction() as conn:
+        conn.execute("CREATE TABLE added_by_a_newer_plugin (value TEXT)")
+        if marker is not None:
+            conn.execute("UPDATE store_meta SET value = ? WHERE key = ?", (marker, MIN_SCHEMA_KEY))
+        conn.execute(f"PRAGMA user_version = {version}")
+
+
+def test_a_schema_1_store_migrates_to_2_and_keeps_its_rows(tmp_path):
+    path = tmp_path / "ergates" / "control.sqlite3"
+    _schema_1_store(path)
+
+    store = ControlStore(path)
+
+    assert (store.schema_version, store.min_schema_version, store.writable) == (2, 2, True)
+    assert [row["profile"] for row in rows(store, "attention_prefs")] == ["thijs"]
+
+
+def test_a_failing_migration_leaves_a_schema_1_store_as_it_was(tmp_path, monkeypatch):
+    path = tmp_path / "ergates" / "control.sqlite3"
+    _schema_1_store(path)
+    before = _file_state(path)
+    broken_v2 = Migration((*MIGRATIONS[1].statements, "CREATE TABLE attention_prefs (profile TEXT)"))
+    monkeypatch.setattr(store_module, "MIGRATIONS", (MIGRATIONS[0], broken_v2))
+
+    with pytest.raises(sqlite3.OperationalError, match="already exists"):
+        ControlStore(path)
+
+    assert before == (1, TABLES - {"store_meta"}, ["thijs"])
+    assert _file_state(path) == before
 
 
 def test_a_failing_migration_leaves_an_empty_file_at_version_zero(tmp_path, monkeypatch):
-    broken = ((*MIGRATIONS[0], "CREATE TABLE attention_prefs (profile TEXT)"),)
-    monkeypatch.setattr(store_module, "MIGRATIONS", broken)
+    """Every missing version runs in one transaction: v1 is rolled back with the v2 that failed."""
+    broken_v2 = Migration((*MIGRATIONS[1].statements, "CREATE TABLE attention_prefs (profile TEXT)"))
+    monkeypatch.setattr(store_module, "MIGRATIONS", (MIGRATIONS[0], broken_v2))
     path = tmp_path / "ergates" / "control.sqlite3"
 
     with pytest.raises(sqlite3.OperationalError, match="already exists"):
         ControlStore(path)
 
+    assert _file_state(path) == (0, set(), [])
     monkeypatch.undo()
     reopened = ControlStore(path)
     assert reopened.schema_version == SCHEMA_VERSION
+
+
+def test_a_newer_additive_store_opens_writable_and_is_not_migrated(tmp_path):
+    path = tmp_path / "ergates" / "control.sqlite3"
+    _store_moved_on_by_a_newer_plugin(path, version=3, marker=None)
+
+    store = ControlStore(path)
+    with store.transaction() as conn:
+        _add_prefs(conn, "nora")
+
+    assert (store.schema_version, store.min_schema_version, store.writable) == (3, 2, True)
+    assert [row["profile"] for row in rows(store, "attention_prefs")] == ["nora"]
+    assert rows(store, "added_by_a_newer_plugin") == []
+
+
+def test_a_newer_store_whose_marker_is_past_this_plugin_refuses_writes_and_still_reads(tmp_path, caplog):
+    path = tmp_path / "ergates" / "control.sqlite3"
+    with ControlStore(path).transaction() as conn:
+        _add_prefs(conn, "thijs")
+    _store_moved_on_by_a_newer_plugin(path, version=4, marker="4")
+
+    with caplog.at_level("WARNING", logger="ergates.store"):
+        store = ControlStore(path)
+        with pytest.raises(StoreReadOnly):
+            with store.transaction() as conn:
+                _add_prefs(conn, "nora")
+        with pytest.raises(StoreReadOnly):
+            with store.transaction():
+                pass
+
+    assert (store.schema_version, store.min_schema_version, store.writable) == (4, 4, False)
+    assert [row["profile"] for row in rows(store, "attention_prefs")] == ["thijs"]
+    assert issubclass(StoreReadOnly, StoreError)
+    warnings = [record.getMessage() for record in caplog.records if record.name == "ergates.store"]
+    assert len(warnings) == 1
+    assert "4" in warnings[0] and str(tmp_path) not in warnings[0]
+
+
+@pytest.mark.parametrize("remove_the_marker", [
+    "DROP TABLE store_meta",
+    f"DELETE FROM store_meta WHERE key = '{MIN_SCHEMA_KEY}'",
+    f"UPDATE store_meta SET value = 'two' WHERE key = '{MIN_SCHEMA_KEY}'",
+    f"UPDATE store_meta SET value = '' WHERE key = '{MIN_SCHEMA_KEY}'",
+    f"UPDATE store_meta SET value = X'32' WHERE key = '{MIN_SCHEMA_KEY}'",
+], ids=["no-table", "no-row", "not-a-number", "empty", "blob"])
+def test_a_newer_store_without_a_marker_is_read_only(tmp_path, remove_the_marker):
+    """Without a marker it can read, this plugin cannot tell which writes the newer one allows."""
+    path = tmp_path / "ergates" / "control.sqlite3"
+    with ControlStore(path).transaction() as conn:
+        _add_prefs(conn, "thijs")
+        conn.execute(remove_the_marker)
+        conn.execute("PRAGMA user_version = 3")
+
+    store = ControlStore(path)
+
+    assert (store.schema_version, store.min_schema_version, store.writable) == (3, 3, False)
+    assert [row["profile"] for row in rows(store, "attention_prefs")] == ["thijs"]
+    with pytest.raises(StoreReadOnly):
+        with store.transaction():
+            pass
+
+
+def test_a_store_a_newer_plugin_moves_on_while_this_one_has_it_open_refuses_further_writes(store):
+    """Profiles can run different plugin copies on one store, and a running process keeps
+    its plugin code until it restarts: a store opened writable can become read-only."""
+    _store_moved_on_by_a_newer_plugin(store.path, version=4, marker="4")
+
+    with pytest.raises(StoreReadOnly):
+        with store.transaction() as conn:
+            _add_prefs(conn, "nora")
+
+    assert store.writable is False
+    assert rows(store, "attention_prefs") == []
+
+
+_ADDITIVE_STATEMENT = re.compile(
+    r"(CREATE TABLE|CREATE (UNIQUE )?INDEX|ALTER TABLE \w+ ADD COLUMN|INSERT INTO store_meta)\b"
+)
+
+
+def test_every_additive_migration_only_adds():
+    """An older plugin keeps reading and writing a store an additive migration changed,
+    so such a migration may only add: tables, indexes, columns that need no value, and
+    ``store_meta`` rows."""
+    for version, migration in enumerate(MIGRATIONS, start=1):
+        if not migration.additive:
+            continue
+        for statement in migration.statements:
+            flat = " ".join(statement.split())
+            assert _ADDITIVE_STATEMENT.match(flat), (version, flat)
+            if " ADD COLUMN " in flat:
+                assert "NOT NULL" not in flat.upper() or "DEFAULT" in flat.upper(), (version, flat)
+
+
+def test_a_non_additive_migration_raises_the_marker_to_its_version(tmp_path, monkeypatch):
+    path = tmp_path / "ergates" / "control.sqlite3"
+    with ControlStore(path).transaction() as conn:
+        _add_prefs(conn, "thijs")
+    not_additive = Migration(("CREATE TABLE x (a)",), additive=False)
+    monkeypatch.setattr(store_module, "MIGRATIONS", MIGRATIONS + (not_additive,))
+    monkeypatch.setattr(store_module, "SCHEMA_VERSION", 3)
+
+    newer = ControlStore(path)
+
+    assert (newer.schema_version, newer.min_schema_version, newer.writable) == (3, 3, True)
+    monkeypatch.undo()
+    older = ControlStore(path)
+    assert (older.min_schema_version, older.writable) == (3, False)
+    assert [row["profile"] for row in rows(older, "attention_prefs")] == ["thijs"]
 
 
 def test_a_transaction_commits_on_success(store):
@@ -368,7 +470,7 @@ def test_two_processes_open_a_fresh_store_at_the_same_moment(tmp_path):
     results = [worker.communicate(timeout=30) for worker in workers]
 
     assert [worker.returncode for worker in workers] == [0, 0], results
-    assert [out.strip() for out, _err in results] == ["1", "1"]
+    assert [out.strip() for out, _err in results] == [str(SCHEMA_VERSION)] * 2
 
 
 def test_a_closed_store_refuses_further_use(store):

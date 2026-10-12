@@ -1,6 +1,11 @@
 name: ergates
 label: Ergates
 version: 0.2.0
+license: MIT
+homepage: https://github.com/middelkampdev/hermes-ergates
+# The release the plugin is tested against, the floor the catalog expects (a SemVer floor, never newer
+# than the current Hermes release). Moves with the pin: integrations/ergates-tests/contract/pinned.py.
+requires_hermes: ">=0.21.6"
 description: >-
   Server side of the Ergates mobile companion: agent proposals, reminders that
   a retry never duplicates, a tool gate, and approval and finished-routine
@@ -13,3 +18,29 @@ provides_hooks:
   - pre_approval_request
   - post_approval_response
   - post_llm_call
+# Hermes's settings form for this plugin. The ntfy.* and sweep.* keys are read
+# from the Hermes root's config.yaml only; attention.* from each profile's own.
+# The token is a secret: Hermes keeps it in .env as ERGATES_NTFY_TOKEN, never
+# in config.yaml. Push is optional, so there is no requires_env.
+config_schema:
+  ntfy.server:
+    type: str
+    description: "ntfy server base URL; push is off until it and ntfy.topic are set."
+  ntfy.topic:
+    type: str
+    description: "ntfy topic that approval and finished-routine pushes go to."
+  ntfy.connection_id:
+    type: str
+    description: "The app's connection id, which the push's deep link carries."
+  ntfy.token:
+    type: secret
+    env: ERGATES_NTFY_TOKEN
+    description: "ntfy publish token (Bearer), or user:pass for Basic, in the Hermes root's .env."
+  sweep.interval_seconds:
+    type: int
+    default: 120
+    description: "Seconds between two sweeps inside hermes serve; 0 turns the sweep off."
+  attention.completed_platforms:
+    type: list
+    default: [cron]
+    description: "Platforms whose finished turns push \"A routine finished\"; [] turns them off."

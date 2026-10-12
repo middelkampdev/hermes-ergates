@@ -6,7 +6,7 @@
 `docker compose config` on `docker-compose.yml` and
 `tests/test_static.py`, which checks the wiring contract of
 `docs/03-technical-design.md` section 9 as rules: published ports, networks
-and the egress proxy, image digests, plugin and template mounts, profile
+and the egress proxy, image digests, the plugin mount, profile
 settings, templates. **It has not been run on a VPS.** `VERIFY.md` is the
 list of live checks that must pass before this stack holds real data; it
 is not a footnote.
@@ -17,7 +17,8 @@ is not a footnote.
 deploy/
   docker-compose.yml               # hermes-serve, hermes-gateway, ntfy, egress-proxy, ingress
                                    #  + read-only mount of ../integrations/ergates
-                                   #    at /opt/data/plugins/ergates in both controllers
+                                   #    at /opt/data/plugins/ergates in both controllers;
+                                   #    its templates/ folder holds the reviewed role templates
   proxy/squid.conf                 # egress: settings shared by both modes, includes the mode file
   proxy/mode-standard.conf         # egress mode "standard" (default): any public host, no private ranges
   proxy/mode-strict.conf           # egress mode "strict": HTTPS to listed hosts only (today's original)
@@ -27,8 +28,6 @@ deploy/
   profiles/
     concierge/{config.yaml,SOUL.md}            # default/launch profile
     specialist-template/{config.yaml,SOUL.md}  # copy per specialist during provisioning
-  templates/<template_id>.json     # reviewed role templates; `python -m ergates.install`
-                                   #   copies them into /opt/data/ergates/templates
   tests/test_static.py             # the wiring rules below, checked in CI
   README.md                        # this file
 ```
@@ -116,7 +115,11 @@ The plugin is not copied anywhere: `docker-compose.yml` bind-mounts
 `../integrations/ergates` read-only at `/opt/data/plugins/ergates`, which is
 the user-plugin directory Hermes scans (`get_hermes_home()/plugins`, per
 `hermes_cli/plugins_discovery.py`). Step 4 of the first-run provisioning
-below enables it in every profile and installs the proposal templates.
+below enables it in every profile. The reviewed proposal templates travel
+inside the plugin folder (`../integrations/ergates/templates/`), so the mount
+carries them too. `hermes serve` copies them into `/opt/data/ergates/templates`
+the first time the plugin's routes are used, and step 4 does the same right
+away.
 
 ## Egress and ingress
 
@@ -248,13 +251,19 @@ already done above, before first start.
    token and nothing else. One token per device keeps revocation per device
    (`ntfy token remove`). ([ntfy user/access/token CLI][ntfy-config])
 
-   The publisher token goes **only** into the plugin's install-wide
-   settings (`plugins.entries.ergates.settings.ntfy.token` in the Hermes
-   root's `config.yaml`, `/opt/data/config.yaml`, which every profile's
-   hooks and the sweep read -- see `integrations/ergates/README.md`); the subscriber
-   tokens go **only** into the ntfy app on each device. Neither belongs in
-   this `deploy/` tree, in `.env`, or on any command line other than the
-   `ntfy token add` above.
+   The publisher token goes **only** into the Hermes root's `.env`: add the
+   line `ERGATES_NTFY_TOKEN=<token>` with an editor to `data/hermes/.env`,
+   which is `/opt/data/.env` in the containers and the file `hermes setup`
+   wrote in step 1. It is the plugin's one secret, and every profile's hooks
+   and the sweep read it there through Hermes (see
+   `integrations/ergates/README.md`). The subscriber tokens go **only** into
+   the ntfy app on each device. Neither belongs in this `deploy/` tree, in
+   `deploy/.env`, in any `config.yaml`, or on any command line other than
+   the `ntfy token add` above. A server set up with an earlier version of
+   this runbook has the publisher token in `data/hermes/config.yaml` as
+   `plugins.entries.ergates.settings.ntfy.token`. Move it to
+   `data/hermes/.env`: the plugin ignores it in `config.yaml`, and pushes
+   then go out without it.
 
    The topic itself must match the ACL pattern: set
    `plugins.entries.ergates.settings.ntfy.topic` to an `ergates-`-prefixed
@@ -266,13 +275,15 @@ already done above, before first start.
    `config.yaml`: merge its keys into `data/hermes/config.yaml` (the file
    `hermes setup` wrote) and copy `profiles/concierge/SOUL.md` to
    `data/hermes/SOUL.md`. It enables the plugin and holds the install-wide
-   push settings; add the publisher token from step 2 as
-   `plugins.entries.ergates.settings.ntfy.token`, and the app's connection
-   id (the app's Settings, "Connection id (for push links)") as
-   `...ntfy.connection_id`. Then fill in every `TODO` each `config.yaml`
-   calls out (workspace volumes, effective toolset, MCP include list) before
-   treating a profile as ready. Specialists are normally created by the app
-   from a template in `templates/`, with `mirror_credentials: false`; a
+   push settings; add the app's connection id (the app's Settings,
+   "Connection id (for push links)") as
+   `plugins.entries.ergates.settings.ntfy.connection_id`. The publisher
+   token stays in `data/hermes/.env` (step 2). Then fill in every `TODO`
+   each `config.yaml` calls out (workspace volumes, effective toolset, MCP
+   include list) before treating a profile as ready. Specialists are
+   normally created by the app from a template in
+   `../integrations/ergates/templates/`, with
+   `mirror_credentials: false`; a
    specialist made by hand from `profiles/specialist-template/` goes to
    `data/hermes/profiles/<name>/` -- never copy the concierge's credentials
    (04 section 6; 11 section 4.1).
@@ -291,61 +302,77 @@ already done above, before first start.
    ```
 
    `--check` exits 0 only when every profile would load the plugin and the
-   installed templates equal `templates/`. Run step 4 again after every
-   update of this repository and after making a profile by hand; the app
-   enables the plugin in the profiles it creates.
+   installed templates equal the plugin's `templates/` folder. Run step 4
+   again after every update of this repository and after making a profile by
+   hand; the app enables the plugin in the profiles it creates.
 
-5. **Schedule the plugin's retry/retention sweep** (below). A failed push is
-   scheduled for a retry that nothing in Hermes runs, so without this step
-   the retry machinery and every retention rule are dead code.
+   The app is to run the same setup through the plugin's `POST /setup` after
+   it installs or updates the plugin (built in a later step).
+   `python -m ergates.install` does it by hand.
+
+5. **Check the plugin's sweep** (below). `hermes-serve` runs it on its own
+   thread, so there is nothing to schedule.
 
 ## Periodic sweep: ntfy retries and retention
 
-The plugin's hooks fire only on an approval or a finished turn -- there is
-no periodic-timer hook in that surface -- so the push outbox and the
-retention rules need an external driver. `python -m ergates.flush` is that
-driver: it sends every due push from the outbox of the control store
+The plugin's hooks fire only on an approval or a finished turn, and Hermes
+runs no timer for a plugin, so `hermes-serve` runs the plugin's sweep on a
+thread of its own. The thread starts when the server mounts the plugin's
+routes, makes its first pass 5 seconds later, and then makes one every two
+minutes. Each pass sends every due push from the outbox of the control store
 (`/opt/data/ergates/control.sqlite3`), expires approvals older than the
-approval timeout, and applies retention to attention events, proposal
-receipts and reminder receipts.
+approval timeout, applies retention to attention events, proposal receipts
+and reminder receipts, and asks Hermes cron whether each reminder's job still
+exists, so a job deleted in the Routines screen drops its receipt. Only
+`hermes-serve` runs it: `hermes-gateway` loads the plugin's hooks but not
+its routes.
 
-It reads the ntfy server, topic, token and connection id from the Hermes root's `config.yaml`
-(the same install-wide `plugins.entries.ergates.settings.ntfy.*` keys every hook reads),
-so **no credential is ever passed as an argument** and none appears in a
-process listing or in the log line it prints (04 section 6). The only
-argument is `--quiet`. It also asks Hermes cron whether each reminder's job
-still exists, so a job deleted in the Routines screen drops its receipt.
+The sweep reads the ntfy server, topic and connection id from the Hermes
+root's `config.yaml` (the same install-wide
+`plugins.entries.ergates.settings.ntfy.*` keys every hook reads) and the
+publisher token from `/opt/data/.env`, so **no credential is ever passed as
+an argument** and none appears in a process listing or in a log line (04
+section 6).
+`plugins.entries.ergates.settings.sweep.interval_seconds` in the same file
+sets the interval (120 by default; `0` turns the sweep off). Two minutes is
+chosen against the plugin's 30s / 2min / 10min publish backoff, so a due
+retry waits at most about 2 minutes past its schedule.
 
-Add this to the host's crontab (`crontab -e`), every two minutes:
+The plugin's `health` route shows that the sweep runs. Sign in at
+`http://<TAILSCALE_IP>:9119/login` in a browser (see `VERIFY.md` V4), then
+open `http://<TAILSCALE_IP>:9119/api/plugins/ergates/health`. Its `sweep`
+field looks like this:
 
-```cron
-*/2 * * * * cd /srv/ergates/deploy && /usr/bin/docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-serve python -m ergates.flush >> /var/log/ergates-flush.log 2>&1
+```json
+"sweep": {"interval_seconds": 120, "last_run_at": 1760000000.0, "last_error": null}
 ```
 
-- `-T` disables the pseudo-TTY, which a cron job has no use for.
-- `-u hermes` runs the sweep as the image's `hermes` user, the user every
-  Hermes service runs as. `docker compose exec` runs as root otherwise, and
-  a root sweep is not supported: SQLite creates the store's `-wal` and
-  `-shm` files as root and does not hand them over, and then every Hermes
-  hook fails to open the store. The sweep refuses to start as root. If a
-  root process opened the store anyway, repair it with
-  `docker compose exec hermes-serve chown -R hermes:hermes /opt/data/ergates`.
-- `PYTHONPATH=/opt/data/plugins/ergates` puts the mounted plugin directory
-  on the import path; the package inside it is `ergates/`.
-- Adjust `cd /srv/ergates/deploy` to wherever you cloned this repo, and
-  `/usr/bin/docker` to `which docker` on the host (cron's `PATH` is minimal).
+`last_run_at` (Unix time) moves forward every two minutes, and `last_error`
+stays `null` while the passes succeed. Otherwise it names the error class of
+the last pass, which the `hermes-serve` log also names.
 
-Run it once by hand first; it prints one line of counts:
+The same answer has `"install": {"kind": "deployment", ...}`. The Compose
+file sets `ERGATES_INSTALL_KIND: deployment` on `hermes-serve` because the
+plugin is a read-only mount there, so Hermes made and recorded no install.
+
+An earlier version of this runbook ran the sweep from host cron
+(`python -m ergates.flush`). That crontab line can go. If it stays, it does
+no harm: two sweeps on one store send each due push once, because a push is
+leased before it is sent. To run one pass by hand, as the `hermes` user:
 
 ```bash
 docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-serve python -m ergates.flush
 # ergates.flush: retried=0 expired_notifications=0 pruned_notifications=0 pruned_proposals=0 pruned_reminders=0
 ```
 
-A systemd timer is equally fine; the requirement is only that *something*
-runs it on a short interval. Two minutes is chosen against the plugin's
-30s / 2min / 10min publish backoff, so a due retry waits at most ~2 minutes
-past its schedule.
+`docker compose exec` runs as root otherwise. As root, the plugin writes
+nothing into a Hermes root that `hermes` owns, so the command refuses to
+start: SQLite would create the store's `-wal` and `-shm` files as root, and
+every Hermes hook would then fail to open the store. If an older plugin left
+root-owned files there, repair them with
+`docker compose exec hermes-serve chown -R hermes:hermes /opt/data/ergates`.
+`PYTHONPATH=/opt/data/plugins/ergates` puts the mounted plugin directory on
+the import path; the package inside it is `ergates/`.
 
 ## Update
 
@@ -375,8 +402,8 @@ docker compose up -d
 
 Then run the installer again, as in step 4 of the first-run provisioning,
 after every image update and after every `git pull` of this repository: the
-plugin's code and `templates/` come from the checkout, and `hermes serve`
-mounts the plugin's routes only when it starts.
+plugin's code and its `templates/` folder come from the checkout, and
+`hermes serve` mounts the plugin's routes only when it starts.
 
 ```bash
 docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-serve python -m ergates.install
@@ -387,12 +414,14 @@ docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-
 A new Hermes image is a new Hermes. The integration's contract tests are
 pinned to one Hermes commit (`HERMES_PIN` in `scripts/ci-local.sh`), and the
 image in `docker-compose.yml` is built from that same commit, v0.21.6. Move
-both together: change `HERMES_PIN`, put the digest of the new commit's image
-in `docker-compose.yml`, and rerun `scripts/ci-local.sh contract` before you
-deploy. Take the digest from the release's final candidate tag, here
-`rc.4-v0.21.6`, or from `stable` while the release is the newest. The
-registry's plain `v0.21.6` tag is an older build from an abandoned
-candidate.
+both together: change `HERMES_PIN` (and `HERMES_PIN_VERSION`, the release it
+names, in `integrations/ergates-tests/contract/pinned.py`, with
+`requires_hermes` in the plugin's `plugin.yaml`), put the digest of the new
+commit's image in `docker-compose.yml`, and rerun `scripts/ci-local.sh
+contract` before you deploy. Take the digest from the release's final
+candidate tag, here `rc.4-v0.21.6`, or from `stable` while the release is the
+newest. The registry's plain `v0.21.6` tag is an older build from an
+abandoned candidate.
 
 Both `hermes-serve` and `hermes-gateway` read from the same `/opt/data`
 volume, so no separate data migration step is expected for a same-major

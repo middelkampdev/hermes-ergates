@@ -29,7 +29,7 @@ from ergates.paths import store_path
 from ergates.policy import BLOCK_RAW_CRON, BLOCK_REVOKED, BLOCK_SETUP, BLOCK_UNVERIFIED
 from ergates.proposals import PROVISION_STEPS, ProposalService, payload_hash, validate_proposal
 from ergates.reminders import ReminderService
-from ergates.store import ControlStore, StoreError
+from ergates.store import MIN_SCHEMA_KEY, ControlStore, StoreError
 from ergates.tool import (
     _resolve_profile,
     completed_platforms,
@@ -684,14 +684,22 @@ def _cli_list_as_is(config, platform, *, include_default_mcp_servers=True):
     return set(_parse_platform_toolsets_value(config["platform_toolsets"][platform]))
 
 
-def _stub_hermes_grant_modules(monkeypatch, config, *, drop_mcp_reader=False, platform_tools=_cli_list_as_is):
+def _enabled_mcp_server_names(config):
+    """Stand-in for Hermes's ``enabled_mcp_server_names``: every configured server whose ``enabled`` is not false."""
+    servers = config.get("mcp_servers") or {}
+    return {name for name, entry in servers.items() if isinstance(entry, dict) and entry.get("enabled", True) is not False}
+
+
+def _stub_hermes_grant_modules(monkeypatch, config, *, drop_mcp_reader=False, platform_tools=_cli_list_as_is,
+                               mcp_servers=_enabled_mcp_server_names):
     """Fake the Hermes modules ``granted_toolsets`` imports, so its real import
     and config-reading logic runs without a Hermes install. ``drop_mcp_reader``
     leaves ``tools.mcp_tool_common`` without the symbol the grant reads, the
     way a Hermes upgrade that renames or removes it would (v0.21.6 removed the
     one read before, ``tools.mcp_tool_registration._server_enabled``).
-    ``platform_tools`` stands in for ``hermes_cli.tools_config._get_platform_tools``
-    (``None`` leaves it out)."""
+    ``platform_tools`` and ``mcp_servers`` stand in for ``_get_platform_tools``
+    and ``enabled_mcp_server_names`` of ``hermes_cli.tools_config`` (``None``
+    leaves one out)."""
     monkeypatch.setattr(hermes_adapter, "_profile_home", _fake_profile_home)
     hermes_config = types.ModuleType("hermes_cli.config")
     hermes_config.load_config_readonly = lambda: config
@@ -703,6 +711,8 @@ def _stub_hermes_grant_modules(monkeypatch, config, *, drop_mcp_reader=False, pl
     tools_config = types.ModuleType("hermes_cli.tools_config")
     if platform_tools is not None:
         tools_config._get_platform_tools = platform_tools
+    if mcp_servers is not None:
+        tools_config.enabled_mcp_server_names = mcp_servers
     monkeypatch.setitem(sys.modules, "hermes_cli.tools_config", tools_config)
     model_tools = types.ModuleType("model_tools")
     model_tools.get_toolset_for_tool = lambda tool_name: None
@@ -779,6 +789,20 @@ def test_the_app_grant_is_what_hermes_resolves_for_the_cli_platform(monkeypatch)
     assert calls == [("cli", True)]
 
 
+@pytest.mark.parametrize("config", [
+    {"platform_toolsets": {"cli": [" terminal"]}},
+    {"tools": {"enabled_toolsets": ["terminal "]}},
+], ids=["app-pin", "legacy-pin"])
+def test_a_pinned_name_with_blanks_grants_nothing_because_hermes_resolves_nothing_for_it(
+        provisioned_thijs, monkeypatch, config):
+    """Hermes compares toolset names as written, so `" terminal"` is no toolset there; the gate does not strip it."""
+    _stub_hermes_grant_modules(monkeypatch, config)
+    monkeypatch.setattr(hermes_adapter, "toolset_for_tool", {"terminal": "terminal"}.get)
+
+    assert "terminal" not in hermes_adapter.granted_toolsets("thijs")
+    assert _gate(_RecordingCtx())(tool_name="terminal", args={}) == {"action": "block", "message": BLOCK_REVOKED}
+
+
 def test_an_explicit_empty_app_pin_grants_no_toolset(provisioned_thijs, monkeypatch):
     """``cli: []`` is an explicit zero-tool selection for Hermes (#82010), never "no pin"."""
     _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": []}},
@@ -825,29 +849,60 @@ def test_with_both_pins_the_app_pin_decides_and_the_legacy_one_is_ignored(monkey
     assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "terminal"})
 
 
-def test_every_mcp_server_the_profile_enables_adds_its_toolset(monkeypatch):
-    _stub_hermes_grant_modules(monkeypatch, {
-        "platform_toolsets": {"cli": ["web"]},
-        "mcp_servers": {"notes": {}, "off": {"enabled": False}, "legacy": {"disabled": True}, "broken": "x"},
-    })
+MCP_SERVERS = {"notes": {}, "calendar": {}, "off": {"enabled": False}, "legacy": {"disabled": True}, "broken": "x"}
 
-    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "mcp-notes"})
+
+def test_on_the_app_pin_only_the_mcp_servers_hermes_selects_add_their_toolsets(monkeypatch):
+    """Hermes's ``_get_platform_tools`` applies ``no_mcp`` and an MCP allowlist in the list; here
+    it selects ``notes`` and ``legacy``. ``calendar`` is enabled but not selected. ``legacy`` is
+    selected, and the list even names its toolset, but it is turned off with the key Hermes no
+    longer reads, so ``mcp-legacy`` is taken out of the grant."""
+    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": ["web", "notes", "legacy", "mcp-legacy"]},
+                                             "mcp_servers": MCP_SERVERS})
+
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "notes", "legacy", "mcp-notes"})
+
+
+def test_a_server_off_by_the_legacy_key_leaves_a_built_in_toolset_of_its_name_granted(provisioned_thijs, monkeypatch):
+    """Only the server's own toolset ``mcp-browser`` leaves the grant, never the built-in ``browser``."""
+    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": ["web", "browser"]},
+                                             "mcp_servers": {"browser": {"disabled": True}}})
+    monkeypatch.setattr(hermes_adapter, "toolset_for_tool",
+                        {"browser_navigate": "browser", "mcp_browser_open": "mcp-browser"}.get)
+    gate = _gate(_RecordingCtx())
+
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "browser"})
+    assert gate(tool_name="browser_navigate", args={}) is None
+    assert gate(tool_name="mcp_browser_open", args={}) == {"action": "block", "message": BLOCK_REVOKED}
+
+
+def test_on_the_legacy_pin_every_mcp_server_the_profile_enables_adds_its_toolset(monkeypatch):
+    _stub_hermes_grant_modules(monkeypatch, {"tools": {"enabled_toolsets": ["web"]}, "mcp_servers": MCP_SERVERS})
+
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "mcp-notes", "mcp-calendar"})
+
+
+@pytest.mark.parametrize("mcp_servers", [None, _raises], ids=["missing", "raising"])
+def test_a_hermes_mcp_server_reader_that_is_missing_or_raises_blocks(provisioned_thijs, monkeypatch, mcp_servers):
+    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": ["web"]}, "mcp_servers": MCP_SERVERS},
+                               mcp_servers=mcp_servers)
+
+    assert _gate(_RecordingCtx())(tool_name="web_search", args={}) == {"action": "block", "message": BLOCK_UNVERIFIED}
 
 
 def _store_folder_is_a_file(root):
     (root / "ergates").write_text("", encoding="utf-8")
 
 
-def _store_from_a_newer_plugin(root):
-    store = ControlStore(store_path(root))
-    with store.transaction() as conn:
-        conn.execute("PRAGMA user_version = 99")
+def _store_file_is_not_a_database(root):
+    store_path(root).parent.mkdir()
+    store_path(root).write_bytes(b"not a database, but long enough for SQLite to read a header from")
 
 
 @pytest.mark.parametrize(
     ("break_the_store", "error_class"),
-    [(_store_folder_is_a_file, NotADirectoryError), (_store_from_a_newer_plugin, StoreError)],
-    ids=["folder-is-a-file", "newer-schema"],
+    [(_store_folder_is_a_file, NotADirectoryError), (_store_file_is_not_a_database, sqlite3.DatabaseError)],
+    ids=["folder-is-a-file", "not-a-database"],
 )
 def test_register_registers_the_gate_when_the_store_cannot_open(tmp_path, profile_process, caplog, break_the_store,
                                                                 error_class):
@@ -872,6 +927,68 @@ def test_register_registers_the_gate_when_the_store_cannot_open(tmp_path, profil
     assert str(tmp_path) not in caplog.text
 
 
+def test_on_a_store_too_new_the_gate_still_decides_and_a_tool_records_nothing(tmp_path, profile_process):
+    """A store a newer plugin changed so that this one may only read it still opens: the
+    gate reads what it needs and decides as usual, and a tool that has to write answers
+    the error class without its message."""
+    store = ControlStore(store_path(tmp_path))
+    with store.transaction() as conn:
+        conn.execute("UPDATE store_meta SET value = '99' WHERE key = ?", (MIN_SCHEMA_KEY,))
+        conn.execute("PRAGMA user_version = 99")
+    ctx = _RecordingCtx()
+
+    gate = _gate(ctx)
+    proposed = json.loads(ctx.tools["ergates_propose_agent"](_valid_args(), session_id="s-1"))
+
+    assert gate(tool_name="cronjob_manage", args={"action": "list"}, task_id="t") is None
+    assert gate(tool_name="cronjob_manage", args={"action": "create", "prompt": "p"}, task_id="t") == {
+        "action": "block", "message": BLOCK_RAW_CRON}
+    assert proposed == {"error": "the proposal could not be recorded (StoreReadOnly)"}
+    assert rows(store, "proposal_receipts") == []
+
+
+@pytest.fixture
+def hooks_on_a_store_too_new(tmp_path, profile_process):
+    """The registered hooks of a process whose store a plugin at schema 99 moved on, with one
+    pending approval recorded before that. Push is configured, so a hook would also send."""
+    store = ControlStore(store_path(tmp_path))
+    AttentionService(store).approval_requested(
+        session_key="s-1", pattern_key=None, command="cmd", surface="gateway", profile="thijs")
+    with store.transaction() as conn:
+        conn.execute("UPDATE store_meta SET value = '99' WHERE key = ?", (MIN_SCHEMA_KEY,))
+        conn.execute("PRAGMA user_version = 99")
+    _write_root_settings(tmp_path, server="https://ntfy.example.internal", topic="alerts", connection_id="conn-1")
+    ctx = _RecordingCtx()
+    tool.register(ctx)
+    return store, ctx.hooks, rows(store, "attention_events"), rows(store, "attention_outbox")
+
+
+def test_the_approval_request_hook_on_a_store_too_new_returns_none_and_records_nothing(hooks_on_a_store_too_new):
+    store, hooks, events, outbox = hooks_on_a_store_too_new
+
+    assert hooks["pre_approval_request"](command="cmd", session_key="s-2", surface="gateway") is None
+
+    assert (rows(store, "attention_events"), rows(store, "attention_outbox")) == (events, outbox)
+
+
+def test_the_approval_response_hook_on_a_store_too_new_returns_none_and_resolves_nothing(hooks_on_a_store_too_new):
+    store, hooks, events, outbox = hooks_on_a_store_too_new
+
+    assert hooks["post_approval_response"](command="cmd", session_key="s-1", surface="gateway", choice="once",
+                                           decided_by="user") is None
+
+    assert (rows(store, "attention_events"), rows(store, "attention_outbox")) == (events, outbox)
+    assert [event["state"] for event in events] == ["pending"]
+
+
+def test_the_turn_completed_hook_on_a_store_too_new_returns_none_and_records_nothing(hooks_on_a_store_too_new):
+    store, hooks, events, outbox = hooks_on_a_store_too_new
+
+    assert hooks["post_llm_call"](session_id="cron-1", platform="cron") is None
+
+    assert (rows(store, "attention_events"), rows(store, "attention_outbox")) == (events, outbox)
+
+
 def test_the_gate_opens_the_store_once_it_can(tmp_path, profile_process):
     _store_folder_is_a_file(tmp_path)
     gate = _gate(_RecordingCtx())
@@ -881,6 +998,23 @@ def test_the_gate_opens_the_store_once_it_can(tmp_path, profile_process):
 
     assert gate(tool_name="terminal", args={}) is None
     assert store_path(tmp_path).exists()
+
+
+def test_root_on_a_hermes_root_another_user_owns_gets_a_gate_that_blocks_and_writes_nothing(
+        tmp_path, profile_process, as_root, caplog):
+    """The store refuses to open there, and the gate fails closed on that refusal as on any other."""
+    ctx = _RecordingCtx()
+
+    with caplog.at_level(logging.WARNING, logger="ergates"):
+        gate = _gate(ctx)
+        blocked = gate(tool_name="terminal", args={})
+        proposed = json.loads(ctx.tools["ergates_propose_agent"](_valid_args(), session_id="s-1"))
+
+    assert blocked == {"action": "block", "message": BLOCK_UNVERIFIED}
+    assert proposed == {"error": "the proposal could not be recorded (StoreError)"}
+    assert "tool gate failed (StoreError); blocking the call" in caplog.text
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["profiles"]
+    assert as_root.owner_changes == []
 
 
 class _DefaultCtx(_RecordingCtx):

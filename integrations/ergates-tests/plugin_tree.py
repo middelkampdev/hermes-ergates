@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-PLUGIN_DIR = Path(__file__).resolve().parents[2] / "ergates"
+PLUGIN_DIR = Path(__file__).resolve().parents[1] / "ergates"
 # Keeps every git hook of this machine out of the commands below.
 NO_HOOKS = ("-c", "core.hooksPath=/dev/null")
 

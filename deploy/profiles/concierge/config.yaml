@@ -37,8 +37,9 @@ approvals:
 # The concierge is the default profile, so this file is the Hermes root's
 # config.yaml. `hermes serve` mounts the plugin's routes only when the root
 # enables it, and every hook and the sweep read the install-wide push
-# settings here. The publisher token and the app's connection id are added
-# during first-run provisioning (deploy/README.md); never commit them.
+# settings here. The app's connection id is added during first-run
+# provisioning (deploy/README.md). The publisher token never goes in this
+# file: it is ERGATES_NTFY_TOKEN in the Hermes root's .env.
 plugins:
   enabled:
     - ergates

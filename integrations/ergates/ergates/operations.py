@@ -23,21 +23,24 @@ for the first. The router runs them on a worker thread.
 
 from __future__ import annotations
 
+import copy
 import functools
 import logging
 import re
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from . import __version__
+from . import API_LEVEL, MIN_API_LEVEL, __version__
 from .attention import AttentionError, AttentionService
 from .proposals import ProposalError, ProposalService
 from .reminders import CronPort, ReminderError, ReminderService, _REQUEST_ID_RE
-from .store import ControlStore, StoreError
+from .setup import enable_everywhere, ensure_templates, setup_report, templates_status
+from .store import SCHEMA_VERSION, ControlStore, StoreError, StoreReadOnly
 from .templates import load_template
 
 logger = logging.getLogger(__name__)
@@ -51,6 +54,10 @@ _NOT_AN_OBJECT = "the request body must be a JSON object"
 _STEP_STATUS_NOT_STRINGS = "step and status must be strings"
 PROMPT_REFUSED = "prompt is not one Hermes cron accepts"
 PROMPT_STOPS_GATEWAY = "prompt reads as a command to stop or restart the Hermes gateway, which Hermes cron refuses"
+PUSH_KEYS = ("configured", "token_set", "legacy_config_token")
+# How long ``health`` reuses its ``setup`` and ``push`` parts. The app polls ``health`` every few seconds, and
+# those parts cost about 40 ms of CPU per profile (Hermes plugin discovery) plus a parse of config.yaml.
+HEALTH_CACHE_SECONDS = 10
 
 
 @dataclass(frozen=True)
@@ -69,6 +76,11 @@ def error_reply(status: int, code: str, message: str, **extra: Any) -> Reply:
 def store_unavailable() -> Reply:
     """503 ``store_unavailable``: the control store cannot be opened or read."""
     return error_reply(503, "store_unavailable", "the Ergates control store is unavailable")
+
+
+def store_too_new() -> Reply:
+    """503 ``store_too_new``: a newer plugin changed the control store so that this one may only read it."""
+    return error_reply(503, "store_too_new", "the Ergates control store needs a newer Ergates plugin")
 
 
 def internal_error() -> Reply:
@@ -114,11 +126,14 @@ def _encodes_as_utf8(value: str) -> bool:
 
 
 def _guard_store(method: Callable[..., "Reply"]) -> Callable[..., "Reply"]:
-    """Map a control-store failure from any route to 503 ``store_unavailable``.
+    """Map a control-store failure from any route to 503 ``store_unavailable``, or
+    to 503 ``store_too_new`` for a write the store refuses.
 
     The store opens a fresh connection per operation (``store.py``
     ``transaction``/``read``), so any route that touches it -- not only
-    ``health()`` -- can hit a closed store or a schema a newer plugin wrote.
+    ``health()`` -- can hit a closed store. A write can also hit a store a
+    newer plugin changed so that this one may only read it; the store logs
+    that once itself, so the guard does not log it per request.
     A bare ``OSError`` is deliberately not caught here: ``hermes_adapter``
     raises it for reasons that have nothing to do with the store, and this
     guard must not turn one of those into a false "store unavailable"; the
@@ -129,6 +144,8 @@ def _guard_store(method: Callable[..., "Reply"]) -> Callable[..., "Reply"]:
     def wrapper(self: "Operations", *args: Any, **kwargs: Any) -> Reply:
         try:
             return method(self, *args, **kwargs)
+        except StoreReadOnly:
+            return store_too_new()
         except (StoreError, sqlite3.Error) as exc:
             logger.warning("operations: the control store is unavailable (%s)", type(exc).__name__)
             return store_unavailable()
@@ -142,18 +159,28 @@ class Operations:
     def __init__(
         self, store: ControlStore, *, cron: CronPort,
         profile_exists: Callable[[str], bool], plugin_enabled: Callable[[str], bool],
-        enable_plugin: Callable[[str], None], check_schedule: Callable[[str, str], None],
-        check_prompt: Callable[[str], None], check_gateway_lifecycle: Callable[[str, str], None],
-        templates: Path, clock: Callable[[], float] = time.time,
+        enable_plugin: Callable[[str], None], profile_names: Callable[[], list[str]],
+        check_schedule: Callable[[str, str], None], check_prompt: Callable[[str], None],
+        check_gateway_lifecycle: Callable[[str, str], None], templates: Path, bundled_templates: Path,
+        sweep_status: Callable[[], dict], install: Callable[[], dict], push_status: Callable[[], dict],
+        clock: Callable[[], float] = time.time, monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._store = store
+        self._sweep_status = sweep_status
+        self._monotonic = monotonic
+        self._cache_lock = threading.Lock()
+        self._cached: tuple[float, dict, dict] | None = None  # when it was computed, ``setup``, ``push``
+        self._install = install
+        self._push_status = push_status
         self._profile_exists = profile_exists
         self._plugin_enabled = plugin_enabled
         self._enable_plugin = enable_plugin
+        self._profile_names = profile_names
         self._check_schedule = check_schedule
         self._check_prompt = check_prompt
         self._check_gateway_lifecycle = check_gateway_lifecycle
         self._templates = Path(templates)
+        self._bundled_templates = Path(bundled_templates)
         self._reminders = ReminderService(store, cron, clock=clock)
         self._proposals = ProposalService(store, clock=clock)
         self._attention = AttentionService(store, clock=clock)
@@ -161,8 +188,37 @@ class Operations:
     # GET /health
     @_guard_store
     def health(self) -> Reply:
+        """What the app reads before it relies on this plugin; 503 only when the store cannot be read.
+
+        ``api_level`` and ``min_api_level`` say which routes and bodies the
+        app may rely on. ``schema_version`` is the store file's;
+        ``store`` adds this plugin's own schema, the oldest plugin schema
+        allowed to write the store and whether this plugin may write it: a
+        store a newer plugin made read-only still answers 200, with
+        ``writable`` false. ``install`` is how the plugin got here
+        (``ergates.install_info``), ``setup`` the state ``POST /setup`` would
+        make (read, never written), ``push`` three booleans and ``sweep`` the
+        periodic sweep's ``status()`` (``ergates.sweep``).
+
+        ``store``, ``install`` and ``sweep`` are read at every call.
+        ``setup`` and ``push`` are expensive, so they are reused for
+        :data:`HEALTH_CACHE_SECONDS`, and ``POST /setup`` and
+        ``POST /profiles/{profile}/plugin`` drop them. A change made another
+        way (``python -m ergates.install``, Hermes Desktop) shows within that
+        time.
+        """
         schema_version = self._store.schema_version
-        return Reply(200, {"ok": True, "schema_version": schema_version, "plugin_version": __version__})
+        setup, push = self._setup_and_push()
+        return Reply(200, {
+            "ok": True, "plugin_version": __version__, "api_level": API_LEVEL, "min_api_level": MIN_API_LEVEL,
+            "schema_version": schema_version,
+            "store": {"plugin_schema_version": SCHEMA_VERSION, "min_schema_version": self._store.min_schema_version,
+                      "writable": self._store.writable},
+            "install": self._install(),
+            "setup": setup,
+            "push": push,
+            "sweep": self._sweep_status(),
+        })
 
     # POST /reminders
     @_guard_store
@@ -230,8 +286,38 @@ class Operations:
             return error_reply(404, "unknown_profile", "there is no profile with that name")
         if not self._profile_exists(profile):
             return error_reply(404, "unknown_profile", f"profile {profile!r} does not exist")
-        self._enable_plugin(profile)
+        try:
+            self._enable_plugin(profile)
+        finally:  # a failed enable can have written part of it
+            self._forget_setup_and_push()
         return Reply(200, {"profile": profile, "enabled": True})
+
+    # POST /setup
+    def setup(self, body: Any) -> Reply:
+        """Install the templates the plugin ships, then enable it in every profile; one report for both.
+
+        The body must be a JSON object (``{}``), so that a request the router
+        could not read as JSON is refused before anything is touched.
+        Profiles that fail are named in the report and do not make the reply
+        an error; each is logged with its name and exception class (a name
+        Hermes would refuse as a profile id is left out). It touches no store
+        table, but the router builds an
+        ``Operations`` only once the store opens, so as root on a Hermes root
+        another user owns it writes nothing (``store.root_run_would_break``).
+        """
+        if not isinstance(body, dict):
+            return error_reply(400, "invalid", _NOT_AN_OBJECT)
+        try:
+            templates = ensure_templates(self._bundled_templates, self._templates)
+            profiles = enable_everywhere(self._profile_names(), self._enable_plugin, self._plugin_enabled)
+        finally:  # after the writes, so a health computed during them is dropped too
+            self._forget_setup_and_push()
+        for item in profiles:
+            if "error" in item:
+                name = item["name"]
+                where = f"profile {name}" if _is_profile_name(name) else "a profile with an invalid name"
+                logger.warning("setup: the plugin could not be enabled in %s (%s)", where, item["error"])
+        return Reply(200, {"setup": setup_report(templates, profiles)})
 
     # GET /attention/prefs?scope=<name or *>, or ?profile=<name>
     @_guard_store
@@ -266,6 +352,53 @@ class Operations:
         except AttentionError as exc:
             return error_reply(400, "invalid", str(exc))
         return Reply(200, {"prefs": prefs})
+
+    def _setup_and_push(self) -> tuple[dict, dict]:
+        """The ``setup`` and ``push`` parts of ``health``, computed at most once per :data:`HEALTH_CACHE_SECONDS`.
+
+        One lock covers the computation, so polls that overlap wait for the
+        first and share its answer. Each caller gets its own copy.
+        """
+        with self._cache_lock:
+            now = self._monotonic()
+            cached = self._cached
+            if cached is None or not 0 <= now - cached[0] < HEALTH_CACHE_SECONDS:
+                cached = self._cached = (now, self._setup_state(), self._push())
+            return copy.deepcopy((cached[1], cached[2]))
+
+    def _forget_setup_and_push(self) -> None:
+        with self._cache_lock:
+            self._cached = None
+
+    def _setup_state(self) -> dict:
+        """The body of ``POST /setup`` as it would be now, without writing anything.
+
+        ``templates_detail`` (``bundle`` or ``installed``) says where the bad
+        template is when ``templates`` is ``invalid``, and is absent
+        otherwise. When Hermes cannot list the profiles, ``profiles`` is
+        empty, ``finished`` false and ``error`` names the exception class.
+        """
+        templates, where = templates_status(self._bundled_templates, self._templates)
+        error = None
+        try:
+            profiles = enable_everywhere(self._profile_names(), _enable_nothing, self._plugin_enabled)
+        except Exception as exc:  # health must answer even when Hermes cannot list the profiles
+            profiles, error = [], type(exc).__name__
+        state = setup_report(templates, profiles)
+        if where is not None:
+            state["templates_detail"] = where
+        if error is not None:
+            state["error"] = error
+        return state
+
+    def _push(self) -> dict:
+        """The three push booleans. An error reading them is three ``False`` and the exception class under ``error``;
+        a value is never passed on, only ``bool`` of it."""
+        try:
+            status = self._push_status()
+            return {key: bool(status[key]) for key in PUSH_KEYS}
+        except Exception as exc:
+            return {**dict.fromkeys(PUSH_KEYS, False), "error": type(exc).__name__}
 
     def _reminder_request(self, body: Any) -> dict:
         """The service arguments of a valid request; ``ReminderError`` otherwise.
@@ -326,6 +459,10 @@ class Operations:
         except ProposalError as exc:
             return _proposal_error(exc)
         return Reply(200, {"proposal": {**receipt, "template": None}})
+
+
+def _enable_nothing(profile: str) -> None:
+    """``enable_everywhere``'s ``enable`` for a report that must write nothing."""
 
 
 def _is_profile_name(value: Any) -> bool:

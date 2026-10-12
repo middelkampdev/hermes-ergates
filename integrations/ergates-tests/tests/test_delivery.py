@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.server
 import logging
 import sys
 import threading
@@ -172,16 +173,137 @@ def test_send_ntfy_posts_the_spec_with_a_short_timeout(monkeypatch):
         def read(self):
             return b"{}"
 
-    def fake_urlopen(request, timeout):
+    def fake_open(opener, request, data=None, timeout=None):
         seen.update(url=request.full_url, method=request.get_method(), body=request.data,
                     title=request.get_header("Title"), timeout=timeout)
         return Response()
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", fake_open)
     send_ntfy(build_ntfy_publish("https://x", "t", "", title="T", click_url="c", event_id="e"))
 
     assert seen == {"url": "https://x/t", "method": "POST", "body": b"You have a new request", "title": "T",
                     "timeout": 3.0}
+
+
+class _Recorder(http.server.BaseHTTPRequestHandler):
+    """Records each request on its server; answers ``server.answer`` (a status and the headers to send)."""
+
+    def _record(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        self.server.seen.append({"method": self.command, "path": self.path, "headers": dict(self.headers),
+                                 "body": self.rfile.read(length)})
+        status, headers = self.server.answer
+        self.send_response(status)
+        for name, value in headers.items():
+            self.send_header(name, value)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    do_GET = do_POST = _record
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def http_server():
+    """Starts local HTTP servers that record every request; each is stopped at the end of the test."""
+    started = []
+
+    def start(status=200, headers=None):
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Recorder)
+        server.seen, server.answer = [], (status, headers or {})
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        started.append(server)
+        return server
+
+    yield start
+    for server in started:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.fixture
+def no_proxy(monkeypatch):
+    """Requests to the local test servers go straight to them, whatever proxy this machine is set to use."""
+    for name in ("no_proxy", "NO_PROXY"):
+        monkeypatch.setenv(name, "*")
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_a_redirect_is_never_followed_so_the_token_reaches_only_the_ntfy_server(
+        attention, store, clock, http_server, no_proxy, status):
+    """urllib follows a redirect by default and copies the Authorization header to the new
+    host; on 301, 302 and 303 it also turns the POST into a GET on the topic, which
+    ntfy answers with its subscribe stream. The push fails instead, and the outbox
+    records the error class."""
+    elsewhere = http_server()
+    ntfy = http_server(status, {"Location": f"http://localhost:{elsewhere.server_port}/stolen"})
+    settings = NtfySettings(server=f"http://127.0.0.1:{ntfy.server_port}", topic="ergates-alerts",
+                            token="secret-token", connection_id="conn-1")
+    event_id = _approval(attention)
+
+    sent = DeliveryWorker(store, send_ntfy, settings, clock=clock, owner="worker-a").deliver(event_id)
+
+    assert sent is False
+    assert [(seen["method"], seen["path"]) for seen in ntfy.seen] == [("POST", "/ergates-alerts")]
+    assert ntfy.seen[0]["headers"]["Authorization"] == "Bearer secret-token"
+    assert elsewhere.seen == []
+    outbox = _outbox(store, event_id)
+    assert (outbox["state"], outbox["attempts"], outbox["last_error"]) == ("due", 1, "HTTPError")
+
+
+def test_send_ntfy_posts_to_an_http_server_that_answers_200(http_server, no_proxy):
+    """Plain http stays allowed: the Compose deployment publishes to its internal ntfy service."""
+    ntfy = http_server()
+
+    send_ntfy(build_ntfy_publish(f"http://127.0.0.1:{ntfy.server_port}", "t", "tok", title="T", click_url="c",
+                                 event_id="e"))
+
+    assert [(seen["method"], seen["body"]) for seen in ntfy.seen] == [("POST", b"You have a new request")]
+
+
+NOT_HTTP = ["file:///etc/hosts", "ftp://ntfy.example.internal", "ntfy.example.internal", "http:///no-host"]
+
+
+@pytest.fixture
+def opened(monkeypatch):
+    """Every URL urllib is asked to open; opening one fails the test."""
+    urls = []
+
+    def refuse(opener, request, data=None, timeout=None):
+        urls.append(getattr(request, "full_url", request))
+        pytest.fail("urllib was asked to open a URL")
+
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", refuse)
+    return urls
+
+
+@pytest.mark.parametrize("server", NOT_HTTP)
+def test_send_ntfy_opens_nothing_that_is_not_an_http_or_https_url(server, opened):
+    with pytest.raises(ValueError):
+        send_ntfy(build_ntfy_publish(server, "t", "tok", title="T", click_url="c", event_id="e"))
+
+    assert opened == []
+
+
+@pytest.mark.parametrize("server", NOT_HTTP)
+def test_a_server_that_is_not_an_http_or_https_url_turns_push_off_with_the_reason(server, caplog):
+    with caplog.at_level(logging.DEBUG, logger="ergates.delivery"):
+        assert ntfy_settings({"server": server, "topic": "t"}) is None
+
+    assert [record.levelno for record in caplog.records] == [logging.WARNING]
+    assert "http" in caplog.text and "push is off" in caplog.text
+    assert server not in caplog.text   # a URL can carry a user name or a token
+
+
+def test_ntfy_settings_keep_http_and_https_servers():
+    assert ntfy_settings({"server": "http://ntfy", "topic": "t"}) == NtfySettings("http://ntfy", "t")
+    assert ntfy_settings({"server": "HTTPS://ntfy.example.internal", "topic": "t"}) is not None
+
+
+def test_the_settings_repr_never_shows_the_token():
+    assert "secret-token" not in repr(SETTINGS)
 
 
 def test_backoff_is_30_120_600_then_600():

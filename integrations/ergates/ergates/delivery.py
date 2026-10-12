@@ -30,6 +30,13 @@ after a lost answer is the same event, and an ntfy client that supports
 sequence ids (the Android app from 1.22.2 with server 2.16.0 or later; not
 the iOS app as of 1.7.0) replaces the first notification instead of showing
 a second one. The app opens the same chat from either notification.
+
+:func:`send_ntfy` posts only to an ``http://`` or ``https://`` URL and
+follows no redirect. urllib would copy the ``Authorization`` header to
+whatever host a redirect names, and on 301, 302 and 303 turn the POST into a
+GET on the topic, which ntfy answers with its subscribe stream. A redirect
+fails the attempt instead, and the outbox records it by error class. A
+``ntfy.server`` with any other scheme turns push off (:func:`ntfy_settings`).
 """
 
 from __future__ import annotations
@@ -41,8 +48,9 @@ import re
 import socket
 import time
 import urllib.parse
+import urllib.request
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import tzinfo
 from typing import Any, Callable, Mapping, Optional
 
@@ -61,6 +69,9 @@ _ECHO_TAG = "hermes-agent"
 # ntfy's rule for a sequence id (server/server.go `sequenceIDRegex`); anything else is a 400.
 _SEQUENCE_ID_RE = re.compile(r"^[-_A-Za-z0-9]{1,64}$")
 
+# Plain http stays allowed: the Compose deployment publishes to its internal ntfy service.
+ALLOWED_SCHEMES = frozenset({"http", "https"})
+
 RETRY_BACKOFF_SECONDS: tuple[int, ...] = (30, 120, 600)
 MAX_ATTEMPTS = 5
 LEASE_SECONDS = 60
@@ -70,18 +81,33 @@ LEASE_SECONDS = 60
 class NtfySettings:
     server: str
     topic: str
-    token: str = ""
+    token: str = field(default="", repr=False)
     connection_id: str = ""
 
 
+def is_http_url(url: str) -> bool:
+    """True for an ``http://`` or ``https://`` URL with a host, the only kind :func:`send_ntfy` opens."""
+    parts = urllib.parse.urlsplit(url)
+    return parts.scheme.lower() in ALLOWED_SCHEMES and bool(parts.netloc)
+
+
 def ntfy_settings(values: Mapping[str, Any]) -> NtfySettings | None:
-    """Settings from ``ntfy.*`` values; ``None`` (push disabled) unless ``server`` and ``topic`` are set."""
+    """Settings from ``ntfy.*`` values; ``None`` (push disabled) unless ``server`` and ``topic`` are set
+    and ``server`` is an ``http://`` or ``https://`` URL.
+
+    A server of any other kind (``file://``, ``ftp://``, no scheme at all)
+    is logged once per call, without the value: a URL can carry a user name
+    or a token.
+    """
     def text(key: str) -> str:
         value = values.get(key)
         return value.strip() if isinstance(value, str) else ""
 
     server, topic = text("server"), text("topic")
     if not server or not topic:
+        return None
+    if not is_http_url(server):
+        logger.warning("delivery: ntfy.server is not an http:// or https:// URL; push is off")
         return None
     return NtfySettings(server=server, topic=topic, token=text("token"), connection_id=text("connection_id"))
 
@@ -124,18 +150,28 @@ def build_ntfy_publish(
     return {"url": f"{server.rstrip('/')}/{topic}", "headers": headers, "body": GENERIC_BODY, "event_id": event_id}
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Follows no redirect: the 3xx answer then raises ``HTTPError`` (see the module docstring)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102 - urllib's hook
+        return None
+
+
 def send_ntfy(spec: dict[str, Any], *, timeout: float = 3.0) -> None:
     """The runtime transport for :func:`build_ntfy_publish` output: one plain HTTP POST.
 
-    Standard library only. The socket timeout is short on purpose: a failed
-    push is retried from the outbox, while a blocked thread is not free.
+    Standard library only. Raises ``ValueError``, and opens nothing, for a
+    URL that is not ``http://`` or ``https://``; a redirect raises
+    ``HTTPError`` and is never followed. The socket timeout is short on
+    purpose: a failed push is retried from the outbox, while a blocked
+    thread is not free.
     """
-    import urllib.request
-
+    if not is_http_url(spec["url"]):
+        raise ValueError("ntfy publishes only to an http:// or https:// URL")
     request = urllib.request.Request(
         spec["url"], data=spec["body"].encode("utf-8"), headers=spec["headers"], method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+    with urllib.request.build_opener(_NoRedirect).open(request, timeout=timeout) as response:  # noqa: S310
         response.read()
 
 

@@ -22,23 +22,29 @@ they act on that profile, and no other thread sees the override.
 
 Since v0.21.6 the RPC also binds the profile's secret scope and terminal
 policy (``_session_profile_runtime_scope`` in ``tui_gateway/model_switch.py``).
-This module does not: no setting it reads or writes is a secret, and it
-runs no command. A ``${VAR}`` reference in the profile's ``config.yaml``
-expands against whatever secret scope the caller already holds (the
-request's in a dashboard route, the turn's in a hook), and ``save_config``
-writes the reference back, not the value.
+These per-profile calls do not: no setting they read or write is a secret,
+and none runs a command. A ``${VAR}`` reference in the profile's
+``config.yaml`` expands against whatever secret scope the caller already
+holds (the request's in a dashboard route, the turn's in a hook), and
+``save_config`` writes the reference back, not the value. The one secret
+this module reads, :func:`install_secret`, comes from the Hermes root's own
+secret scope, bound for that read only.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
+import threading
 from contextlib import contextmanager
 from datetime import tzinfo
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from .reminders import CronUnavailable
+
+logger = logging.getLogger(__name__)
 
 PLUGIN_NAME = "ergates"
 
@@ -62,6 +68,104 @@ def default_hermes_root() -> Path | None:
     except ImportError:
         return None
     return Path(get_default_hermes_root())
+
+
+def install_secret(name: str) -> str | None:
+    """The secret ``name`` of the whole install, from the Hermes root's ``.env``; ``None`` when unset or blank.
+
+    Hermes keeps a plugin's ``type: secret`` setting in ``.env`` under the
+    name its ``config_schema`` gives (``hermes_cli/plugins_settings.py``),
+    and a plugin reads it with ``agent.secret_scope.get_secret``, which
+    answers from the secret scope bound to the current task: a hook runs in
+    its turn's profile scope, a dashboard route in the request's. The
+    Ergates push settings are one feed for the whole install, so their
+    secret lives in the root's ``.env`` only. This binds the root's own
+    scope (``build_profile_secret_scope(<root>)``, stamped with the root as
+    its home) for this one read and puts the caller's scope back
+    afterwards, the way Hermes binds a profile's scope for a turn.
+
+    A miss is ``None`` under multiplexing and in a process launched for a
+    named profile: Hermes then never reads the process environment. Only a
+    process launched for the root, without multiplexing, falls back to its
+    own environment, as Hermes does for every credential there. The stamp
+    is what covers the named-profile process, whose environment holds that
+    profile's ``.env``: Hermes counts a scope stamped with another home
+    than the process's launch home as a routed profile
+    (``agent/secret_scope.py`` ``serves_routed_profile``).
+    ``integrations/ergates-tests/contract/test_hermes_adapter.py`` pins the
+    calls and that rule, and ``contract/live/test_adapter.py`` runs the
+    multiplexed and the named-profile cases. ``None`` outside a Hermes
+    runtime. The value is never logged.
+    """
+    try:
+        from agent.secret_scope import build_profile_secret_scope, get_secret, reset_secret_scope, set_secret_scope
+    except ImportError:
+        return None
+    root = default_hermes_root()
+    if root is None:
+        return None
+    token = set_secret_scope(build_profile_secret_scope(root), profile_home=str(root))
+    try:
+        value = get_secret(name)
+    finally:
+        reset_secret_scope(token)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()
+
+
+def install_record() -> dict | None:
+    """Hermes's install record of this plugin, or ``None``.
+
+    Hermes keeps one record per installed plugin, keyed by the plugin's
+    name, in ``<home>/plugins/.install-metadata.json`` of the home that
+    installed it (``hermes_cli.plugins_cmd._read_install_metadata``). A
+    git install, the dashboard's install route and the catalog all write
+    it: ``revision`` (the commit), ``source``, ``pinned`` and, for a catalog
+    install, ``catalog``. This install lives in the Hermes root, whose home
+    is the default profile's, so the record is read in that home.
+
+    ``None`` outside a Hermes runtime, when there is no record (a plugin
+    copied or mounted by hand), and when Hermes raises (an unreadable file):
+    the log then names the exception class only, because its message
+    carries a path. ``GET /health`` asks at every call, so a failure is
+    logged once, until a read fails with another class or succeeds.
+    ``integrations/ergates-tests/contract/test_hermes_adapter.py``
+    pins the record's shape and where Hermes keeps it.
+    """
+    global _install_record_error
+    try:
+        from hermes_cli.plugins_cmd import _read_install_metadata
+    except ImportError:
+        return None
+    try:
+        with _profile_home("default"):
+            record = _read_install_metadata().get(PLUGIN_NAME)
+    except Exception as exc:  # health must answer whatever Hermes does here
+        error = type(exc).__name__
+        with _install_record_lock:
+            if error != _install_record_error:
+                logger.warning("ergates: Hermes's install record of the plugin could not be read (%s)", error)
+            _install_record_error = error
+        return None
+    with _install_record_lock:
+        _install_record_error = None
+    return record if isinstance(record, dict) else None
+
+
+# The error class of the last install_record call that failed, or None after a read that succeeded.
+_install_record_error: str | None = None
+_install_record_lock = threading.Lock()
+
+
+def root_plugin_dir() -> Path | None:
+    """``<hermes root>/plugins/ergates``: where this install keeps its copy of the plugin.
+
+    The path alone, whether or not a folder is there; ``None`` outside a
+    Hermes runtime.
+    """
+    root = default_hermes_root()
+    return None if root is None else root / "plugins" / PLUGIN_NAME
 
 
 def configured_timezone() -> tzinfo | None:
@@ -364,12 +468,25 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
     toolsets. The legacy pin is its names as listed. A granted name whose
     tools Hermes registers under other toolsets (``browser`` bundles
     ``browser-cdp``) grants those toolsets too.
-    Every MCP server the profile's config enables adds its toolset,
-    ``mcp-<server>``: enabled for Hermes
-    (``tools.mcp_tool_common.mcp_server_enabled``: ``enabled``, true unless
-    set) and not switched off with the legacy ``disabled`` key, which
-    ``profiles.configure`` wrote before v0.21.6 and Hermes's own MCP runtime
-    never read.
+    An MCP server's toolset is ``mcp-<server>``. On ``platform_toolsets.cli``
+    the answer of ``_get_platform_tools`` also holds the MCP servers an app
+    session gets: none when the list holds ``no_mcp``, only the listed ones
+    when the list names at least one enabled server (an MCP allowlist), and
+    every enabled server otherwise. Each server in it that
+    ``enabled_mcp_server_names`` names adds its ``mcp-`` toolset. A name in
+    the list that resolves to a server's tools grants that server's toolset
+    too, as for any toolset: ``mcp-<server>`` itself, ``all``, or the server's
+    name, which is an alias of its toolset once the server connects. On the
+    legacy pin, which Hermes no longer reads, every server the config enables
+    adds its toolset (``tools.mcp_tool_common.mcp_server_enabled``:
+    ``enabled``, true unless set), and so does a listed name that resolves to
+    a server's tools. The legacy ``disabled`` key, which ``profiles.configure``
+    wrote before v0.21.6 and Hermes's MCP runtime never reads, counts
+    differently on the two pins. On ``platform_toolsets.cli`` the ``mcp-``
+    toolset of such a server is taken out of the finished grant, whichever way
+    it got in; a built-in toolset of the same name stays. On the legacy pin it
+    only keeps the server from adding its toolset, so a listed name that
+    resolves to its tools still grants them.
 
     ``None`` means the profile pins no toolsets, so Hermes alone decides its
     tools and Ergates cannot tell a narrower grant; outside a Hermes runtime
@@ -391,7 +508,7 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
         from hermes_cli.config import load_config_readonly
     except ImportError:
         return None
-    from hermes_cli.tools_config import _get_platform_tools
+    from hermes_cli.tools_config import _get_platform_tools, enabled_mcp_server_names
     from hermes_cli.toolset_validation import parse_platform_toolsets_value
     from model_tools import get_toolset_for_tool
     from tools.mcp_tool_common import mcp_server_enabled
@@ -399,7 +516,8 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
     from utils import is_truthy_value
 
     def toolsets_granted_by(pinned) -> set[str]:
-        names = {str(name).strip() for name in pinned if str(name).strip()}
+        # As written, never stripped: Hermes resolves " terminal" to no toolset, so it grants none here either.
+        names = {str(name) for name in pinned if str(name)}
         owners = {owner for name in names for tool in resolve_toolset(name) if (owner := get_toolset_for_tool(tool))}
         return names | owners
 
@@ -409,17 +527,21 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
         if pin is None:
             return None
         key, pinned = pin
+        servers = config.get("mcp_servers")
+        servers = servers if isinstance(servers, dict) else {}
+        legacy_off = {str(server) for server, entry in servers.items()
+                      if isinstance(entry, dict) and is_truthy_value(entry.get("disabled", False))}
         if key == _APP_PIN:
             # Read-only: _get_platform_tools never writes to the config it is given.
-            pinned = _get_platform_tools(config, _APP_PLATFORM, include_default_mcp_servers=True)
-        granted = toolsets_granted_by(pinned)
-        servers = config.get("mcp_servers")
-        if isinstance(servers, dict):
-            granted.update(
-                f"mcp-{server}" for server, entry in servers.items()
-                if isinstance(entry, dict) and mcp_server_enabled(entry)
-                and not is_truthy_value(entry.get("disabled", False))
-            )
+            selected = set(_get_platform_tools(config, _APP_PLATFORM, include_default_mcp_servers=True))
+            granted = toolsets_granted_by(selected)
+            granted.update(f"mcp-{server}" for server in selected & enabled_mcp_server_names(config))
+            # Last, so it holds however the toolset got in: the server's name, `mcp-<server>` or `all`.
+            granted -= {f"mcp-{server}" for server in legacy_off}
+        else:
+            granted = toolsets_granted_by(pinned)
+            granted.update(f"mcp-{server}" for server, entry in servers.items()
+                           if isinstance(entry, dict) and mcp_server_enabled(entry) and str(server) not in legacy_off)
     return frozenset(granted)
 
 
@@ -461,11 +583,10 @@ def _profile_home(profile: str) -> Iterator[Path]:
 
 
 def _root_plugin_dir() -> Path:
-    """``<hermes root>/plugins/ergates``: where this install's copy of the plugin lives."""
-    root = default_hermes_root()
-    if root is None:
+    """:func:`root_plugin_dir`, which must hold the plugin: raises when Hermes is not here or the folder is empty."""
+    source = root_plugin_dir()
+    if source is None:
         raise RuntimeError("Hermes is not importable in this process")
-    source = root / "plugins" / PLUGIN_NAME
     if not (source / "plugin.yaml").is_file():
         raise FileNotFoundError(f"the {PLUGIN_NAME} plugin is not installed at {source}")
     return source

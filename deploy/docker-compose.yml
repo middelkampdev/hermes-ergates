@@ -27,9 +27,10 @@
 #     "Update" says how to move one.
 #   - The integration plugin is bind-mounted read-only into both controllers
 #     at /opt/data/plugins/ergates, the user-plugin folder Hermes scans. The
-#     reviewed templates are mounted read-only at /opt/ergates/templates for
-#     `python -m ergates.install`, and host cron runs `python -m ergates.flush`
-#     (deploy/README.md).
+#     reviewed proposal templates sit in the plugin's own templates/ folder, so
+#     they need no mount of their own. hermes-serve runs the plugin's periodic
+#     sweep on a thread of its own; no host cron line is needed
+#     (deploy/README.md "Periodic sweep").
 #
 # No credentials live in this file or in .env.example -- every secret is a
 # required, unset-by-default variable resolved from a real .env you create
@@ -68,6 +69,10 @@ services:
     environment:
       <<: *through-the-egress-proxy
       HERMES_HOME: /opt/data
+      # The plugin here is a read-only mount, so Hermes made and recorded no
+      # install. This marker is how the plugin's `health` route says so.
+      # Only this service answers `health`.
+      ERGATES_INSTALL_KIND: deployment
       HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:?set in .env -- never commit a real value}
       # Hash, not plaintext (04 section 6: "password hash where supported").
       # The stock provider prefers password_hash and only hashes a plaintext
@@ -87,11 +92,6 @@ services:
       # and HERMES_HOME is /opt/data here, so this path is what makes the
       # plugin exist in the deployed stack at all.
       - ../integrations/ergates:/opt/data/plugins/ergates:ro
-      # The reviewed proposal templates, read-only and outside /opt/data:
-      # `python -m ergates.install` copies them into /opt/data/ergates/templates
-      # as the hermes user (a mount inside /opt/data would make Docker create
-      # /opt/data/ergates owned by root).
-      - ./templates:/opt/ergates/templates:ro
       # Host Docker daemon access, restricted to this trusted controller
       # (03 section 9). This is NOT the same socket a shell sandbox gets --
       # profiles must keep terminal.docker_network / socket access off; see

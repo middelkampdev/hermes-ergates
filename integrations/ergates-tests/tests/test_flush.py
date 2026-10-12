@@ -9,24 +9,34 @@ import logging
 import os
 import sys
 import time
+import urllib.request
 
 import pytest
 
 from conftest import FakeCron, raw_bytes, rows
-from ergates import flush
+from ergates import flush, hermes_adapter
 from ergates.attention import APPROVAL_TTL_SECONDS, RETENTION_SECONDS, AttentionService
-from ergates.delivery import LEASE_SECONDS
+from ergates.delivery import LEASE_SECONDS, send_ntfy
 from ergates.flush import flush_once, main
 from ergates.proposals import ProposalService, validate_proposal
 from ergates.reminders import REMINDER_MAX_IDLE_SECONDS, ReminderService
 
 SETTINGS = {"server": "https://ntfy.example.internal", "topic": "ergates-alerts", "token": "tok",
             "connection_id": "conn-1"}
+# What config.yaml holds; the token is the install secret ERGATES_NTFY_TOKEN in the root's .env.
+CONFIG = {key: value for key, value in SETTINGS.items() if key != "token"}
+
+
+@pytest.fixture
+def install_token(monkeypatch):
+    """Hermes answers the install secret ERGATES_NTFY_TOKEN with the token of SETTINGS."""
+    secrets = {"ERGATES_NTFY_TOKEN": SETTINGS["token"]}
+    monkeypatch.setattr(hermes_adapter, "install_secret", secrets.get)
 
 
 def _write_config(home, **ntfy):
     """Write a config.yaml shaped exactly like the one the runbook edits."""
-    settings = ntfy or SETTINGS
+    settings = ntfy or CONFIG
     home.mkdir(parents=True, exist_ok=True)
     (home / "config.yaml").write_text(
         "plugins:\n"
@@ -72,6 +82,34 @@ def test_flush_once_skips_the_delivery_pass_when_push_is_not_configured(tmp_path
     assert counts["retried"] == 0
     assert published == []
     assert rows(store, "attention_outbox")[0]["state"] == "due"   # still due for a later flush
+
+
+def test_a_pass_without_push_settings_logs_only_at_debug(tmp_path, store, caplog):
+    """A deployment without push runs a sweep every two minutes; each pass must not add a line to Hermes's log."""
+    with caplog.at_level(logging.DEBUG):
+        flush_once(tmp_path, {}, publish=lambda spec: None)
+
+    assert [record.levelno for record in caplog.records if record.name.startswith("ergates")] == [logging.DEBUG]
+
+
+@pytest.mark.parametrize("server", ["file:///etc/hosts", "ftp://ntfy.example.internal"])
+def test_flush_once_turns_push_off_for_a_server_that_is_not_http_or_https(tmp_path, store, monkeypatch, caplog,
+                                                                          server):
+    """Nothing is opened, the push stays due for a pass with a usable server, and the log says why once."""
+    opened = []
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", lambda *args, **kwargs: opened.append(args))
+    now = time.time()
+    _approval(store, now)
+
+    with caplog.at_level(logging.DEBUG):
+        counts = flush_once(tmp_path, {**SETTINGS, "server": server}, now=now, publish=send_ntfy)
+
+    assert counts["retried"] == 0
+    assert opened == []
+    outbox = rows(store, "attention_outbox")[0]
+    assert (outbox["state"], outbox["attempts"]) == ("due", 0)
+    warnings = [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING]
+    assert len(warnings) == 1 and "push is off" in warnings[0]
 
 
 def test_flush_once_never_pushes_an_expired_approval(tmp_path, store):
@@ -166,10 +204,49 @@ def test_the_store_never_carries_content_after_a_flush(tmp_path, store):
     assert b"secret-project" not in raw_bytes(store)
 
 
+# --- one sweep: what hermes serve runs every interval -------------------------
+
+
+def test_sweep_once_reads_the_root_push_settings_and_asks_hermes_cron(tmp_path, store, monkeypatch, install_token):
+    _write_config(tmp_path)
+    cron = FakeCron()
+    monkeypatch.setattr(flush, "HermesCron", lambda: cron)
+    swept = []
+    sweep = flush.flush_once
+
+    def spy(root, settings, **kwargs):
+        swept.append((root, dict(settings), kwargs["cron"]))
+        return sweep(root, {}, **kwargs)  # no network in a test: the delivery pass is skipped
+
+    monkeypatch.setattr(flush, "flush_once", spy)
+
+    counts = flush.sweep_once(tmp_path)
+
+    assert swept == [(tmp_path, SETTINGS, cron)]
+    assert counts["retried"] == 0
+
+
+def test_sweep_once_skips_push_when_config_yaml_is_unreadable(tmp_path, store, monkeypatch, caplog):
+    """A config.yaml a YAML parser refuses turns push off for this pass only: expiry and
+    retention still run, the due push stays due, and the log names the error class only."""
+    monkeypatch.setattr(flush, "HermesCron", FakeCron)
+    (tmp_path / "config.yaml").write_text("plugins: [unclosed\n", encoding="utf-8")
+    _approval(store, time.time() - RETENTION_SECONDS - APPROVAL_TTL_SECONDS - 60)
+    _approval(store, time.time(), command="still due")
+
+    with caplog.at_level(logging.WARNING, logger="ergates.flush"):
+        counts = flush.sweep_once(tmp_path)
+
+    assert (counts["retried"], counts["expired_notifications"], counts["pruned_notifications"]) == (0, 1, 1)
+    assert [row["state"] for row in rows(store, "attention_outbox")] == ["due"]
+    assert "ParserError" in caplog.text
+    assert "unclosed" not in caplog.text
+
+
 # --- the command line -------------------------------------------------------
 
 
-def test_main_reports_counts_and_never_prints_a_secret(tmp_path, capsys, monkeypatch, store):
+def test_main_reports_counts_and_never_prints_a_secret(tmp_path, capsys, monkeypatch, store, install_token):
     monkeypatch.setitem(sys.modules, "hermes_constants", None)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     _write_config(tmp_path)
@@ -206,7 +283,7 @@ def test_main_survives_a_malformed_root_config_and_still_prunes(tmp_path, capsys
 
 
 def test_main_sweeps_the_shared_store_with_the_install_settings_from_a_profile_process(
-        tmp_path, capsys, monkeypatch, store):
+        tmp_path, capsys, monkeypatch, store, install_token):
     """With HERMES_HOME=<root>/profiles/<name> the sweep once opened the
     profile's own journals. It sweeps the one store under the Hermes root, and it
     pushes with the install-wide settings in the root's config.yaml, not with
@@ -292,8 +369,8 @@ def test_main_refuses_to_run_as_root_when_another_user_owns_the_hermes_root(tmp_
 
 
 def test_main_takes_no_credential_arguments_and_no_profile():
-    """The whole point of reading config.yaml: a token must never reach a process
-    listing (04 section 6). argparse rejects anything token-shaped. The push
+    """The whole point of reading the settings from config.yaml and the token from
+    the root's .env: a token must never reach a process listing (04 section 6). argparse rejects anything token-shaped. The push
     settings are install-wide, so there is no profile to choose either."""
     with pytest.raises(SystemExit):
         main(["--token", "secret"])

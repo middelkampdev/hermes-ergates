@@ -1,4 +1,4 @@
-"""``python -m ergates.install`` against the pinned Hermes, with the templates ``deploy/`` ships.
+"""``python -m ergates.install`` against the pinned Hermes, with the templates the plugin ships.
 
 The plugin is installed once at the root and enabled in every profile,
 because Hermes loads a user plugin only from the active home and only when
@@ -15,15 +15,16 @@ import pytest
 import yaml
 
 from ergates.hermes_adapter import plugin_enabled, profile_names
-from ergates.install import install_templates, main, source_templates
+from ergates.install import main
 from ergates.paths import store_path, templates_dir
 from ergates.reminders import ReminderService
+from ergates.setup import install_templates, source_templates
 from ergates.store import SCHEMA_VERSION as CURRENT_SCHEMA_VERSION
 from ergates.store import ControlStore
 from ergates.templates import load_template
 from plugin_tree import PLUGIN_DIR
 
-SHIPPED = PLUGIN_DIR.parents[1] / "deploy" / "templates"
+SHIPPED = PLUGIN_DIR / "templates"
 API = "/api/plugins/ergates"
 # DEFAULT_CONFIG["_config_version"] at the previous pin, Hermes d76856cc (v0.21.6 has 50). Hermes's
 # save_config always writes it, so every config.yaml the installer saved there carries it.
@@ -35,7 +36,7 @@ def test_install_enables_the_plugin_in_every_profile_and_installs_the_shipped_te
     make_profile("pia")
     make_profile("quin")
 
-    main(["--templates", str(SHIPPED)])
+    main([])
 
     names = profile_names()
     assert {"default", "pia", "quin"} <= set(names)
@@ -50,7 +51,7 @@ def test_install_enables_the_plugin_in_every_profile_and_installs_the_shipped_te
         assert load_template(templates_dir(root), path.stem)["template_id"] == path.stem
 
     capsys.readouterr()  # drain the install run's own output; --check must report its own facts
-    check_code = main(["--templates", str(SHIPPED), "--check"])
+    check_code = main(["--check"])
     lines = capsys.readouterr().out.splitlines()
 
     shipped_ids = sorted(path.stem for path in SHIPPED.glob("*.json"))
@@ -109,9 +110,13 @@ def prepared_root(tmp_path) -> Path:
     plugin = root / "plugins" / "ergates"
     plugin.symlink_to(PLUGIN_DIR, target_is_directory=True)
     old_config = {"_config_version": OLD_PIN_CONFIG_VERSION, "plugins": {"enabled": ["ergates"]}}
-    # Not the installer's: the live suite's guard against lazy `uv pip install` (see conftest.py).
-    (root / "config.yaml").write_text(yaml.safe_dump({**old_config, "security": {"allow_lazy_installs": False}}),
-                                      encoding="utf-8")
+    # Not the installer's: the live suite's guard against lazy `uv pip install`, and the
+    # sweep turned off, so no background pass prunes the receipt a test reads (see conftest.py).
+    sweep_off = {"entries": {"ergates": {"settings": {"sweep": {"interval_seconds": 0}}}}}
+    (root / "config.yaml").write_text(
+        yaml.safe_dump({**old_config, "plugins": {**old_config["plugins"], **sweep_off},
+                        "security": {"allow_lazy_installs": False}}),
+        encoding="utf-8")
     home = root / "profiles" / PREPARED_PROFILE
     (home / "plugins").mkdir(parents=True)
     (home / "plugins" / "ergates").symlink_to(plugin, target_is_directory=True)

@@ -9,7 +9,8 @@ import pytest
 
 from ergates import hermes_adapter
 from ergates.hermes_adapter import default_hermes_root
-from ergates.paths import hermes_root, store_path
+from ergates.paths import bundled_templates_dir, hermes_root, store_path, templates_dir
+from plugin_tree import PLUGIN_DIR
 
 
 @pytest.fixture
@@ -72,6 +73,18 @@ def test_a_blank_hermes_home_counts_as_unset(without_hermes, monkeypatch, tmp_pa
 
 def test_store_path_is_ergates_control_sqlite3_under_the_root():
     assert store_path(Path("/opt/data")) == Path("/opt/data/ergates/control.sqlite3")
+
+
+def test_the_installed_templates_live_in_the_store_folder_of_the_root():
+    assert templates_dir(Path("/opt/data")) == Path("/opt/data/ergates/templates")
+
+
+def test_the_templates_the_plugin_ships_sit_in_the_plugin_folder(without_hermes, monkeypatch, tmp_path):
+    """A read-only mount of the plugin folder and a git install both carry them; nothing depends on the Hermes root."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+
+    assert bundled_templates_dir() == PLUGIN_DIR / "templates"
+    assert (bundled_templates_dir() / "bookkeeper.json").is_file()
 
 
 # --- Hermes's configured timezone ---------------------------------------------

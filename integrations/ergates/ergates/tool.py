@@ -32,7 +32,7 @@ from .paths import hermes_root, store_path
 from .proposals import HERMES_RESERVED_PROFILE_NAMES, ProposalError, ProposalService, validate_proposal
 from .reminders import ReminderError, ReminderService
 from .settings import push_settings
-from .store import ControlStore, StoreError
+from .store import ControlStore, StoreError, StoreReadOnly
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +277,7 @@ def _deliver_in_background(worker: DeliveryWorker, event_id: str) -> threading.T
     in-app approval card itself. The event and its outbox row are already
     committed when this starts; the network call runs on a short-lived daemon
     thread. A push this thread cannot finish stays due in the outbox, and
-    the next ``python -m ergates.flush`` sends it.
+    the next sweep sends it.
 
     The thread runs in a copy of the caller's context. A multiplexed gateway
     routes each session to its profile with a context-local Hermes home, and
@@ -390,12 +390,12 @@ def _delivery_worker(store: ControlStore) -> Optional[DeliveryWorker]:
     The settings are install-wide (:mod:`ergates.settings`): the Hermes
     root's ``config.yaml``, whichever profile this hook runs in. A settings
     file that cannot be read turns push off for this call; the event and its
-    outbox row are still recorded, and the flush sends the push later.
+    outbox row are still recorded, and the next sweep sends the push.
     """
     try:
         settings = push_settings(hermes_root())
     except Exception as exc:
-        logger.warning("ergates: push settings unreadable (%s); the flush sends it later", type(exc).__name__)
+        logger.warning("ergates: push settings unreadable (%s); the next sweep sends it", type(exc).__name__)
         return None
     if settings is None:
         return None
@@ -411,8 +411,10 @@ class _Services:
 
 
 # What opening the control store raises when it cannot serve: a folder or file
-# this process cannot create or open (OSError), SQLite refusing the file, or a
-# schema a newer plugin wrote (StoreError).
+# this process cannot create or open (OSError), SQLite refusing the file, or
+# root on a Hermes root another user owns (StoreError). A store a newer plugin
+# changed still opens, and its writes raise StoreReadOnly, a StoreError, which
+# the handlers catch where they write.
 _OPEN_ERRORS = (StoreError, sqlite3.Error, OSError)
 
 
@@ -446,7 +448,9 @@ def register(ctx: Any) -> None:
 
     The gate is registered first. While the control store cannot open, the
     gate blocks every tool call (``policy.BLOCK_UNVERIFIED``), the tools
-    answer an error, and the attention hooks raise, which Hermes logs.
+    answer an error, and the attention hooks raise, which Hermes logs. On a
+    store a newer plugin made read-only, the attention hooks record nothing
+    and return ``None``.
     """
     services = _services_on_first_use()
 
@@ -485,24 +489,36 @@ def register(ctx: Any) -> None:
             **kwargs,
         )
 
+    # On a store a newer plugin made read-only, an attention hook records nothing and
+    # returns: the store has logged that once, and a raise would be logged per call.
     def handle_pre_approval(**kwargs: Any) -> None:
         opened = services()
-        on_approval_request(
-            opened.attention, worker=_delivery_worker(opened.store), profile=_resolve_profile(ctx), **kwargs,
-        )
+        try:
+            on_approval_request(
+                opened.attention, worker=_delivery_worker(opened.store), profile=_resolve_profile(ctx), **kwargs,
+            )
+        except StoreReadOnly:
+            return None
 
     def handle_post_approval(**kwargs: Any) -> None:
-        on_approval_response(services().attention, **kwargs)
+        attention = services().attention
+        try:
+            on_approval_response(attention, **kwargs)
+        except StoreReadOnly:
+            return None
 
     def handle_turn_completed(**kwargs: Any) -> None:
         platforms = completed_platforms(ctx.get_config("attention.completed_platforms", None))
         if kwargs.get("platform") not in platforms:
             return
         opened = services()
-        on_turn_completed(
-            opened.attention, worker=_delivery_worker(opened.store), profile=_resolve_profile(ctx),
-            platforms=platforms, **kwargs,
-        )
+        try:
+            on_turn_completed(
+                opened.attention, worker=_delivery_worker(opened.store), profile=_resolve_profile(ctx),
+                platforms=platforms, **kwargs,
+            )
+        except StoreReadOnly:
+            return None
 
     ctx.register_hook("pre_tool_call", handle_pre_tool_call)
     ctx.register_tool(

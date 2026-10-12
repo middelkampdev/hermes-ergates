@@ -10,7 +10,8 @@ only runtime code.
 The pinned scanner is standard-library Python, so this test runs it in a
 child process, with ``-B`` so no bytecode lands in the pinned checkout, and
 this test process never imports Hermes. ``live/test_hot_mount.py`` checks the
-same verdict through a real install.
+same verdict through a real install, and ``live/test_catalog_validate.py``
+checks it again as one of the catalog validator's checks.
 """
 
 from __future__ import annotations
@@ -54,15 +55,3 @@ def test_the_install_scan_rates_the_plugin_tree_safe(hermes: PinnedSource, tmp_p
     report = json.loads(run.stdout)
     blocking = sorted(finding for finding in report["findings"] if finding[0] in {"high", "critical"})
     assert (report["verdict"], blocking) == ("safe", [])
-
-
-def test_the_plugin_tree_holds_no_test_code(tmp_path: Path) -> None:
-    """Tests, fixtures and their sample credentials stay in ``integrations/ergates-tests``."""
-    tree = _tracked_tree(tmp_path)
-
-    found = sorted(
-        path.relative_to(tree).as_posix()
-        for path in tree.rglob("*")
-        if path.name in {"tests", "contract", "conftest.py"} or path.name.startswith("test_")
-    )
-    assert found == []

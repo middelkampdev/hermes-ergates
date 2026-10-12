@@ -1,9 +1,9 @@
 # The tests of the Ergates plugin. They live outside integrations/ergates so
 # the folder users install holds only runtime code, which Hermes's install
 # scan rates `safe`. This project is never built: uv installs the plugin as
-# an editable dependency and runs pytest from here. Its uv.lock is not
-# committed (see the repository's .gitignore): it would record the plugin
-# version, which .gflow/set-version.sh does not write.
+# an editable dependency and runs pytest from here. Its uv.lock is committed,
+# so every CI run tests with the same pytest, pytest-cov and PyYAML versions;
+# it records the plugin version, which .gflow/set-version.sh writes.
 [project]
 name = "ergates-tests"
 version = "0"
@@ -22,6 +22,8 @@ ergates = { path = "../ergates", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# plugin_tree.py sits next to this file and is imported by tests/, contract/ and contract/live/.
+pythonpath = ["."]
 
 [tool.coverage.run]
 source = ["ergates"]

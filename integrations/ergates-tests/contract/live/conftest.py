@@ -46,6 +46,8 @@ SERVE_SCRIPT = Path(__file__).with_name("hermes_serve.py")
 # dependency runtime first (downloads included), which takes about a minute.
 SERVER_TIMEOUT_SECONDS = 600
 _temporary: list[Path] = []
+# Where the child servers of one test session share Hermes's package-manager downloads (see serve_hermes).
+_child_runtime: list[Path] = []
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -58,6 +60,7 @@ def pytest_configure(config: pytest.Config) -> None:
         pytest.exit(failure, returncode=4)
     base = Path(tempfile.mkdtemp(prefix="ergates-live-")).resolve()
     _temporary.append(base)
+    _child_runtime.append(base / "child-runtime")
     home, root = base / "home", base / "hermes"
     home.mkdir()
     (root / "plugins").mkdir(parents=True)
@@ -65,8 +68,11 @@ def pytest_configure(config: pytest.Config) -> None:
     # security.allow_lazy_installs: false blocks Hermes's lazy `uv pip install` in both
     # sealed and unsealed venvs (tools/lazy_deps.py:321-322); without it a test that
     # imports an optional provider stack can wait out the whole 300 s install timeout.
+    # sweep.interval_seconds: 0 keeps the session server's periodic sweep off, so no
+    # background pass expires, prunes or sends while another test reads the store.
     (root / "config.yaml").write_text(
-        "plugins:\n  enabled:\n  - ergates\nsecurity:\n  allow_lazy_installs: false\n", encoding="utf-8",
+        "plugins:\n  enabled:\n  - ergates\n  entries:\n    ergates:\n      settings:\n        sweep:\n"
+        "          interval_seconds: 0\nsecurity:\n  allow_lazy_installs: false\n", encoding="utf-8",
     )
     os.environ.update({"HOME": str(home), "HERMES_HOME": str(root), "HERMES_DASHBOARD_SESSION_TOKEN": SESSION_TOKEN})
     # Hermes computes some paths at import time; nothing has imported it yet here, so
@@ -110,11 +116,20 @@ def make_profile():
 @pytest.fixture(scope="session")
 def web():
     """Hermes's dashboard app, imported the way ``hermes serve`` loads it; the
-    import mounts every enabled plugin's API router."""
+    import mounts every enabled plugin's API router.
+
+    The plugin installs its own proposal templates when the router builds its
+    operations, on the first request, and removes any other template then. One
+    request here makes that happen before any test runs, so a test that writes
+    a template of its own (``provision``, the accept test) can write after it.
+    """
     from fastapi.testclient import TestClient
     from hermes_cli.web_server import app
 
-    return TestClient(app)
+    client = TestClient(app)
+    first = client.get("/api/plugins/ergates/health", headers={"X-Hermes-Session-Token": SESSION_TOKEN})
+    assert first.status_code == 200, first.text
+    return client
 
 
 @pytest.fixture(scope="session")
@@ -124,32 +139,54 @@ def token_headers() -> dict[str, str]:
 
 @dataclass(frozen=True)
 class PluginRepo:
-    """A git repository whose one commit holds this plugin, the way a user installs it from a URL."""
+    """A git repository whose one commit holds this plugin, the way a user installs it from a URL.
+
+    ``subdir`` is the folder of the repository that holds the plugin, empty when it sits at the root.
+    """
 
     path: Path
     url: str
     sha: str
     version: str
+    subdir: str = ""
+
+    @property
+    def identifier(self) -> str:
+        """What a client gives Hermes to install it: the URL, and ``#<subdir>`` when the plugin is in a folder."""
+        return f"{self.url}#{self.subdir}" if self.subdir else self.url
 
 
-@pytest.fixture(scope="session")
-def plugin_git_repo(tmp_path_factory) -> PluginRepo:
-    """Commits a copy of ``integrations/ergates`` (every file git tracks) to a new repository.
+def _commit_plugin(path: Path, subdir: str) -> PluginRepo:
+    """Commits a copy of ``integrations/ergates`` (every file git tracks) to a new repository at ``path``.
 
     Untracked files stay out (``plugin_tree.copy_tracked_files``), so a stray
     local file cannot change the install scan's verdict, and no git hook of
     this machine runs.
     """
-    path = tmp_path_factory.mktemp("plugin-repo")
-    copy_tracked_files(path)
+    plugin = path / subdir if subdir else path
+    plugin.mkdir(parents=True, exist_ok=True)
+    copy_tracked_files(plugin)
     git = ["git", *NO_HOOKS, "-C", str(path), "-c", "user.name=Ergates contract", "-c", "user.email=contract@ergates.invalid",
            "-c", "commit.gpgsign=false"]
     subprocess.run([*git, "init", "-q", "-b", "main"], check=True)
     subprocess.run([*git, "add", "-A"], check=True)
     subprocess.run([*git, "commit", "-q", "-m", "Ergates plugin"], check=True)
     sha = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
-    version = yaml.safe_load((path / "plugin.yaml").read_text(encoding="utf-8"))["version"]
-    return PluginRepo(path=path, url=path.as_uri(), sha=sha, version=version)
+    version = yaml.safe_load((plugin / "plugin.yaml").read_text(encoding="utf-8"))["version"]
+    return PluginRepo(path=path, url=path.as_uri(), sha=sha, version=version, subdir=subdir)
+
+
+@pytest.fixture(scope="session")
+def plugin_git_repo(tmp_path_factory) -> PluginRepo:
+    """The plugin at the root of a new repository."""
+    return _commit_plugin(tmp_path_factory.mktemp("plugin-repo"), "")
+
+
+@pytest.fixture(scope="session")
+def plugin_monorepo(tmp_path_factory) -> PluginRepo:
+    """The plugin in ``integrations/ergates`` of a new repository, the layout of its own repository: Hermes
+    installs it from that subdirectory."""
+    return _commit_plugin(tmp_path_factory.mktemp("plugin-monorepo"), "integrations/ergates")
 
 
 @pytest.fixture
@@ -163,17 +200,32 @@ def serve_hermes():
     When the test ends, every server is
     stopped and its root removed: a first plugin install leaves Hermes's own
     dependency runtime there, about half a gigabyte.
+
+    A first plugin install on a source checkout prepares that runtime with
+    Hermes's package manager, which downloads its toolchain (Python and uv)
+    into its store and fills a uv cache at ``<root>/cache/uv``
+    (``pm/packages.py:317`` at the pin). It drops an ambient ``UV_CACHE_DIR``
+    (``pm/environment.py:206-208``), so the children of one test session
+    share both another way: one store through ``HERMES_RUNTIME_DIR``
+    (``pm/environments.py:220-223``) and one uv cache, linked into each
+    root, both in the session's temporary folder. Only the first install of
+    a session downloads; the others build their runtime from what it left.
     """
     import httpx
 
     started: list[tuple[Path, subprocess.Popen, threading.Thread, httpx.Client]] = []
+    store, uv_cache = _child_runtime[0] / "store", _child_runtime[0] / "uv-cache"
 
     def start(root: Path) -> httpx.Client:
         home = root.parent / "home"
         home.mkdir(exist_ok=True)
+        uv_cache.mkdir(parents=True, exist_ok=True)
+        (root / "cache").mkdir(exist_ok=True)
+        if not (root / "cache" / "uv").exists():
+            (root / "cache" / "uv").symlink_to(uv_cache, target_is_directory=True)  # rmtree removes the link only
         log = root.parent / "hermes-serve.log"
         log.write_text("", encoding="utf-8")
-        env = {**os.environ, "HOME": str(home), "HERMES_HOME": str(root),
+        env = {**os.environ, "HOME": str(home), "HERMES_HOME": str(root), "HERMES_RUNTIME_DIR": str(store),
                "HERMES_DASHBOARD_SESSION_TOKEN": SESSION_TOKEN, "PYTHONDONTWRITEBYTECODE": "1"}
         # Append mode for the child and the drain thread alike, so neither overwrites the other.
         with log.open("a", encoding="utf-8") as stderr:

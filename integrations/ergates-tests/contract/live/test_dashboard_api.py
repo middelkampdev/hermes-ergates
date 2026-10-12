@@ -8,17 +8,22 @@ through Hermes's real middleware, including its auth.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
+import logging
+import os
 import sys
+import threading
+from pathlib import Path
 
 import pytest
 
 import ergates
-from ergates import hermes_adapter
+from ergates import hermes_adapter, settings
 from ergates.operations import Operations
-from ergates.paths import store_path, templates_dir
+from ergates.paths import bundled_templates_dir, store_path, templates_dir
 from ergates.proposals import PROVISION_STEPS, ProposalService, validate_proposal
-from ergates.store import ControlStore
+from ergates.store import SCHEMA_VERSION, ControlStore
 
 API = "/api/plugins/ergates"
 TEMPLATE = {"template_id": "bookkeeper", "soul": "You keep the books.",
@@ -31,6 +36,7 @@ ROUTES = [
     ("POST", "/proposals/p-1/reject"),
     ("POST", "/proposals/p-1/steps"),
     ("POST", "/profiles/thijs/plugin"),
+    ("POST", "/setup"),
     ("GET", "/attention/prefs?scope=*"),
     ("PUT", "/attention/prefs"),
 ]
@@ -47,11 +53,88 @@ def _reminder(profile, **overrides):
     return {**body, **overrides}
 
 
-def test_hermes_serve_mounts_the_router_and_health_answers(web, token_headers):
+SWEEP_OFF = {"interval_seconds": 0, "last_run_at": None, "last_error": None}
+
+
+def test_hermes_serve_mounts_the_router_and_health_answers(web, token_headers, monkeypatch):
+    monkeypatch.delenv("ERGATES_NTFY_TOKEN", raising=False)  # this process serves the root, so Hermes would read it
+    reply = web.get(f"{API}/health", headers=token_headers)
+    body = reply.json()
+    print(json.dumps(body, indent=2))
+
+    assert reply.status_code == 200
+    assert (body["ok"], body["plugin_version"], body["api_level"], body["min_api_level"]) == (
+        True, ergates.__version__, 1, 1)
+    assert body["schema_version"] == SCHEMA_VERSION
+    assert body["store"] == {"plugin_schema_version": SCHEMA_VERSION, "min_schema_version": SCHEMA_VERSION,
+                             "writable": True}
+    # The session root links its plugin folder to this checkout, which no commit describes.
+    assert body["install"] == {"kind": "manual copy", "commit": None, "catalog_name": None}
+    # Other tests add profiles to this root; the default profile is always first and has the plugin.
+    assert body["setup"]["templates"] == "installed"
+    assert body["setup"]["profiles"][0] == {"name": "default", "enabled": True}
+    assert body["push"] == {"configured": False, "token_set": False, "legacy_config_token": False}
+    assert body["sweep"] == SWEEP_OFF
+
+
+def test_health_says_deployment_when_the_serving_process_is_marked_so_at_each_call(web, token_headers, monkeypatch):
+    """The Compose file sets ``ERGATES_INSTALL_KIND`` on ``hermes-serve``; a deployment has no install record."""
+    monkeypatch.setenv("ERGATES_INSTALL_KIND", "deployment")
+    marked = web.get(f"{API}/health", headers=token_headers).json()["install"]
+    monkeypatch.delenv("ERGATES_INSTALL_KIND")
+    unmarked = web.get(f"{API}/health", headers=token_headers).json()["install"]
+
+    assert marked == {"kind": "deployment", "commit": None, "catalog_name": None}
+    assert unmarked["kind"] == "manual copy"
+
+
+def test_health_reports_push_as_booleans_and_never_a_value(web, token_headers, monkeypatch, tmp_path):
+    """The root's config.yaml holds the server, the topic and a token left from 0.2; the token that counts is the
+    install secret, which this process (it serves the root, without multiplexing) reads from its environment."""
+    module = _module()
+    (tmp_path / "config.yaml").write_text(
+        "plugins:\n  entries:\n    ergates:\n      settings:\n        ntfy:\n"
+        "          server: https://ntfy.example.internal\n          topic: ergates-alerts\n"
+        "          token: tk_left_in_config\n", encoding="utf-8")
+    monkeypatch.setattr(module, "_operations", None)
+    monkeypatch.setattr(module, "hermes_root", lambda: tmp_path)
+    monkeypatch.setenv("ERGATES_NTFY_TOKEN", "tk_in_the_environment")
+
     reply = web.get(f"{API}/health", headers=token_headers)
 
-    assert (reply.status_code, reply.json()) == (
-        200, {"ok": True, "schema_version": 1, "plugin_version": ergates.__version__})
+    assert (reply.status_code, reply.json()["push"]) == (
+        200, {"configured": True, "token_set": True, "legacy_config_token": True})
+    assert "tk_" not in reply.text and "ntfy.example" not in reply.text
+
+
+def test_the_session_server_runs_no_sweep_when_the_interval_is_0(web, token_headers):
+    """``conftest.py`` sets ``sweep.interval_seconds: 0`` in the session root, so no background
+    pass expires, prunes or sends while another test reads the store."""
+    reply = web.get(f"{API}/health", headers=token_headers)
+
+    assert reply.json()["sweep"] == SWEEP_OFF
+    assert [thread for thread in threading.enumerate() if thread.name == "ergates-sweep"] == []
+
+
+def test_a_sweep_that_cannot_start_leaves_the_router_whole_and_names_its_error(web, monkeypatch, caplog):
+    """The file imported the way Hermes mounts it (``spec_from_file_location``, then
+    ``exec_module``) while the sweep cannot start: the import does not raise, the router is
+    complete, and the status names the error class."""
+    def unreadable(root):
+        raise RuntimeError("/secret/hermes/config.yaml")
+
+    monkeypatch.setattr(settings, "sweep_interval", unreadable)
+    path = Path(_module().__file__)
+    spec = importlib.util.spec_from_file_location("hermes_dashboard_plugin_ergates_again", path)
+    again = importlib.util.module_from_spec(spec)
+
+    with caplog.at_level(logging.WARNING, logger="ergates.dashboard"):
+        spec.loader.exec_module(again)
+
+    assert sorted(route.path for route in again.router.routes) == sorted(
+        route.path for route in _module().router.routes)
+    assert again.sweep_status() == {"interval_seconds": 120, "last_run_at": None, "last_error": "RuntimeError"}
+    assert "RuntimeError" in caplog.text and "secret" not in caplog.text
 
 
 @pytest.mark.parametrize(("method", "path"), ROUTES)
@@ -220,6 +303,75 @@ def test_provisioning_through_hermes_serve_ends_complete(web, token_headers, roo
     assert (root / "profiles" / "ruben" / "plugins" / "ergates").is_symlink()
 
 
+def test_setup_through_hermes_serve_enables_the_plugin_in_every_profile(web, token_headers, make_profile):
+    """Other tests of this session share the root and leave profiles behind, one with a
+    ``plugins/ergates`` folder on purpose, so the report is checked for the profile made here only."""
+    home = make_profile("ines")
+    assert not hermes_adapter.plugin_enabled("ines")
+
+    reply = web.post(f"{API}/setup", json={}, headers=token_headers)
+
+    assert reply.status_code == 200
+    report = reply.json()["setup"]
+    assert set(report) == {"finished", "templates", "profiles"}
+    assert report["templates"] == "installed"
+    assert {"name": "default", "enabled": True} in report["profiles"]
+    assert {"name": "ines", "enabled": True} in report["profiles"]
+    assert hermes_adapter.plugin_enabled("ines")
+    assert (home / "plugins" / "ergates").is_symlink()
+
+
+def test_health_reuses_its_setup_part_for_a_few_seconds_and_post_setup_drops_it(
+        web, token_headers, monkeypatch, make_profile):
+    """Hermes plugin discovery runs once per profile for the setup part, so ``health`` keeps it for
+    ``HEALTH_CACHE_SECONDS``; ``POST /setup`` writes, so the next ``health`` computes it again."""
+    monkeypatch.setattr(_module(), "_operations", None)  # a new Operations: its cache holds nothing yet
+
+    def profiles():
+        return web.get(f"{API}/health", headers=token_headers).json()["setup"]["profiles"]
+
+    before = profiles()
+    make_profile("kees")
+    within_the_window = profiles()
+    assert web.post(f"{API}/setup", json={}, headers=token_headers).status_code == 200
+    after = profiles()
+
+    assert "kees" not in [item["name"] for item in before]
+    assert within_the_window == before
+    assert {"name": "kees", "enabled": True} in after
+
+
+def test_setup_reports_a_profile_with_a_hand_copied_plugin_folder_and_enables_the_rest(
+        web, token_headers, make_profile):
+    """Hermes's ``enable_plugin`` refuses to replace a folder where the plugin link belongs; the
+    other profiles are still enabled."""
+    copied = make_profile("quirijn")
+    (copied / "plugins" / "ergates").mkdir(parents=True)
+    make_profile("sanne")
+
+    reply = web.post(f"{API}/setup", json={}, headers=token_headers)
+
+    assert reply.status_code == 200
+    report = reply.json()["setup"]
+    assert report["finished"] is False
+    assert {"name": "quirijn", "enabled": False, "error": "FileExistsError"} in report["profiles"]
+    assert {"name": "sanne", "enabled": True} in report["profiles"]
+    assert not (copied / "plugins" / "ergates").is_symlink()
+
+
+def test_setup_without_a_json_body_is_400_and_enables_nothing(web, token_headers, make_profile):
+    """A same-site page can post ``text/plain`` without a preflight; ``_body`` reads that as no body."""
+    home = make_profile("jens")
+
+    plain = web.post(f"{API}/setup", content="{}", headers={**token_headers, "Content-Type": "text/plain"})
+    empty = web.post(f"{API}/setup", headers=token_headers)
+
+    for reply in (plain, empty):
+        assert (reply.status_code, reply.json()["error"]["code"]) == (400, "invalid")
+    assert not hermes_adapter.plugin_enabled("jens")
+    assert not (home / "plugins" / "ergates").exists()
+
+
 def test_attention_prefs_round_trip(web, token_headers):
     """The read names its scope with ``?scope=``. Since v0.21.6 Hermes runs every plugin route in the
     profile scope of a ``profile`` parameter, so it answers a ``?profile=`` that is no profile name itself,
@@ -268,15 +420,93 @@ def test_a_store_that_cannot_be_opened_is_503_store_unavailable(web, token_heade
     assert (reply.status_code, reply.json()["error"]["code"]) == (503, "store_unavailable")
 
 
+def test_root_on_a_hermes_root_another_user_owns_is_503_and_writes_nothing(web, token_headers, monkeypatch, tmp_path):
+    """Root (a fake euid 0) on a Hermes root that uid 1000 owns: no store, no templates, no owner change."""
+    module = _module()
+    real_stat = os.stat
+    owner_changes = []
+
+    def stat_owned_by_1000(path, *args, **kwargs):
+        result = real_stat(path, *args, **kwargs)
+        if not isinstance(path, (str, os.PathLike)) or Path(path) != tmp_path:
+            return result
+        values = list(result)
+        values[4] = values[5] = 1000
+        return os.stat_result(values)
+
+    def refuse(name):
+        return lambda *args, **kwargs: owner_changes.append(name)
+
+    enable_calls = []
+    monkeypatch.setattr(module, "_operations", None)
+    monkeypatch.setattr(module, "hermes_root", lambda: tmp_path)
+    monkeypatch.setattr(hermes_adapter, "enable_plugin", enable_calls.append)
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "stat", stat_owned_by_1000)
+    for name in ("chown", "fchown", "lchown"):
+        monkeypatch.setattr(os, name, refuse(name))
+
+    replies = [web.get(f"{API}/health", headers=token_headers),
+               web.get(f"{API}/attention/prefs", params={"scope": "*"}, headers=token_headers),
+               web.post(f"{API}/setup", json={}, headers=token_headers)]
+
+    assert [(reply.status_code, reply.json()["error"]["code"]) for reply in replies] == [
+        (503, "store_unavailable")] * 3
+    assert list(tmp_path.iterdir()) == []
+    assert owner_changes == []
+    assert enable_calls == []  # POST /setup runs only on an Operations, which needs the store
+
+
+def test_the_bundled_templates_are_installed_before_the_store_opens(web, token_headers, monkeypatch, tmp_path):
+    """A root that never ran the installer serves the plugin's templates after its first request."""
+    module = _module()
+    seen = []
+
+    class WatchingStore(ControlStore):
+        def __init__(self, *args, **kwargs):
+            seen.append(sorted(path.name for path in templates_dir(tmp_path).glob("*.json")))
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(module, "_operations", None)
+    monkeypatch.setattr(module, "hermes_root", lambda: tmp_path)
+    monkeypatch.setattr(module, "ControlStore", WatchingStore)
+
+    reply = web.get(f"{API}/health", headers=token_headers)
+
+    assert reply.status_code == 200
+    assert seen == [["bookkeeper.json", "general-assistant.json"]]
+    for path in bundled_templates_dir().glob("*.json"):
+        assert (templates_dir(tmp_path) / path.name).read_bytes() == path.read_bytes()
+
+
+def test_a_template_the_accept_route_would_refuse_installs_nothing_and_the_routes_still_serve(
+        web, token_headers, monkeypatch, tmp_path):
+    module = _module()
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "broken.json").write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(module, "_operations", None)
+    monkeypatch.setattr(module, "hermes_root", lambda: tmp_path / "root")
+    monkeypatch.setattr(module, "bundled_templates_dir", lambda: bundle)
+
+    reply = web.get(f"{API}/health", headers=token_headers)
+
+    assert reply.status_code == 200
+    assert not templates_dir(tmp_path / "root").exists()
+
+
 INTERNAL = {"error": {"code": "internal", "message": "The request could not be completed."}}
 
 
 def _operations_with(root, **adapter):
     """An ``Operations`` on the real store and Hermes, with some adapter functions replaced."""
     functions = {name: getattr(hermes_adapter, name) for name in (
-        "profile_exists", "plugin_enabled", "enable_plugin", "check_schedule", "check_prompt",
+        "profile_exists", "plugin_enabled", "enable_plugin", "profile_names", "check_schedule", "check_prompt",
         "check_gateway_lifecycle")}
     return Operations(ControlStore(store_path(root)), cron=hermes_adapter.HermesCron(), templates=templates_dir(root),
+                      bundled_templates=bundled_templates_dir(), sweep_status=_module().sweep_status,
+                      install=lambda: {"kind": "manual copy", "commit": None, "catalog_name": None},
+                      push_status=lambda: {"configured": False, "token_set": False, "legacy_config_token": False},
                       **{**functions, **adapter})
 
 

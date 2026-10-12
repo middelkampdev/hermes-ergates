@@ -197,41 +197,47 @@ Expected: `templates=installed`, one `plugin=enabled` line per profile, and
 `exit 0`. Then, signed in in the app, open the concierge and ask it to
 propose a bookkeeper; the proposal card appears (the routes answer).
 
-`hermes-gateway` is where the hooks and the tool gate actually fire, and it
-has no templates mount, so its own `--check` needs an explicit
-`--templates` to get past the missing default `/opt/ergates/templates` and
-reach the per-profile lines:
+`hermes-gateway` is where the hooks and the tool gate actually fire. It
+mounts the same plugin folder and the same data volume, so its own `--check`
+needs no option:
 
 ```bash
-docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-gateway python -m ergates.install --check --templates /opt/data/plugins/ergates; echo "exit $?"
+docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-gateway python -m ergates.install --check; echo "exit $?"
 ```
 
-Expected: the same `plugin=enabled` line per profile that `hermes-serve`
-printed. The exit code here is not `0` -- the plugin's own source folder has
-no `*.json` templates to match the installed set, and that is fine; this
-run is only about the plugin lines. Re-run `python -m ergates.install`
-(without `--check`, on `hermes-serve`) after every `git pull` of this
-repository and after making a profile by hand: templates and plugin
-enablement only change on a re-run, never automatically.
+Expected: the same `templates=installed` line, the same `plugin=enabled` line
+per profile and `exit 0` as `hermes-serve` printed. After a `git pull` of this
+repository, the plugin's current templates are installed in one of two ways.
+Restart `hermes-serve` and then send it one request (open the app, or call
+`/api/plugins/ergates/health`): the restart alone installs nothing, and the
+first request after it does. Or run `python -m ergates.install` (without
+`--check`, on `hermes-serve`), which installs them at once. Plugin enablement
+in a profile made by hand only changes on a re-run of the installer; the app
+enables the plugin in the profiles it creates.
 
 Result:
 
-### V6 The sweep runs as `hermes`, and refuses root
+### V6 The sweep runs inside `hermes-serve`, and refuses root
+
+Signed in at `http://<TAILSCALE_IP>:9119/login` in a browser (V4), open
+`http://<TAILSCALE_IP>:9119/api/plugins/ergates/health` twice, two or three
+minutes apart. Then run one pass by hand, once as `hermes` and once as root:
 
 ```bash
 $EXEC python -m ergates.flush
 docker compose exec -T -e PYTHONPATH=/opt/data/plugins/ergates hermes-serve python -m ergates.flush; echo "exit $?"
-tail -5 /var/log/ergates-flush.log
 ```
 
-Expected: one `ergates.flush: retried=...` line; the root run prints
-`refusing to run as root` and `exit 2`; the cron log gains a line every two
-minutes.
+Expected: in both answers `sweep.interval_seconds` is `120` and
+`sweep.last_error` is `null`, and `sweep.last_run_at` is a number that moved
+forward between the two. The `hermes` run prints one
+`ergates.flush: retried=...` line; the root run prints
+`refusing to run as root` and `exit 2`.
 
 The one-line summary also proves the image's `python` can `import
 hermes_cli` and PyYAML (the sweep needs `HermesCron` and the root's
-settings) and that a `hermes` user exists to run it as -- either missing
-would show up here as a traceback instead of that line.
+settings) and that a `hermes` user exists to run it as. If either were
+missing, this check would show a traceback instead of that line.
 
 Result:
 

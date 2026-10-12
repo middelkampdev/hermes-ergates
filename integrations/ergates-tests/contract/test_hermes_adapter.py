@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import ast
 
-from ergates import hermes_adapter, reminders
+import yaml
+
+from ergates import hermes_adapter, reminders, settings
 from pinned import PinnedSource
+from plugin_tree import PLUGIN_DIR
 
 CONSTANTS = "hermes_constants.py"
 HERMES_TIME = "hermes_time.py"
@@ -31,6 +34,13 @@ RPC = "tui_gateway/methods_tools.py"
 MODEL_SWITCH = "tui_gateway/model_switch.py"
 PROMPT_TURN = "tui_gateway/prompt_turn.py"
 PROMPT_SCAN = "tools/cronjob_prompt_scan.py"
+SECRET_SCOPE = "agent/secret_scope.py"
+PLUGINS_SETTINGS = "hermes_cli/plugins_settings.py"
+PLUGINS_MANIFEST = "hermes_cli/plugins_manifest.py"
+PLUGINS_CMD = "hermes_cli/plugins_cmd.py"
+PLUGINS_CMD_GIT = "hermes_cli/plugins_cmd_git.py"
+PLUGINS_CMD_INSTALL = "hermes_cli/plugins_cmd_install.py"
+PLUGINS_CMD_CATALOG = "hermes_cli/plugins_cmd_catalog.py"
 
 
 def _arguments(function: ast.FunctionDef) -> list[str]:
@@ -439,8 +449,13 @@ def test_the_registry_names_the_toolset_of_a_tool(hermes: PinnedSource) -> None:
 
 
 def test_an_mcp_servers_tools_are_the_toolset_mcp_server_name(hermes: PinnedSource) -> None:
-    # tools/mcp_tool_registration.py:334 (in _register_candidates)
+    # tools/mcp_tool_registration.py:334 and 365-366 (in _register_candidates): the server's
+    # name becomes an alias of that toolset, so it resolves to the server's tools.
     assert hermes.lines(MCP_REGISTRATION, 334, 334) == '    toolset_name = f"mcp-{name}"'
+    assert hermes.lines(MCP_REGISTRATION, 365, 366) == (
+        "    if registered:\n"
+        "        registry.register_toolset_alias(name, toolset_name)"
+    )
     # tools/mcp_tool_common.py:140-144: the one reader of `enabled` (v0.21.6 removed the
     # registration module's private `_server_enabled`, which the adapter read before).
     assert _arguments(hermes.function(MCP_COMMON, "mcp_server_enabled")) == ["cfg"]
@@ -477,6 +492,62 @@ def test_profiles_configure_turns_an_mcp_server_off_with_enabled_false(hermes: P
     )
     assert hermes.lines(MIGRATIONS, 820, 820) == "    (46, _migrate_to_46),"
     assert _arguments(hermes.function(UTILS, "is_truthy_value")) == ["value", "default"]
+
+
+def test_hermes_merges_mcp_servers_with_no_mcp_and_an_allowlist(hermes: PinnedSource) -> None:
+    """On the app pin the grant takes its MCP servers from ``_get_platform_tools(config, "cli")``:
+    ``no_mcp`` in the list selects none, server names in the list select only those, and a list
+    that names no enabled server selects every enabled one. ``enabled_mcp_server_names`` says
+    which servers are enabled: ``enabled`` not false, or added by a portable plugin. It never
+    reads the legacy ``disabled`` key, so the grant takes such a server's toolset out itself,
+    also when ``all`` in the list brings it in: ``all`` spans every toolset Hermes knows."""
+    # toolsets.py:392-397: `all` (or `*`) resolves to the tools of every toolset, MCP ones included.
+    assert hermes.lines(TOOLSETS, 392, 397) == (
+        '    if name in {"all", "*"}:\n'
+        "        all_tools: Set[str] = set()\n"
+        "        for toolset_name in get_toolset_names():\n"
+        "            if toolset_name not in TOOLSET_SESSION_PLATFORMS:\n"
+        "                all_tools.update(resolve_toolset(toolset_name, visited.copy(), include_registry=include_registry))\n"
+        "        return sorted(all_tools)"
+    )
+    function = hermes.function(TOOLS_CONFIG, "enabled_mcp_server_names")
+    assert function.lineno == 410
+    assert _arguments(function) == ["config"]
+    assert ast.unparse(function.returns) == "Set[str]"
+    # hermes_cli/tools_config.py:416-420 and 422-424
+    assert hermes.lines(TOOLS_CONFIG, 416, 420) == (
+        '    mcp_servers = (config or {}).get("mcp_servers") or {}\n'
+        "    names = {\n"
+        "        str(name) for name, server_cfg in mcp_servers.items()\n"
+        "        if isinstance(server_cfg, dict) and mcp_server_enabled(server_cfg)\n"
+        "    }"
+    )
+    assert hermes.lines(TOOLS_CONFIG, 422, 424) == (
+        "        from hermes_cli.plugins import get_portable_mcp_server_names_nowait\n"
+        "        portable = get_portable_mcp_server_names_nowait()\n"
+        "        names |= portable - set(mcp_servers)  # native config wins on a name collision (mirrors _load_mcp_config)"
+    )
+    # hermes_cli/tools_config.py:634-635 (in _get_platform_tools): the list's unknown names go to the merge.
+    assert hermes.lines(TOOLS_CONFIG, 634, 635) == (
+        "    explicit_passthrough = {ts for ts in toolset_names if ts not in explicit_known_keys and ts not in platform_default_keys}\n"
+        "    enabled_toolsets |= _merge_mcp_servers(config, toolset_names, explicit_passthrough, include_default_mcp_servers)"
+    )
+    # hermes_cli/tools_config.py:698-710
+    assert hermes.lines(TOOLS_CONFIG, 698, 710) == (
+        "def _merge_mcp_servers(\n"
+        "    config: dict, toolset_names: List[str], explicit_passthrough: Set[str], include_default_mcp_servers: bool\n"
+        ") -> Set[str]:\n"
+        '    """Explicit passthrough entries plus this platform\'s MCP servers: listed names form an allowlist, else every\n'
+        '    globally enabled server (when ``include_default_mcp_servers``); the ``no_mcp`` sentinel disables all."""\n'
+        "    enabled_mcp_servers = enabled_mcp_server_names(config)\n"
+        "    result = explicit_passthrough - enabled_mcp_servers\n"
+        '    if "no_mcp" in toolset_names:\n'
+        '        return result - {"no_mcp"}\n'
+        "    explicit_mcp_servers = explicit_passthrough & enabled_mcp_servers\n"
+        "    if include_default_mcp_servers and not explicit_mcp_servers:\n"
+        "        return result | enabled_mcp_servers\n"
+        "    return result | explicit_mcp_servers"
+    )
 
 
 # --- the gateway lifecycle guard: check_gateway_lifecycle() ----------------------
@@ -553,3 +624,155 @@ def test_the_profile_listing_names_default_and_every_profile_folder(hermes: Pinn
         "        and named_profile_has_identity(entry)\n"
         "        and not (live_only and named_profile_is_deleted(entry))"
     )
+
+
+def test_the_secret_scope_functions_the_plugin_calls(hermes: PinnedSource) -> None:
+    """``install_secret`` binds the Hermes root's secret scope for one read, the way Hermes binds a
+    profile's scope for a turn: ``build_profile_secret_scope(<root>)``, then
+    ``set_secret_scope(mapping, profile_home=<root>)``, ``get_secret(name)`` and
+    ``reset_secret_scope(token)``."""
+    for name, line, arguments in (
+        ("set_secret_scope", 143, ["secrets", "profile_home"]),
+        ("reset_secret_scope", 154, ["token"]),
+        ("get_secret", 219, ["name", "default"]),
+        ("build_profile_secret_scope", 391, ["hermes_home"]),
+    ):
+        function = hermes.function(SECRET_SCOPE, name)
+        assert function.lineno == line, name
+        assert _arguments(function) == arguments, name
+    assert [a.arg for a in hermes.function(SECRET_SCOPE, "set_secret_scope").args.kwonlyargs] == ["profile_home"]
+    # agent/secret_scope.py:395: the scope is the home's .env (plus its external and managed sources).
+    assert hermes.lines(SECRET_SCOPE, 395, 395) == '    secrets = load_env_file(Path(hermes_home) / ".env")'
+    # agent/secret_scope.py:231-236: the bound scope answers first. A miss returns the default
+    # when the task serves a routed profile, and only falls through to os.environ otherwise ...
+    assert hermes.lines(SECRET_SCOPE, 231, 236) == (
+        "    bound = _SECRET_SCOPE.get()\n"
+        "    if bound is not None:\n"
+        "        val = bound.mapping.get(name)\n"
+        "        if val is not None:\n"
+        "            return val\n"
+        "        return default if serves_routed_profile() else _environ_or(name, default)"
+    )
+    # ... and every task under multiplexing serves a routed profile (agent/secret_scope.py:101-102).
+    assert hermes.lines(SECRET_SCOPE, 101, 102) == "    if is_multiplex_active():\n        return True"
+
+
+def test_a_secret_field_with_env_is_stored_under_that_name(hermes: PinnedSource) -> None:
+    """``plugin.yaml`` declares ``ntfy.token`` as ``type: secret`` with ``env: ERGATES_NTFY_TOKEN``.
+    Hermes keeps a secret field's value in the active profile's ``.env`` under that name, never
+    in ``config.yaml``, and its settings form writes it there."""
+    # hermes_cli/plugins_settings.py:58-64
+    assert hermes.lines(PLUGINS_SETTINGS, 58, 64) == (
+        "def secret_env_name(plugin_id: str, key: str, spec: Mapping[str, Any]) -> str:\n"
+        '    """``.env`` variable a ``type: secret`` field is stored under: the manifest\'s ``env:`` or\n'
+        "    ``<PLUGIN_ID>_<KEY>`` upper-snaked (``image_gen/fal`` + ``api_key`` \u2192 ``IMAGE_GEN_FAL_API_KEY``).\"\"\"\n"
+        '    declared = str(spec.get("env") or "").strip()\n'
+        "    if declared:\n"
+        "        return declared\n"
+        '    return _ENV_NAME_CLEAN_RE.sub("_", f"{plugin_id}_{key}".upper()).strip("_")'
+    )
+    # hermes_cli/plugins_settings.py:7-9
+    assert hermes.lines(PLUGINS_SETTINGS, 7, 9) == (
+        "setting lives. Secrets are declared with ``type: secret`` and never touch ``config.yaml``: the\n"
+        "field carries the ``.env`` name (``env:`` or ``<PLUGIN>_<KEY>``) plus a presence flag, and the\n"
+        "client writes the value through the existing ``PUT /api/env`` credential route."
+    )
+    assert hermes.assigned(PLUGINS_SETTINGS, "_FIELD_TYPES")["secret"] == "secret"
+    # hermes_cli/plugins_manifest.py:50: the loader and `hermes plugins validate` know the type.
+    assert hermes.lines(PLUGINS_MANIFEST, 50, 50) == '    "secret": (str,),'
+
+    manifest = yaml.safe_load((PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8"))
+    token = manifest["config_schema"]["ntfy.token"]
+    assert token["type"] == "secret"
+    assert token["env"] == settings.TOKEN_ENV == "ERGATES_NTFY_TOKEN"
+
+
+def test_a_scope_stamped_with_another_home_than_the_launch_home_never_reads_the_process_environment(
+        hermes: PinnedSource) -> None:
+    """Why ``install_secret`` stamps the root's scope with the root: in a process launched for a
+    named profile (``HERMES_HOME=<root>/profiles/<name>``, whose ``.env`` Hermes loaded into
+    ``os.environ``), a scope stamped with another home than the launch home counts as a routed
+    profile, so a miss in the root's ``.env`` returns the default instead of the process
+    environment, also without multiplexing."""
+    # agent/secret_scope.py:104-107
+    assert hermes.lines(SECRET_SCOPE, 104, 107) == (
+        "    own = hermes_home_key(get_routing_process_hermes_home())\n"
+        "    bound = _SECRET_SCOPE.get()\n"
+        "    if bound is not None and bound.profile_home and hermes_home_key(bound.profile_home) != own:\n"
+        "        return True"
+    )
+    # hermes_constants.py:199-202 and 168-169: the launch home is the host's pin, else the
+    # process's own HERMES_HOME (never the context-local override).
+    assert hermes.lines(CONSTANTS, 199, 202) == (
+        "def get_routing_process_hermes_home() -> Path:\n"
+        '    """Launch home for routed-profile decisions: the pinned home, else :func:`get_process_hermes_home`."""\n'
+        "    pinned = _PINNED_PROCESS_HERMES_HOME\n"
+        "    return _expand_hermes_home(pinned) if pinned else get_process_hermes_home()"
+    )
+    assert hermes.lines(CONSTANTS, 168, 169) == (
+        '    val = os.environ.get("HERMES_HOME", "").strip()\n'
+        "    return _expand_hermes_home(val) if val else _get_platform_default_hermes_home()"
+    )
+
+
+def test_hermes_records_a_git_installs_source_and_revision(hermes: PinnedSource) -> None:
+    """``install_record`` reads the record Hermes keeps of an install, which ``GET /health`` turns into the
+    install kind: a record with a 40-hex ``revision`` and a real plugin folder is a git install, and a
+    ``catalog`` block names the catalog entry. Hermes keeps the records of a home in
+    ``<home>/plugins/.install-metadata.json``, keyed by the manifest's plugin name, and the facade
+    ``hermes_cli.plugins_cmd`` re-exports the reader."""
+    function = hermes.function(PLUGINS_CMD_GIT, "_read_install_metadata")
+    assert _arguments(function) == []
+    assert ast.unparse(function.returns) == "dict[str, dict[str, object]]"
+    # hermes_cli/plugins_cmd_git.py:33-34: the home is the context-local one, which the adapter binds.
+    assert hermes.lines(PLUGINS_CMD_GIT, 33, 34) == (
+        "def _install_metadata_path() -> Path:\n"
+        '    return get_hermes_home() / "plugins" / ".install-metadata.json"'
+    )
+    # hermes_cli/plugins_cmd.py:34: the facade the adapter imports the reader from.
+    assert "_read_install_metadata" in hermes.lines(PLUGINS_CMD, 34, 34)
+    exported = next(
+        node for node in hermes.tree(PLUGINS_CMD).body
+        if isinstance(node, ast.ImportFrom) and node.module == "hermes_cli.plugins_cmd_git"
+    )
+    assert "_read_install_metadata" in [alias.name for alias in exported.names]
+    # hermes_cli/plugins_cmd_install.py:386-387 and 460: the key is the manifest's name, ``ergates`` here.
+    assert hermes.lines(PLUGINS_CMD_INSTALL, 386, 387) == (
+        '        plugin_name = manifest.get("name") or (\n'
+        "            subdir.rstrip(\"/\").rsplit(\"/\", 1)[-1] if subdir else _pc()._repo_name_from_url(git_url))"
+    )
+    assert hermes.lines(PLUGINS_CMD_INSTALL, 460, 460) == "        new_metadata = {**old_metadata, plugin_name: record}"
+    assert yaml.safe_load((PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8"))["name"] == hermes_adapter.PLUGIN_NAME
+    # hermes_cli/plugins_cmd_install.py:433-437: the record of a git install.
+    assert hermes.lines(PLUGINS_CMD_INSTALL, 433, 437) == (
+        "        record: dict[str, object] = {\n"
+        '            "pinned": requested_revision is not None,\n'
+        '            "revision": installed_revision,\n'
+        '            "source": source,\n'
+        "        }"
+    )
+    # hermes_cli/plugins_cmd_install.py:451-455: a catalog install adds the catalog block.
+    assert hermes.lines(PLUGINS_CMD_INSTALL, 451, 455) == (
+        '            record["catalog"] = {\n'
+        "                **catalog,\n"
+        '                "sha": installed_revision,\n'
+        '                "pin": reviewed_pin if at_reviewed_pin else "",\n'
+        "            }"
+    )
+    # hermes_cli/plugins_cmd_catalog.py:252: the catalog block starts with the entry's name.
+    assert hermes.lines(PLUGINS_CMD_CATALOG, 252, 252) == (
+        '        catalog={"name": entry.name, "repo": entry.repo, "tier": entry.tier, "pin": entry.sha})'
+    )
+    # hermes_cli/plugins_cmd_install.py:379 and hermes_cli/plugins_cmd_git.py:131-135 and 257: the
+    # revision is the clone's HEAD, 40 lowercase hex.
+    assert hermes.lines(PLUGINS_CMD_INSTALL, 379, 379) == (
+        "        installed_revision = _pc()._clone_plugin_repo(tmp_clone, git_url, requested_revision, subdir)"
+    )
+    assert hermes.lines(PLUGINS_CMD_GIT, 131, 135) == (
+        "def _git_head_revision(repo: Path, git_exe: str) -> str:\n"
+        "    return _git_or_raise(\n"
+        '        git_exe, repo, "rev-parse", "HEAD", timeout=15,\n'
+        '        failure_prefix="Could not determine installed Git revision:\\n",\n'
+        "    ).stdout.strip().lower()"
+    )
+    assert hermes.lines(PLUGINS_CMD_GIT, 257, 257) == "    return _pc()._git_head_revision(tmp_clone, git_exe)"

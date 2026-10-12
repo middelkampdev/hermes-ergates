@@ -1,19 +1,21 @@
-"""Periodic maintenance entry point: ``python -m ergates.flush``.
+"""Periodic maintenance: one sweep of the control store, and ``python -m ergates.flush``.
 
-Two jobs this package cannot do for itself from inside Hermes:
+Two jobs no hook does, because the hooks fire only on an event and Hermes
+runs no timer for a plugin:
 
-1. **Send due pushes.** The approval hooks fire only on an approval event,
-   so nothing inside Hermes runs a timer. A push whose first attempt failed,
-   or whose process died mid-send, stays due in the control store's outbox
-   until this sweep sends it (:class:`~ergates.delivery.DeliveryWorker`).
+1. **Send due pushes.** A push whose first attempt failed, or whose process
+   died mid-send, stays due in the control store's outbox until a sweep
+   sends it (:class:`~ergates.delivery.DeliveryWorker`).
 2. **Apply retention and expiry.** Every service has an ``expire`` or a
    ``prune``; nothing calls them from inside a hook (04 section 8; 11
    sections 4.1-4.3).
 
-Run it from the host, inside the container, every two minutes -- see
-``deploy/README.md``. The ntfy credentials are the install-wide push
-settings in the Hermes root's ``config.yaml`` (:mod:`ergates.settings`), the
-same ones every hook reads, so **no token ever appears on a command line, in
+``hermes serve`` runs :func:`sweep_once` on its own thread every
+``sweep.interval_seconds``, two minutes by default (:mod:`ergates.sweep`);
+``python -m ergates.flush`` runs it once, by hand. The ntfy settings are
+the install-wide ones every hook reads: the Hermes root's ``config.yaml``,
+and for the token the root's ``.env`` through Hermes
+(:mod:`ergates.settings`), so **no token ever appears on a command line, in
 a process listing, or in this module's output**. The only argument is
 ``--quiet``.
 
@@ -59,8 +61,9 @@ def flush_once(
     ``root`` is the Hermes root; the store is ``paths.store_path(root)``.
     Expiry runs before delivery, so an approval that timed out is cancelled,
     never pushed. The delivery pass is skipped (not an error) when
-    ``ntfy.server`` or ``ntfy.topic`` is unset: a deployment without push
-    still gets its retention sweep.
+    ``ntfy.server`` or ``ntfy.topic`` is unset, or the server is not an
+    ``http://`` or ``https://`` URL (:func:`~ergates.delivery.ntfy_settings`
+    logs that one): a deployment without push still gets its retention sweep.
 
     ``cron`` is optional and, when given, lets the reminder sweep drop
     receipts whose cron job has been deleted natively; without it the sweep
@@ -90,10 +93,32 @@ def flush_once(
         if ntfy is not None:
             counts["retried"] = DeliveryWorker(store, publish, ntfy, clock=clock).run_due()
         else:
-            logger.info("ergates.flush: ntfy.server/ntfy.topic unset; delivery pass skipped")
+            # Debug only: without push this runs every pass, and a refused server was logged by ntfy_settings.
+            logger.debug("ergates.flush: push is off; delivery pass skipped")
     finally:
         store.close()
     return counts
+
+
+def sweep_once(root: Path) -> Dict[str, int]:
+    """One sweep of the Hermes root ``root`` with its install-wide push settings and Hermes cron.
+
+    What ``python -m ergates.flush`` runs once and the ``hermes serve``
+    thread runs every interval. Every write goes through the store, so as
+    root on a Hermes root another user owns the pass raises ``StoreError``
+    before it creates anything (``store.root_run_would_break``).
+    """
+    try:
+        settings = load_settings(root)
+    except Exception as exc:
+        # A config.yaml a YAML parser refuses must not stop expiry, retention
+        # or pruning (settings.py's own invariant, mirrored from
+        # tool.py's _delivery_worker): push is off for this run, everything
+        # else still runs, and only the exception class name is logged --
+        # a YAML parser error can quote the offending line.
+        logger.warning("ergates.flush: config.yaml unreadable (%s); push skipped this run", type(exc).__name__)
+        settings = {}
+    return flush_once(root, settings, cron=HermesCron())
 
 
 def main(argv: Optional[list] = None) -> int:
@@ -102,7 +127,8 @@ def main(argv: Optional[list] = None) -> int:
         prog="python -m ergates.flush",
         description=(
             "Send due ntfy pushes and apply retention to the ergates control store. "
-            "Credentials are read from the Hermes root's config.yaml, never from arguments."
+            "Settings are read from the Hermes root's config.yaml and the token from its .env, "
+            "through Hermes, never from arguments."
         ),
     )
     parser.add_argument(
@@ -123,17 +149,7 @@ def main(argv: Optional[list] = None) -> int:
             file=sys.stderr,
         )
         return 2
-    try:
-        settings = load_settings(root)
-    except Exception as exc:
-        # A config.yaml a YAML parser refuses must not stop expiry, retention
-        # or pruning (settings.py's own invariant, mirrored from
-        # tool.py's _delivery_worker): push is off for this run, everything
-        # else still runs, and only the exception class name is logged --
-        # a YAML parser error can quote the offending line.
-        logger.warning("ergates.flush: config.yaml unreadable (%s); push skipped this run", type(exc).__name__)
-        settings = {}
-    counts = flush_once(root, settings, cron=HermesCron())
+    counts = sweep_once(root)
     if not args.quiet:
         print(
             "ergates.flush: retried={retried} expired_notifications={expired_notifications} "

@@ -19,10 +19,12 @@ import yaml
 DEPLOY = Path(__file__).resolve().parents[1]
 # The accept route's own template check; the ergates package needs no dependency.
 sys.path.insert(0, str(DEPLOY.parent / "integrations" / "ergates"))
+from ergates.install_info import INSTALL_KIND_ENV  # noqa: E402
 from ergates.templates import load_template  # noqa: E402
 
-TEMPLATES = sorted(path.stem for path in (DEPLOY / "templates").glob("*.json"))
-TEMPLATE_MOUNT = "./templates:/opt/ergates/templates:ro"
+# The proposal templates ship inside the plugin folder the controllers mount.
+TEMPLATES_DIR = DEPLOY.parent / "integrations" / "ergates" / "templates"
+TEMPLATES = sorted(path.stem for path in TEMPLATES_DIR.glob("*.json"))
 COMPOSE_TEXT = (DEPLOY / "docker-compose.yml").read_text(encoding="utf-8")
 COMPOSE = yaml.safe_load(COMPOSE_TEXT)
 SERVICES = COMPOSE["services"]
@@ -254,6 +256,14 @@ def test_hermes_serve_listens_on_its_container_network_for_the_ingress() -> None
     assert command[command.index("--host") + 1] == "0.0.0.0"
 
 
+def test_hermes_serve_says_it_is_a_deployment() -> None:
+    """The plugin on the VPS is a read-only mount and Hermes made no install, so it has no install record; the
+    marker is how ``GET /health`` tells the app. Only hermes-serve answers ``health``."""
+    assert INSTALL_KIND_ENV == "ERGATES_INSTALL_KIND"
+    assert SERVICES["hermes-serve"]["environment"][INSTALL_KIND_ENV] == "deployment"
+    assert INSTALL_KIND_ENV not in SERVICES["hermes-gateway"]["environment"]
+
+
 def test_ntfy_knows_the_url_phones_subscribe_with() -> None:
     """ntfy refuses an upstream without a base URL, and hashes the base URL into iOS poll requests."""
     environment = SERVICES["ntfy"]["environment"]
@@ -321,17 +331,30 @@ def test_each_profile_enables_the_plugin(name: str) -> None:
     assert "ergates" in profile(name)["plugins"]["enabled"]
 
 
+def _keys(node: object) -> set[str]:
+    """Every mapping key anywhere in a parsed YAML document."""
+    if isinstance(node, dict):
+        return {str(key) for key in node} | {key for value in node.values() for key in _keys(value)}
+    if isinstance(node, list):
+        return {key for item in node for key in _keys(item)}
+    return set()
+
+
 def test_the_concierge_holds_the_install_wide_push_settings_without_a_secret() -> None:
-    """The concierge's config.yaml is the Hermes root's, where every hook and the sweep read ntfy.*."""
-    ntfy = profile("concierge")["plugins"]["entries"]["ergates"]["settings"]["ntfy"]
+    """The concierge's config.yaml is the Hermes root's, where every hook and the sweep read ntfy.*.
+    The publisher token is the plugin secret ERGATES_NTFY_TOKEN in the root's .env, so no `token`
+    key appears anywhere in this file."""
+    concierge = profile("concierge")
+    ntfy = concierge["plugins"]["entries"]["ergates"]["settings"]["ntfy"]
     assert ntfy == {"server": "http://ntfy", "topic": "ergates-attention"}
+    assert "token" not in _keys(concierge)
     assert "entries" not in profile("specialist-template")["plugins"]
 
 
 def test_there_are_templates_and_each_is_one_the_accept_route_serves() -> None:
     assert TEMPLATES
     for template_id in TEMPLATES:
-        template = load_template(DEPLOY / "templates", template_id)
+        template = load_template(TEMPLATES_DIR, template_id)
         assert template["enabled_toolsets"], template_id
         assert "{{" not in template["soul"], template_id
 
@@ -342,7 +365,7 @@ def test_a_readonly_labeled_template_never_grants_file_writes() -> None:
     surface the operator sees would call a writer read-only."""
     for template_id in TEMPLATES:
         if "readonly" in template_id:
-            template = load_template(DEPLOY / "templates", template_id)
+            template = load_template(TEMPLATES_DIR, template_id)
             assert "file" not in template["enabled_toolsets"], template_id
 
 
@@ -352,10 +375,13 @@ def test_the_concierge_proposes_exactly_the_shipped_templates() -> None:
     assert named == TEMPLATES
 
 
-def test_hermes_serve_mounts_the_templates_read_only_outside_the_data_volume() -> None:
-    """The installer copies them into /opt/data/ergates/templates as the hermes user; a bind
-    mount inside /opt/data would make Docker create /opt/data/ergates owned by root."""
-    assert TEMPLATE_MOUNT in SERVICES["hermes-serve"]["volumes"]
+def test_the_templates_come_with_the_plugin_mount() -> None:
+    """The templates sit in the plugin folder, which both controllers already mount. The plugin copies
+    them into /opt/data/ergates/templates as the hermes user, so no service mounts them on its own:
+    a bind mount below /opt/data/ergates would make Docker create that folder owned by root."""
+    assert PLUGIN_MOUNT in SERVICES["hermes-serve"]["volumes"]
+    for name, service in SERVICES.items():
+        assert not [volume for volume in service.get("volumes", []) if "/opt/ergates/templates" in str(volume)], name
 
 
 # Each live check of VERIFY.md and a phrase it must keep: the checks earlier

@@ -9,6 +9,7 @@ import json
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,7 @@ from ergates.hermes_adapter import (
     check_schedule,
     current_profile,
     enable_plugin,
+    install_secret,
     plugin_enabled,
     profile_exists,
 )
@@ -279,3 +281,85 @@ def test_the_reminder_tool_makes_a_one_shot_again_after_hermes_ran_it(root, make
     assert third["receipt"]["job_id"] == second["receipt"]["job_id"]
     jobs = json.loads((home / "cron" / "jobs.json").read_text(encoding="utf-8"))["jobs"]
     assert {job["id"]: job["state"] for job in jobs} == {ran: "completed", second["receipt"]["job_id"]: "scheduled"}
+
+
+@contextmanager
+def _root_env(root: Path, text: str):
+    """``<root>/.env`` holds ``text`` for the block; what was there before comes back afterwards."""
+    env = root / ".env"
+    before = env.read_text(encoding="utf-8") if env.exists() else None
+    env.write_text(text, encoding="utf-8")
+    try:
+        yield env
+    finally:
+        if before is None:
+            env.unlink()
+        else:
+            env.write_text(before, encoding="utf-8")
+
+
+def test_install_secret_reads_the_root_env_inside_a_named_profiles_multiplexed_scope(root, make_profile):
+    """A hook in a multiplexed gateway turn of profile sven holds sven's own home and secret
+    scope. The token lives only in the root's .env, and install_secret still finds it there."""
+    from agent.secret_scope import (
+        build_profile_secret_scope,
+        get_secret,
+        reset_multiplex_context,
+        reset_secret_scope,
+        set_multiplex_context,
+        set_secret_scope,
+    )
+    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+
+    home = make_profile("sven")
+    with _root_env(root, "ERGATES_NTFY_TOKEN=tok\n"):
+        home_token = set_hermes_home_override(str(home))
+        scope_token = set_secret_scope(build_profile_secret_scope(home), profile_home=str(home))
+        multiplex_token = set_multiplex_context(True)
+        try:
+            assert get_secret("ERGATES_NTFY_TOKEN") is None  # sven's own scope does not hold it
+            assert install_secret("ERGATES_NTFY_TOKEN") == "tok"
+            assert get_secret("ERGATES_NTFY_TOKEN") is None  # and sven's scope is bound again
+        finally:
+            reset_multiplex_context(multiplex_token)
+            reset_secret_scope(scope_token)
+            reset_hermes_home_override(home_token)
+
+
+def test_install_secret_never_falls_back_to_the_process_environment_under_multiplexing(root, monkeypatch):
+    """Under multiplexing a miss in the root's .env is a miss: the process environment of a
+    gateway that serves many profiles is never read."""
+    from agent.secret_scope import reset_multiplex_context, set_multiplex_context
+
+    monkeypatch.setenv("ERGATES_NTFY_TOKEN", "from-the-process-environment")
+    with _root_env(root, "OTHER_SECRET=x\n"):
+        multiplex_token = set_multiplex_context(True)
+        try:
+            assert install_secret("ERGATES_NTFY_TOKEN") is None
+        finally:
+            reset_multiplex_context(multiplex_token)
+
+
+def test_install_secret_in_a_named_profile_process_reads_only_the_root_env(root, make_profile, monkeypatch):
+    """A process launched for a named profile (``hermes -p wout ...``) runs with
+    ``HERMES_HOME=<root>/profiles/wout``, without multiplexing, and Hermes has loaded that
+    profile's .env into its environment. The token still comes from the root's .env only."""
+    from agent.secret_scope import is_multiplex_active
+    from hermes_constants import get_default_hermes_root, get_routing_process_hermes_home
+
+    home = make_profile("wout")
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    assert get_routing_process_hermes_home() == home
+    assert get_default_hermes_root() == root
+    assert is_multiplex_active() is False
+
+    # The root's .env lacks the token and the process environment has it: no token.
+    monkeypatch.setenv("ERGATES_NTFY_TOKEN", "from-the-profile-environment")
+    with _root_env(root, "OTHER_SECRET=x\n"):
+        assert install_secret("ERGATES_NTFY_TOKEN") is None
+
+    # The profile's own .env has another token and the root's .env has one: the root's.
+    (home / ".env").write_text("ERGATES_NTFY_TOKEN=other\n", encoding="utf-8")
+    monkeypatch.setenv("ERGATES_NTFY_TOKEN", "other")
+    with _root_env(root, "ERGATES_NTFY_TOKEN=tok\n"):
+        assert install_secret("ERGATES_NTFY_TOKEN") == "tok"
