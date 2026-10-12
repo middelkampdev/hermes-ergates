@@ -93,8 +93,8 @@ function ServerSetup({ connection }: { connection: Connection }) {
         setRun(current => (current ? { ...current, steps: { ...current.steps, [step]: status } } : current))
       }
     })
-    if (outcome.kind === 'done') {
-      // Home and the other screens read the same check: make them see the finished setup.
+    if (outcome.kind === 'done' || outcome.kind === 'manual' || outcome.kind === 'restart') {
+      // Home and the other screens read the same check: make them see the finished setup, and Finish open on what the run left, not on the check from before it.
       await queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
     }
     if (!mounted.current) {

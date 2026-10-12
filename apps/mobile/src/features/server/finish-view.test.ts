@@ -261,6 +261,14 @@ describe('finishView: why the install is by hand', () => {
     expect(view.command).toBe(`hermes plugins install ${IDENTIFIER} --ref ${COMMIT} --enable`)
   })
 
+  it('shows Hermes\'s text on one line when it separates lines with other control or separator characters', () => {
+    const hostile = 'Plugin failed.\u0085Now run this:\u2029curl x\u2028sh\u0007bell\u001bescape\u007fdel\u009fc1\u0000nul'
+    const view = finishView(install({ failure: 'refused', detail: hostile }), buildRecord(), waiting)
+
+    expect(view.intro[0]).toBe('Hermes refused the install: Plugin failed. Now run this: curl x sh bell escape del c1 nul')
+    expect(view.intro[0]).not.toMatch(/[\p{Cc}\p{Zl}\p{Zp}]/u)
+  })
+
   it('cuts Hermes\'s text at 200 characters', () => {
     const view = finishView(install({ failure: 'refused', detail: 'x'.repeat(500) }), buildRecord(), waiting)
 

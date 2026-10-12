@@ -1,61 +1,94 @@
 /**
- * Links from outside the app never open the server screens. "Set up your
- * server" and "Finish on your server" record that the plugin is still to be
- * set up and show text beside a command to run on the user's server, so only
- * the app itself opens them, after it checked the user's own server. Any
- * other app, web page or QR code could otherwise send the user there.
+ * Links from outside the app open Home or the screen that routes a push link,
+ * and nothing else. "Set up your server" and "Finish on your server" record
+ * that the plugin is still to be set up and show text beside a command to run
+ * on the user's server, so only the app itself opens them, after it checked
+ * the user's own server. Any other app, web page or QR code could otherwise
+ * send the user there.
  *
- * Pure and total: no React, no Expo, and it never throws, because it runs
- * before Expo Router matches a link and a throw there can crash the launch.
+ * This is an allowlist on the route Expo Router derives from the link, not a
+ * list of routes to keep out: a link has many spellings of the same route
+ * (user info and an empty port before the host, a development client link that
+ * carries another link in its `url`, percent-encoding, case), and a list of
+ * the ones that are known misses the next. `routeOf` follows
+ * `extractExpoPathFromURL` in expo-router (`fork/extractPathFromURL`), the
+ * function that reads what `redirectSystemPath` returns, step by step and with
+ * the same `URL`; a test runs that function itself over a corpus of links.
+ *
+ * It never throws: it runs before Expo Router matches a link and a throw
+ * there can crash the launch. A link it cannot read goes Home.
  */
 
-/** `<scheme>:` with its `//` when it has one. */
-const SCHEME = /^([a-z][a-z0-9+.-]*):(?:\/\/)?/i
+const DEV_CLIENT_HOST = 'expo-development-client'
+/** How many development client links may carry one another. Expo Router follows them without end. */
+const MAX_NESTING = 8
 
-function decodeSegment(segment: string): string {
+/** The routes a link from outside may open: Home (no route at all) and `open`, which takes a query. */
+const ALLOWED_ROUTE = /^(?:open(?:\?[\s\S]*)?)?$/
+
+function safeDecodeURI(value: string): string {
   try {
-    return decodeURIComponent(segment)
+    return decodeURI(value)
   } catch {
-    return segment
+    return value
   }
 }
 
-/** The route segments of a path as Expo Router matches them: decoded, without `.`, groups and the query, with `..` applied. */
-function routeSegments(path: string): string[] {
-  const route = path.split(/[?#]/, 1)[0] ?? ''
-  const decoded = route.split('/').map(decodeSegment).join('/')
-  const segments: string[] = []
-  for (const segment of decoded.split('/')) {
-    if (segment === '..') {
-      segments.pop()
-    } else if (segment !== '' && segment !== '.' && !/^\(.*\)$/.test(segment)) {
-      segments.push(segment)
-    }
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
   }
-  return segments
 }
 
-/** What the link can mean as a route: a custom scheme puts the route right after it, a web link after its host. */
-function routes(path: string): string[] {
-  const match = SCHEME.exec(path)
-  if (match === null) {
-    return [path]
+/** A custom scheme: the route is the host and the path after it. */
+function fromDeepLink(url: string, nesting: number): string {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    // Not a URL (a path, or a scheme that is not a valid one): Expo Router takes it as it is, or without its scheme.
+    return url.startsWith('/') ? url : url.replace(/^[^:]+:\/\//, '')
   }
-  const rest = path.slice(match[0].length)
-  return /^https?$/i.test(match[1] ?? '') ? [rest, rest.replace(/^[^/?#]*/, '')] : [rest]
+  if (parsed.hostname === DEV_CLIENT_HOST) {
+    // The development client launcher: whatever scheme brought it, the route is that of its `url` parameter.
+    const inner = parsed.searchParams.get('url')
+    return inner ? exactPath(safeDecodeURI(inner), nesting + 1) : ''
+  }
+  const query = parsed.search
+    ? [...parsed.searchParams.entries()].map(([key, value]) => `${key}=${safeDecodeURIComponent(value)}`).join('&')
+    : ''
+  return `${parsed.host}${parsed.pathname}${query ? `?${query}` : ''}`
+}
+
+function exactPath(url: string, nesting: number): string {
+  if (nesting > MAX_NESTING) {
+    throw new Error('Links nested too deep.')
+  }
+  if (/^https?:\/\//.test(url)) {
+    // A web link: the route is its path, without the origin.
+    const { origin, href, hostname } = new URL(url)
+    return hostname === 'exp.host' || hostname === 'u.expo.dev' ? '' : href.replace(origin, '')
+  }
+  return fromDeepLink(url, nesting)
+}
+
+/** The route Expo Router opens for a link, as `extractExpoPathFromURL` gives it. Throws for a link it would not read either. */
+function routeOf(url: string): string {
+  return exactPath(url, 0).replace(/^\//, '')
 }
 
 /**
- * `/` for a link whose route is `server` or below, in any spelling: with or
- * without the scheme or the leading slash, in any case, percent-encoded, with
- * dots or groups in front, with any query. Every other link comes back
- * unchanged.
+ * The link as it came when its route is Home (none) or `open` (what a push
+ * link is rewritten to), else `/`. Run it on the link after the push link
+ * rewrite. A development client launch link and a plain `http://127.0.0.1:8081`
+ * have no route of their own, so they pass.
  */
 export function externalPath(path: string): string {
-  // The URL parser drops tabs and line breaks anywhere, and control characters and spaces in front.
-  const cleaned = path
-    .replace(/[\t\n\r]/g, '')
-    .replace(/^[\u0000- ]+/, '')
-    .replace(/\\/g, '/')
-  return routes(cleaned).some(route => routeSegments(route)[0]?.toLowerCase() === 'server') ? '/' : path
+  try {
+    return ALLOWED_ROUTE.test(routeOf(path)) ? path : '/'
+  } catch {
+    return '/'
+  }
 }
