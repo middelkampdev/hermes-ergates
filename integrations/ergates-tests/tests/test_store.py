@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import rows
+from conftest import HERMES_OWNER, rows
 from ergates import store as store_module
 from ergates.store import (
     MIGRATIONS, MIN_SCHEMA_KEY, SCHEMA_VERSION, ControlStore, Migration, StoreError, StoreReadOnly,
@@ -68,33 +68,6 @@ def test_a_commit_asks_sqlite_to_flush_the_drive_not_just_the_os_cache(store):
 def test_the_store_file_and_folder_are_private(store):
     assert stat.S_IMODE(os.stat(store.path).st_mode) == 0o600
     assert stat.S_IMODE(os.stat(store.path.parent).st_mode) == 0o700
-
-
-HERMES_OWNER = (4242, 4343)
-
-
-@pytest.fixture
-def as_root(tmp_path, monkeypatch):
-    """This process runs as root, and the Hermes root ``tmp_path`` belongs to ``HERMES_OWNER``.
-
-    Returns the list of ``(path, uid, gid)`` calls to ``os.chown``, which is
-    recorded instead of run.
-    """
-    real_stat = os.stat
-
-    def stat_with_hermes_owner(path, *args, **kwargs):
-        result = real_stat(path, *args, **kwargs)
-        if not isinstance(path, (str, os.PathLike)) or Path(path) != tmp_path:
-            return result
-        values = list(result)
-        values[4], values[5] = HERMES_OWNER
-        return os.stat_result(values)
-
-    calls: list[tuple[Path, int, int]] = []
-    monkeypatch.setattr(os, "geteuid", lambda: 0)
-    monkeypatch.setattr(os, "stat", stat_with_hermes_owner)
-    monkeypatch.setattr(os, "chown", lambda path, uid, gid: calls.append((Path(path), uid, gid)))
-    return calls
 
 
 def test_a_store_created_by_root_belongs_to_the_owner_of_the_hermes_root(tmp_path, as_root):

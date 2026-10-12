@@ -172,7 +172,7 @@ class StoreReadOnly(StoreError):
     """A newer plugin changed the store so that this plugin may read it but not write it."""
 
 
-def _give_to_hermes_owner(paths: list[Path], hermes_root: Path) -> None:
+def give_to_hermes_owner(paths: list[Path], hermes_root: Path) -> None:
     """Give ``paths`` the owner and group of ``hermes_root`` when this process runs as root.
 
     A root process that is the first to open the store would otherwise leave
@@ -245,11 +245,11 @@ class ControlStore:
         # belongs to the Hermes user. SQLite does not hand over the -wal and
         # -shm files it creates, so only the ones created in this call are
         # handed over below; root runs on an existing store are unsupported.
-        _give_to_hermes_owner(created, folder.parent)
+        give_to_hermes_owner(created, folder.parent)
         sidecars = [self._path.with_name(self._path.name + suffix) for suffix in ("-wal", "-shm")]
         new_sidecars = [item for item in sidecars if not item.exists()] if self._path in created else []
         self._migrate()
-        _give_to_hermes_owner([item for item in new_sidecars if item.exists()], folder.parent)
+        give_to_hermes_owner([item for item in new_sidecars if item.exists()], folder.parent)
 
     @property
     def path(self) -> Path:

@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 from .proposals import ProposalError
+from .store import give_to_hermes_owner
 from .templates import load_template
 
 logger = logging.getLogger(__name__)
@@ -67,14 +68,30 @@ def install_templates(templates: dict[str, bytes], target: Path) -> None:
     parent gets the default mode. The store folder must be 0700 even when the
     installer runs before the store first opens, so it is created first, on
     its own.
+
+    ``hermes serve`` installs the templates before it opens the store, so a
+    root process on a fresh root owned by the ``hermes`` user creates the
+    store folder here and the store finds it. Every folder and file this call
+    makes is therefore handed to the owner of the Hermes root the way the
+    store hands over its own (:func:`ergates.store.give_to_hermes_owner`).
     """
     target = Path(target)
-    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    target.mkdir(mode=0o700, exist_ok=True)
+    hermes_root = target.parent.parent
+    created: list[Path] = []
+    for folder in (target.parent, target):
+        try:
+            folder.mkdir(mode=0o700, parents=folder == target.parent)
+        except FileExistsError:
+            if not folder.is_dir():
+                raise
+        else:
+            created.append(folder)
+    give_to_hermes_owner(created, hermes_root)
     for template_id, content in templates.items():
         staging = target / f".{template_id}.json.tmp"
         staging.write_bytes(content)
         os.replace(staging, target / f"{template_id}.json")
+        give_to_hermes_owner([target / f"{template_id}.json"], hermes_root)
     for installed in target.glob("*.json"):
         if installed.stem not in templates:
             installed.unlink()

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import types
+from pathlib import Path
 
 import pytest
 
@@ -29,6 +31,33 @@ class FakeClock:
 @pytest.fixture
 def clock() -> FakeClock:
     return FakeClock()
+
+
+HERMES_OWNER = (4242, 4343)
+
+
+@pytest.fixture
+def as_root(tmp_path, monkeypatch):
+    """This process runs as root, and the Hermes root ``tmp_path`` belongs to ``HERMES_OWNER``.
+
+    Returns the list of ``(path, uid, gid)`` calls to ``os.chown``, which is
+    recorded instead of run.
+    """
+    real_stat = os.stat
+
+    def stat_with_hermes_owner(path, *args, **kwargs):
+        result = real_stat(path, *args, **kwargs)
+        if not isinstance(path, (str, os.PathLike)) or Path(path) != tmp_path:
+            return result
+        values = list(result)
+        values[4], values[5] = HERMES_OWNER
+        return os.stat_result(values)
+
+    calls: list[tuple[Path, int, int]] = []
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "stat", stat_with_hermes_owner)
+    monkeypatch.setattr(os, "chown", lambda path, uid, gid: calls.append((Path(path), uid, gid)))
+    return calls
 
 
 @pytest.fixture

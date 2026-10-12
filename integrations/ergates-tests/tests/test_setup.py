@@ -10,7 +10,8 @@ import os
 
 import pytest
 
-from ergates.paths import bundled_templates_dir, templates_dir
+from conftest import HERMES_OWNER
+from ergates.paths import bundled_templates_dir, store_path, templates_dir
 from ergates.setup import (
     DIFFER,
     FAILED,
@@ -24,6 +25,7 @@ from ergates.setup import (
     templates_match,
     templates_state,
 )
+from ergates.store import ControlStore
 from ergates.templates import load_template
 
 
@@ -216,6 +218,59 @@ def test_the_store_folder_is_private_when_the_install_runs_first(tmp_path, sourc
 
     assert (tmp_path / "ergates").stat().st_mode & 0o777 == 0o700
     assert templates_dir(tmp_path).stat().st_mode & 0o777 == 0o700
+
+
+# --- a root run on a fresh root the Hermes user owns -----------------------
+
+
+def _handed_over(calls):
+    return [path for path, uid, gid in calls if (uid, gid) == HERMES_OWNER]
+
+
+def test_the_first_use_as_root_hands_every_path_it_makes_to_the_owner_of_the_hermes_root(tmp_path, as_root):
+    """`hermes serve` may run as root on a fresh root the `hermes` user owns, and it installs the templates
+    before the store opens. The store only hands over what it creates itself, so the install must hand over
+    `<root>/ergates` too, or the hermes user's gateway hooks cannot open the store."""
+    ensure_templates(bundled_templates_dir(), templates_dir(tmp_path))
+    ControlStore(store_path(tmp_path))
+
+    folder = tmp_path / "ergates"
+    everything_made = {folder, *folder.rglob("*")}
+    assert _handed_over(as_root) == [
+        folder, folder / "templates", folder / "templates" / "bookkeeper.json",
+        folder / "templates" / "general-assistant.json", folder / "control.sqlite3",
+    ]
+    assert set(_handed_over(as_root)) == everything_made
+    assert all(call[1:] == HERMES_OWNER for call in as_root)
+
+
+def test_root_hands_over_the_template_files_it_writes_but_not_the_folders_that_exist(tmp_path, as_root, source):
+    target = templates_dir(tmp_path)
+    ensure_templates(source, target)
+    as_root.clear()
+    _write(source, "bookkeeper", _template("bookkeeper", ("terminal",)))
+
+    assert ensure_templates(source, target) == INSTALLED
+
+    assert _handed_over(as_root) == [target / "bookkeeper.json", target / "general-assistant.json"]
+
+
+def test_root_changes_no_owner_when_the_installed_set_is_already_right(tmp_path, as_root, source):
+    target = templates_dir(tmp_path)
+    ensure_templates(source, target)
+    as_root.clear()
+
+    ensure_templates(source, target)
+
+    assert as_root == []
+
+
+def test_a_process_that_is_not_root_changes_no_owner(tmp_path, as_root, source, monkeypatch):
+    monkeypatch.setattr(os, "geteuid", lambda: 1000)
+
+    ensure_templates(source, templates_dir(tmp_path))
+
+    assert as_root == []
 
 
 # --- templates_state ----------------------------------------------------------
