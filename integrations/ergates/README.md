@@ -198,8 +198,9 @@ so the plugin is installed once at the root and linked into each profile:
    `plugin_enabled` provisioning step. It takes effect on the profile's next
    session. `POST /api/plugins/ergates/setup` with the body `{}` does this for
    the default profile and every named one at once, after it installs the
-   templates, and reports each profile (see "HTTP API"). The app calls it when
-   it connects to a server.
+   templates, and reports each profile (see "HTTP API"). The app is to call it
+   after it installs or updates the plugin (built in a later step);
+   `python -m ergates.install` does the same by hand.
 
 The proposal templates need no step of their own. They ship in this folder
 (`templates/`), so a git install and a read-only mount both carry them, and
@@ -292,8 +293,8 @@ An install that ran version 0.2.0 needs three changes by hand:
   two sweeps from sending the same push at the same moment.
 - **Run the setup once.** `POST /api/plugins/ergates/setup` with the body
   `{}`, or `python -m ergates.install`, installs the templates and enables
-  the plugin in every profile (see "Install"). The app calls the route when
-  it connects to the server.
+  the plugin in every profile (see "Install"). The app is to call the route
+  after it installs or updates the plugin (built in a later step).
 
 ## Upgrading from 0.1
 

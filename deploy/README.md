@@ -306,9 +306,9 @@ already done above, before first start.
    again after every update of this repository and after making a profile by
    hand; the app enables the plugin in the profiles it creates.
 
-   The app runs the same setup when it connects, through the plugin's
-   `POST /setup`. `python -m ergates.install` does it by hand, for a server
-   the app has not reached yet.
+   The app is to run the same setup through the plugin's `POST /setup` after
+   it installs or updates the plugin (built in a later step).
+   `python -m ergates.install` does it by hand.
 
 5. **Check the plugin's sweep** (below). `hermes-serve` runs it on its own
    thread, so there is nothing to schedule.

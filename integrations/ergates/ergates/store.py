@@ -156,12 +156,14 @@ class Migration:
     ``additive=False``; opening the store then raises ``min_schema_version`` to
     that migration's version, and every older plugin only reads from then on.
 
-    An older plugin still reads the store, and its tool gate runs two queries
-    on it: ``proposal_receipts.state`` (``accepted`` holds a profile back) and
-    the ``configured`` step row in ``proposal_steps`` (it marks a profile
-    Ergates provisioned). A migration that is not additive must either keep
-    the meaning of those queries or make them fail, for example by renaming
-    the table, so that an older plugin's gate blocks instead of admitting a
+    An older plugin still reads the store, and its tool gate calls two
+    methods that query it: ``ProposalService.is_admitted`` and
+    ``ProposalService.provisioned`` (``ergates/proposals.py``). They read, for
+    example, ``proposal_receipts.state``, ``proposal_receipts.reserved_profile_name``
+    and the ``configured`` row in ``proposal_steps``, and the rule covers every
+    column they read. A migration that is not additive must either keep the
+    meaning of what they answer or make them fail, for example by renaming the
+    table, so that an older plugin's gate blocks instead of admitting a
     profile it should not.
     """
 
