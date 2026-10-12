@@ -36,7 +36,7 @@ By default the commit is `git rev-parse HEAD` of the checkout. The server downlo
 ERGATES_PLUGIN_COMMIT=<40-hex commit> npx expo start
 ```
 
-A build made without git and without `ERGATES_PLUGIN_COMMIT` has no commit, and the app then offers only the guide at `https://middelkamp.dev/ergates/server/`. The one tap also needs a Hermes between the oldest and the newest tested version. Hermes 0.21.6, the pin, is inside that range.
+A build made without git and without `ERGATES_PLUGIN_COMMIT` has no commit. Its setup screen says that this build does not know which plugin version to install, and offers no install. An `ERGATES_PLUGIN_COMMIT` that is set but is not a full commit of 40 lowercase hex characters stops the build. The release workflows set it to the commit of the tag they build. The one tap also needs a Hermes between the oldest and the newest tested version. Hermes 0.21.6, the pin, is inside that range.
 
 ## Commands
 

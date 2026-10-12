@@ -14,7 +14,7 @@ export const PLUGIN_NAME = 'ergates'
 export interface RequiredPlugin {
   version: string
   apiLevel: number
-  /** The commit of this build, or null when the build had no git checkout (the app then offers only the guide). */
+  /** The commit of this build, or null when the build had no git checkout (the app then offers no install). */
   commit: string | null
 }
 

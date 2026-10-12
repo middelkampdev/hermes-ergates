@@ -194,13 +194,13 @@ Read before editing, submit only changed sections and inspect each result. Metad
 
 ### Server plugin: check, install and setup
 
-Rechecked at v0.21.6. The app uses these routes to find out whether the server has the Ergates plugin and to put it there (ADR-043). Each one takes the token header in loopback mode and the cookie session in gated mode, and none needs a CSRF header (`hermes_cli/web_server.py:483-497`).
+Rechecked at v0.21.6. The app uses these routes to find out whether the server has the Ergates plugin and to put it there (ADR-043). Every route except `/api/status` takes the token header in loopback mode and the cookie session in gated mode, and none needs a CSRF header (`hermes_cli/web_server.py:483-497`).
 
 | Method | Route | Use |
 |---|---|---|
 | GET | `/api/status` | Public. `version` is the clean base version, such as `0.21.6`, or `unknown`; it never carries a `+N.gSHA` suffix (`hermes_cli/web_routers/status.py:509`). The app compares it with the Hermes versions its build has tested |
 | GET | `/api/plugins/ergates/health` | 200 with the plugin's health (`integrations/ergates/README.md`, "Health"). 404 `{"detail": "Plugin not found"}` when Hermes does not serve the plugin: not installed, not enabled, or turned off (`hermes_cli/web_server.py:687`). 404 `{"detail": "Not Found"}` when the plugin is enabled and its routes are not mounted, because its import failed or because this Hermes cannot mount a plugin after it started. 503 `store_unavailable` when the plugin cannot open its store |
-| GET | `/api/dashboard/plugins/hub` | `{"plugins": [{name, version, source, runtime_status, ...}]}` with `runtime_status` of `enabled`, `disabled` or `inactive`. There is no commit field. The app reads `name`, `version` and `runtime_status`, because the 404 above does not tell a turned-off plugin from a missing one |
+| GET | `/api/dashboard/plugins/hub` | `{"plugins": [{name, version, source, runtime_status, ...}]}` with `runtime_status` of `enabled`, `disabled` or `inactive`. A plugin that was turned off is `disabled`, and one that was installed but never turned on is `inactive`; the app reads every status except `enabled` as turned off. There is no commit field. The app reads `name`, `version` and `runtime_status`, because the 404 above does not tell a turned-off plugin from a missing one |
 | POST | `/api/dashboard/agent-plugins/install` | Body `{identifier, force=false, enable=true, catalog_name, ref}`, where `identifier` is required. Answers 200 with `plugin_name` and `enabled`. The app sends `identifier: "middelkampdev/hermes-ergates/integrations/ergates"`, a 40-hex `ref`, `enable: true` and `force: false` |
 | POST | `/api/dashboard/agent-plugins/{name}/enable` | No body. 200 `{"ok": true, ...}`; 400 `{"detail"}` when Hermes refuses |
 | POST | `/api/plugins/ergates/setup` | Body `{}` as JSON. 200 `{"setup": {finished, templates, profiles}}`. The app calls it once after it has set the plugin up (ADR-042, ADR-043) |
@@ -215,7 +215,7 @@ The install is synchronous. It answers when the clone, the fetch of the commit, 
 | `Plugin 'ergates' already exists.` | Raised after the clone and the scan: another phone or an earlier try installed it first |
 | `enable refused:` | The plugin is installed and Hermes refused to turn it on |
 
-Any other 400 text is shown as Hermes wrote it. `contract/test_hermes_plugin_messages.py` checks that each prefix is a text the pinned Hermes source can write, and `contract/live/test_hot_mount.py` checks them against a running server.
+The app shows any other 400 text on one line, cut at 200 characters, after it strips line breaks and the characters that hide or reorder text. `contract/test_hermes_plugin_messages.py` checks that each prefix is a text the pinned Hermes source can write. `contract/live/test_hot_mount.py` checks the `download_failed` and `already_installed` texts against a running server, and `contract/live/test_manual_command.py` runs the commands the Finish screen shows (`apps/mobile/src/features/server/manual-commands.json`) against one, without a terminal.
 
 ## 5. Events and recovery
 

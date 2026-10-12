@@ -200,15 +200,20 @@ tested. For the others it shows the command below.
 To install by hand, run this on the server as the user that runs Hermes:
 
 ```bash
-hermes plugins install middelkampdev/hermes-ergates/integrations/ergates --ref <40-hex commit> --enable
+hermes plugins install middelkampdev/hermes-ergates/integrations/ergates --ref <40-hex commit> --enable --yes-deps
 ```
 
 The command installs the plugin, enables it and asks a running `hermes serve`
-to load it. The plugin declares no dependencies, no required environment
-variables and no capabilities, so the command asks nothing. To move an
-install to another commit, run the same command with `--force`, then restart
-Hermes: it mounts the plugin's routes once per process. The app fills in the
-commit when it shows the command.
+to load it. `--yes-deps` answers Hermes's question about Python dependencies.
+Hermes 0.21.6 asks it for any plugin with a `pyproject.toml`, even when the
+dependency list is empty, as it is here. Without a terminal, for example
+through `ssh host '…'` or in a script, it takes the missing answer as a no
+and leaves the plugin installed but turned off; `hermes plugins enable
+ergates` then turns it on. The plugin needs no environment variables and
+declares no capabilities, so Hermes asks nothing else. To move an install to
+another commit, run the same command with `--force`, then restart Hermes: it
+mounts the plugin's routes once per process. The app fills in the commit
+when it shows the command.
 
 The rest of this section covers linking or mounting the folder yourself, as
 the Compose deployment and a development checkout do.
@@ -238,9 +243,10 @@ so the plugin is installed once at the root and linked into each profile:
    the default profile and every named one at once, after it installs the
    templates, and reports each profile (see "HTTP API"). The app calls it once
    after it has set the plugin up, or after you followed its Finish screen to
-   install, turn on or update the plugin, and at no other time, because each
-   call enables the plugin in every profile again;
-   `python -m ergates.install` does the same by hand.
+   install, turn on or update the plugin. On the Compose deployment you run it
+   yourself. The app calls it at no other time, because each call enables the
+   plugin in every profile again; `python -m ergates.install` does the same by
+   hand.
 
 The proposal templates need no step of their own. They ship in this folder
 (`templates/`), so a git install and a read-only mount both carry them, and
@@ -335,8 +341,9 @@ An install that ran version 0.2.0 needs three changes by hand:
 - **Run the setup once.** `POST /api/plugins/ergates/setup` with the body
   `{}`, or `python -m ergates.install`, installs the templates and enables
   the plugin in every profile (see "Install"). When the app showed you the
-  update instructions, it calls the route itself once the plugin answers.
-  Otherwise run it yourself.
+  update instructions for a git install or a copied folder, it calls the
+  route itself once the plugin answers. On the Compose deployment, or when
+  you updated without the app, run it yourself.
 
 ## Upgrading from 0.1
 
