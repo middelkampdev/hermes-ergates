@@ -60,12 +60,8 @@ def settings_from_config(config: Any, plugin_id: str = PLUGIN_ID) -> Dict[str, s
     by key name only, never by value. A ``token`` key is ignored, with one
     warning that says where the token goes now.
     """
-    node: Any = config
-    for segment in ("plugins", "entries", plugin_id, "settings", "ntfy"):
-        if not isinstance(node, Mapping) or segment not in node:
-            return {}
-        node = node[segment]
-    if not isinstance(node, Mapping):
+    node = _ntfy_node(config, plugin_id)
+    if node is None:
         return {}
     if "token" in node:
         logger.warning(
@@ -74,11 +70,8 @@ def settings_from_config(config: Any, plugin_id: str = PLUGIN_ID) -> Dict[str, s
         )
     settings: Dict[str, str] = {}
     for key in SETTING_KEYS:
-        value = node.get(key)
-        if not isinstance(value, str):
-            continue
-        value = value.strip()
-        if not value:
+        value = _text(node.get(key))
+        if value is None:
             continue
         if _UNEXPANDED_MARKER in value:
             logger.warning(
@@ -87,6 +80,21 @@ def settings_from_config(config: Any, plugin_id: str = PLUGIN_ID) -> Dict[str, s
             continue
         settings[key] = value
     return settings
+
+
+def _ntfy_node(config: Any, plugin_id: str) -> Mapping | None:
+    """The ``plugins.entries.<plugin_id>.settings.ntfy`` mapping of a parsed config, or ``None``."""
+    node: Any = config
+    for segment in ("plugins", "entries", plugin_id, "settings", "ntfy"):
+        if not isinstance(node, Mapping) or segment not in node:
+            return None
+        node = node[segment]
+    return node if isinstance(node, Mapping) else None
+
+
+def _text(value: Any) -> str | None:
+    """A setting's text without surrounding blanks; ``None`` unless it is a non-blank string."""
+    return value.strip() or None if isinstance(value, str) else None
 
 
 def load_settings(root: Path, plugin_id: str = PLUGIN_ID) -> Dict[str, str]:
@@ -101,6 +109,28 @@ def load_settings(root: Path, plugin_id: str = PLUGIN_ID) -> Dict[str, str]:
     if token:
         settings["token"] = token
     return settings
+
+
+def push_status(root: Path, plugin_id: str = PLUGIN_ID) -> Dict[str, bool]:
+    """What the install has for push, as booleans for ``GET /health``; never a value.
+
+    ``configured``: ``ntfy.server`` and ``ntfy.topic`` are both set in the
+    root's ``config.yaml``, the rule :func:`push_settings` applies, so push
+    is on. ``token_set``: the install secret :data:`TOKEN_ENV` has a value.
+    ``legacy_config_token``: a ``ntfy.token`` key still sits in
+    ``config.yaml``, which is ignored (see :func:`settings_from_config`).
+
+    Logs nothing, unlike :func:`load_settings`, because the app asks for
+    this on every health check. Raises what the reads raise: a
+    ``config.yaml`` that cannot be parsed, a Hermes failure.
+    """
+    node = _ntfy_node(_root_config(root), plugin_id) or {}
+    usable = {key: _text(node.get(key)) for key in ("server", "topic")}
+    return {
+        "configured": all(value is not None and _UNEXPANDED_MARKER not in value for value in usable.values()),
+        "token_set": hermes_adapter.install_secret(TOKEN_ENV) is not None,
+        "legacy_config_token": "token" in node,
+    }
 
 
 def sweep_interval(root: Path, plugin_id: str = PLUGIN_ID) -> int:

@@ -37,6 +37,10 @@ PROMPT_SCAN = "tools/cronjob_prompt_scan.py"
 SECRET_SCOPE = "agent/secret_scope.py"
 PLUGINS_SETTINGS = "hermes_cli/plugins_settings.py"
 PLUGINS_MANIFEST = "hermes_cli/plugins_manifest.py"
+PLUGINS_CMD = "hermes_cli/plugins_cmd.py"
+PLUGINS_CMD_GIT = "hermes_cli/plugins_cmd_git.py"
+PLUGINS_CMD_INSTALL = "hermes_cli/plugins_cmd_install.py"
+PLUGINS_CMD_CATALOG = "hermes_cli/plugins_cmd_catalog.py"
 
 
 def _arguments(function: ast.FunctionDef) -> list[str]:
@@ -648,3 +652,66 @@ def test_a_scope_stamped_with_another_home_than_the_launch_home_never_reads_the_
         '    val = os.environ.get("HERMES_HOME", "").strip()\n'
         "    return _expand_hermes_home(val) if val else _get_platform_default_hermes_home()"
     )
+
+
+def test_hermes_records_a_git_installs_source_and_revision(hermes: PinnedSource) -> None:
+    """``install_record`` reads the record Hermes keeps of an install, which ``GET /health`` turns into the
+    install kind: a record with a 40-hex ``revision`` and a real plugin folder is a git install, and a
+    ``catalog`` block names the catalog entry. Hermes keeps the records of a home in
+    ``<home>/plugins/.install-metadata.json``, keyed by the manifest's plugin name, and the facade
+    ``hermes_cli.plugins_cmd`` re-exports the reader."""
+    function = hermes.function(PLUGINS_CMD_GIT, "_read_install_metadata")
+    assert _arguments(function) == []
+    assert ast.unparse(function.returns) == "dict[str, dict[str, object]]"
+    # hermes_cli/plugins_cmd_git.py:33-34: the home is the context-local one, which the adapter binds.
+    assert hermes.lines(PLUGINS_CMD_GIT, 33, 34) == (
+        "def _install_metadata_path() -> Path:\n"
+        '    return get_hermes_home() / "plugins" / ".install-metadata.json"'
+    )
+    # hermes_cli/plugins_cmd.py:34: the facade the adapter imports the reader from.
+    assert "_read_install_metadata" in hermes.lines(PLUGINS_CMD, 34, 34)
+    exported = next(
+        node for node in hermes.tree(PLUGINS_CMD).body
+        if isinstance(node, ast.ImportFrom) and node.module == "hermes_cli.plugins_cmd_git"
+    )
+    assert "_read_install_metadata" in [alias.name for alias in exported.names]
+    # hermes_cli/plugins_cmd_install.py:386-387 and 460: the key is the manifest's name, ``ergates`` here.
+    assert hermes.lines(PLUGINS_CMD_INSTALL, 386, 387) == (
+        '        plugin_name = manifest.get("name") or (\n'
+        "            subdir.rstrip(\"/\").rsplit(\"/\", 1)[-1] if subdir else _pc()._repo_name_from_url(git_url))"
+    )
+    assert hermes.lines(PLUGINS_CMD_INSTALL, 460, 460) == "        new_metadata = {**old_metadata, plugin_name: record}"
+    assert yaml.safe_load((PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8"))["name"] == hermes_adapter.PLUGIN_NAME
+    # hermes_cli/plugins_cmd_install.py:433-437: the record of a git install.
+    assert hermes.lines(PLUGINS_CMD_INSTALL, 433, 437) == (
+        "        record: dict[str, object] = {\n"
+        '            "pinned": requested_revision is not None,\n'
+        '            "revision": installed_revision,\n'
+        '            "source": source,\n'
+        "        }"
+    )
+    # hermes_cli/plugins_cmd_install.py:451-455: a catalog install adds the catalog block.
+    assert hermes.lines(PLUGINS_CMD_INSTALL, 451, 455) == (
+        '            record["catalog"] = {\n'
+        "                **catalog,\n"
+        '                "sha": installed_revision,\n'
+        '                "pin": reviewed_pin if at_reviewed_pin else "",\n'
+        "            }"
+    )
+    # hermes_cli/plugins_cmd_catalog.py:252: the catalog block starts with the entry's name.
+    assert hermes.lines(PLUGINS_CMD_CATALOG, 252, 252) == (
+        '        catalog={"name": entry.name, "repo": entry.repo, "tier": entry.tier, "pin": entry.sha})'
+    )
+    # hermes_cli/plugins_cmd_install.py:379 and hermes_cli/plugins_cmd_git.py:131-135 and 257: the
+    # revision is the clone's HEAD, 40 lowercase hex.
+    assert hermes.lines(PLUGINS_CMD_INSTALL, 379, 379) == (
+        "        installed_revision = _pc()._clone_plugin_repo(tmp_clone, git_url, requested_revision, subdir)"
+    )
+    assert hermes.lines(PLUGINS_CMD_GIT, 131, 135) == (
+        "def _git_head_revision(repo: Path, git_exe: str) -> str:\n"
+        "    return _git_or_raise(\n"
+        '        git_exe, repo, "rev-parse", "HEAD", timeout=15,\n'
+        '        failure_prefix="Could not determine installed Git revision:\\n",\n'
+        "    ).stdout.strip().lower()"
+    )
+    assert hermes.lines(PLUGINS_CMD_GIT, 257, 257) == "    return _pc()._git_head_revision(tmp_clone, git_exe)"

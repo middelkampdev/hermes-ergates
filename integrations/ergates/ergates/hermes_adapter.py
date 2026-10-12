@@ -34,6 +34,7 @@ secret scope, bound for that read only.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from contextlib import contextmanager
 from datetime import tzinfo
@@ -41,6 +42,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from .reminders import CronUnavailable
+
+logger = logging.getLogger(__name__)
 
 PLUGIN_NAME = "ergates"
 
@@ -108,6 +111,46 @@ def install_secret(name: str) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     return value.strip()
+
+
+def install_record() -> dict | None:
+    """Hermes's install record of this plugin, or ``None``.
+
+    Hermes keeps one record per installed plugin, keyed by the plugin's
+    name, in ``<home>/plugins/.install-metadata.json`` of the home that
+    installed it (``hermes_cli.plugins_cmd._read_install_metadata``). A
+    git install, the dashboard's install route and the catalog all write
+    it: ``revision`` (the commit), ``source``, ``pinned`` and, for a catalog
+    install, ``catalog``. This install lives in the Hermes root, whose home
+    is the default profile's, so the record is read in that home.
+
+    ``None`` outside a Hermes runtime, when there is no record (a plugin
+    copied or mounted by hand), and when Hermes raises (an unreadable file):
+    the log then names the exception class only, because its message
+    carries a path. ``integrations/ergates-tests/contract/test_hermes_adapter.py``
+    pins the record's shape and where Hermes keeps it.
+    """
+    try:
+        from hermes_cli.plugins_cmd import _read_install_metadata
+    except ImportError:
+        return None
+    try:
+        with _profile_home("default"):
+            record = _read_install_metadata().get(PLUGIN_NAME)
+    except Exception as exc:  # health must answer whatever Hermes does here
+        logger.warning("ergates: Hermes's install record of the plugin could not be read (%s)", type(exc).__name__)
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def root_plugin_dir() -> Path | None:
+    """``<hermes root>/plugins/ergates``: where this install keeps its copy of the plugin.
+
+    The path alone, whether or not a folder is there; ``None`` outside a
+    Hermes runtime.
+    """
+    root = default_hermes_root()
+    return None if root is None else root / "plugins" / PLUGIN_NAME
 
 
 def configured_timezone() -> tzinfo | None:
@@ -507,11 +550,10 @@ def _profile_home(profile: str) -> Iterator[Path]:
 
 
 def _root_plugin_dir() -> Path:
-    """``<hermes root>/plugins/ergates``: where this install's copy of the plugin lives."""
-    root = default_hermes_root()
-    if root is None:
+    """:func:`root_plugin_dir`, which must hold the plugin: raises when Hermes is not here or the folder is empty."""
+    source = root_plugin_dir()
+    if source is None:
         raise RuntimeError("Hermes is not importable in this process")
-    source = root / "plugins" / PLUGIN_NAME
     if not (source / "plugin.yaml").is_file():
         raise FileNotFoundError(f"the {PLUGIN_NAME} plugin is not installed at {source}")
     return source

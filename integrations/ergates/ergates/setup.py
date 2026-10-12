@@ -44,6 +44,8 @@ DIFFER = "differ"  # the target holds something else (``templates_state`` only)
 INVALID = "invalid"  # a source template the accept route would refuse (``templates_state``: also a bad target file)
 MISSING = "missing"  # the source folder is absent or holds no ``*.json``
 FAILED = "failed"  # the source or target could not be read or written
+BAD_BUNDLE = "bundle"  # ``templates_status``: an ``INVALID`` state caused by a template the plugin ships
+BAD_INSTALLED = "installed"  # ``templates_status``: an ``INVALID`` state caused by a file in the target
 
 
 class TemplateSourceError(Exception):
@@ -295,28 +297,43 @@ def ensure_templates(source: Path, target: Path) -> str:
 
 
 def templates_state(source: Path, target: Path) -> str:
-    """``INSTALLED``, ``DIFFER``, ``INVALID`` or ``MISSING``; reads only, writes nothing.
+    """``INSTALLED``, ``DIFFER``, ``INVALID`` or ``MISSING``; reads only, writes nothing. See :func:`templates_status`."""
+    return templates_status(source, target)[0]
 
-    ``INVALID`` also when an entry in the target is not a regular file of at
-    most :data:`MAX_TEMPLATE_BYTES`. A source that cannot be read counts as
-    ``MISSING``, a target that cannot be read as ``DIFFER``, so a health
-    report built on this never raises.
+
+def templates_status(source: Path, target: Path) -> tuple[str, Optional[str]]:
+    """``(state, where)``: the :func:`templates_state`, and for ``INVALID`` where the bad template is.
+
+    ``where`` is ``BAD_BUNDLE`` when a template in ``source`` is one the
+    accept route would refuse, ``BAD_INSTALLED`` when an entry in the target
+    is not a regular file of at most :data:`MAX_TEMPLATE_BYTES`, and
+    ``None`` for every other state. A bad source wins: the install would
+    not run, so the target is not looked at.
+
+    A source that cannot be read counts as ``MISSING``, a target that cannot
+    be read as ``DIFFER``, and anything unforeseen as ``INVALID`` (in the
+    part that was being read), so a health report built on this never
+    raises.
     """
     try:
         templates = source_templates(source)
     except TemplateSourceError:
-        return INVALID
+        return INVALID, BAD_BUNDLE
     except OSError:
-        return MISSING
+        return MISSING, None
+    except Exception:
+        return INVALID, BAD_BUNDLE
     if not templates:
-        return MISSING
+        return MISSING, None
     try:
         installed = _installed_templates(target)
     except OSError:
-        return DIFFER
+        return DIFFER, None
+    except Exception:
+        return INVALID, BAD_INSTALLED
     if installed is None:
-        return INVALID
-    return INSTALLED if installed == templates else DIFFER
+        return INVALID, BAD_INSTALLED
+    return (INSTALLED if installed == templates else DIFFER), None
 
 
 def enable_everywhere(

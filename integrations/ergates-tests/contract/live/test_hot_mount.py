@@ -85,13 +85,38 @@ def test_plugin_installed_after_start_serves_health_without_restart(web_without_
     assert (result["ok"], result["plugin_name"], result["enabled"]) == (True, "ergates", True)
     health = web.get(f"{API}/health", headers=token_headers)
     assert health.status_code == 200
+    print(json.dumps(health.json(), indent=2))
     assert health.json()["plugin_version"] == plugin_git_repo.version
+    # Hermes records the install in plugins/.install-metadata.json; the app offers going back to a commit
+    # only for a git install. The first request installed the templates, and the plugin is enabled in the
+    # root's one profile.
+    assert health.json()["install"] == {"kind": "git install", "commit": plugin_git_repo.sha, "catalog_name": None}
+    assert health.json()["setup"] == {"finished": True, "templates": "installed",
+                                      "profiles": [{"name": "default", "enabled": True}]}
     # The whole router dashboard/manifest.json names is live, not only the route that mounted it.
     assert web.get(f"{API}/attention/prefs", params={"scope": "*"}, headers=token_headers).status_code == 200
     installed = root_without_plugin / "plugins" / "ergates"
     assert installed.is_dir() and not installed.is_symlink()
     scanned, blocking = scan(installed)
     assert (scanned.verdict, blocking) == ("safe", [])
+
+
+def test_a_subdirectory_install_keeps_no_git_folder_and_health_still_names_its_commit(
+        web_without_plugin, root_without_plugin, token_headers, plugin_monorepo):
+    """The plugin lives in ``integrations/ergates`` of its repository, so a user installs from that subdirectory.
+    Hermes copies only that folder: the installed plugin has no ``.git``, and its commit is known from Hermes's
+    record alone (an install of a repository's root keeps its ``.git``)."""
+    web = web_without_plugin
+
+    result = install_through_dashboard(web, token_headers, identifier=plugin_monorepo.identifier,
+                                       ref=plugin_monorepo.sha, enable=True)
+
+    assert (result["ok"], result["plugin_name"], result["enabled"]) == (True, "ergates", True)
+    installed = root_without_plugin / "plugins" / "ergates"
+    assert installed.is_dir() and not installed.is_symlink()
+    assert not (installed / ".git").exists()
+    health = web.get(f"{API}/health", headers=token_headers).json()
+    assert health["install"] == {"kind": "git install", "commit": plugin_monorepo.sha, "catalog_name": None}
 
 
 def test_the_installed_plugin_sweeps_inside_hermes_serve(web_without_plugin, token_headers, plugin_git_repo):

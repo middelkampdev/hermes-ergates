@@ -136,32 +136,54 @@ def token_headers() -> dict[str, str]:
 
 @dataclass(frozen=True)
 class PluginRepo:
-    """A git repository whose one commit holds this plugin, the way a user installs it from a URL."""
+    """A git repository whose one commit holds this plugin, the way a user installs it from a URL.
+
+    ``subdir`` is the folder of the repository that holds the plugin, empty when it sits at the root.
+    """
 
     path: Path
     url: str
     sha: str
     version: str
+    subdir: str = ""
+
+    @property
+    def identifier(self) -> str:
+        """What a client gives Hermes to install it: the URL, and ``#<subdir>`` when the plugin is in a folder."""
+        return f"{self.url}#{self.subdir}" if self.subdir else self.url
 
 
-@pytest.fixture(scope="session")
-def plugin_git_repo(tmp_path_factory) -> PluginRepo:
-    """Commits a copy of ``integrations/ergates`` (every file git tracks) to a new repository.
+def _commit_plugin(path: Path, subdir: str) -> PluginRepo:
+    """Commits a copy of ``integrations/ergates`` (every file git tracks) to a new repository at ``path``.
 
     Untracked files stay out (``plugin_tree.copy_tracked_files``), so a stray
     local file cannot change the install scan's verdict, and no git hook of
     this machine runs.
     """
-    path = tmp_path_factory.mktemp("plugin-repo")
-    copy_tracked_files(path)
+    plugin = path / subdir if subdir else path
+    plugin.mkdir(parents=True, exist_ok=True)
+    copy_tracked_files(plugin)
     git = ["git", *NO_HOOKS, "-C", str(path), "-c", "user.name=Ergates contract", "-c", "user.email=contract@ergates.invalid",
            "-c", "commit.gpgsign=false"]
     subprocess.run([*git, "init", "-q", "-b", "main"], check=True)
     subprocess.run([*git, "add", "-A"], check=True)
     subprocess.run([*git, "commit", "-q", "-m", "Ergates plugin"], check=True)
     sha = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
-    version = yaml.safe_load((path / "plugin.yaml").read_text(encoding="utf-8"))["version"]
-    return PluginRepo(path=path, url=path.as_uri(), sha=sha, version=version)
+    version = yaml.safe_load((plugin / "plugin.yaml").read_text(encoding="utf-8"))["version"]
+    return PluginRepo(path=path, url=path.as_uri(), sha=sha, version=version, subdir=subdir)
+
+
+@pytest.fixture(scope="session")
+def plugin_git_repo(tmp_path_factory) -> PluginRepo:
+    """The plugin at the root of a new repository."""
+    return _commit_plugin(tmp_path_factory.mktemp("plugin-repo"), "")
+
+
+@pytest.fixture(scope="session")
+def plugin_monorepo(tmp_path_factory) -> PluginRepo:
+    """The plugin in ``integrations/ergates`` of a new repository, the layout of its own repository: Hermes
+    installs it from that subdirectory."""
+    return _commit_plugin(tmp_path_factory.mktemp("plugin-monorepo"), "integrations/ergates")
 
 
 @pytest.fixture

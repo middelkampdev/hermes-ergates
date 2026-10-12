@@ -18,6 +18,7 @@ from conftest import FakeClock, raw_bytes, rows
 from ergates.operations import LABEL_MAX_LEN, Operations, internal_error
 from ergates.paths import templates_dir
 from ergates.proposals import PROPOSAL_EXPIRY, ProposalService, validate_proposal
+from ergates.setup import ensure_templates
 from ergates.store import MIN_SCHEMA_KEY, ControlStore
 
 PLUGIN_DIR = Path(__file__).resolve().parents[2] / "ergates"
@@ -29,6 +30,8 @@ RECEIPT_KEYS = {"id", "request_id", "profile", "state", "job_id", "timezone_advi
 PROPOSAL_RECEIPT_KEYS = {"proposal_id", "state", "reserved_profile_name", "expires_at", "completed_steps",
                          "step_status", "next_step", "template"}
 SWEEP_STATUS = {"interval_seconds": 120, "last_run_at": 1_760_000_000.0, "last_error": None}
+INSTALL = {"kind": "git install", "commit": "0123456789abcdef0123456789abcdef01234567", "catalog_name": None}
+PUSH_STATUS = {"configured": True, "token_set": False, "legacy_config_token": False}
 
 
 class FakeHermes:
@@ -38,6 +41,8 @@ class FakeHermes:
         self.profiles = {"default", "concierge", "thijs"}
         self.enabled = set()
         self.broken = set()
+        self.profile_lookup_error = None
+        self.unreadable = set()
         self.enable_calls = []
         self.schedule_calls = []
         self.prompt_calls = []
@@ -47,10 +52,14 @@ class FakeHermes:
         return profile in self.profiles
 
     def plugin_enabled(self, profile):
+        if profile in self.unreadable:
+            raise RuntimeError("the profile's config could not be read")
         return profile in self.enabled
 
     def profile_names(self):
         """Hermes's order: ``default`` first, then the others by name."""
+        if self.profile_lookup_error is not None:
+            raise self.profile_lookup_error
         return sorted(self.profiles, key=lambda name: (name != "default", name))
 
     def enable_plugin(self, profile):
@@ -109,7 +118,8 @@ def ops_on_a_v4_store(store, cron, clock, hermes, tmp_path):
     return _operations(ControlStore(store.path), cron, clock, hermes, tmp_path)
 
 
-def _operations(store, cron, clock, hermes, tmp_path, sweep_status=lambda: dict(SWEEP_STATUS)):
+def _operations(store, cron, clock, hermes, tmp_path, sweep_status=lambda: dict(SWEEP_STATUS),
+                install=lambda: dict(INSTALL), push_status=lambda: dict(PUSH_STATUS)):
     directory = templates_dir(tmp_path)
     directory.mkdir(parents=True)
     (directory / "bookkeeper.json").write_text(json.dumps(TEMPLATE), encoding="utf-8")
@@ -121,7 +131,8 @@ def _operations(store, cron, clock, hermes, tmp_path, sweep_status=lambda: dict(
         store, cron=cron, profile_exists=hermes.profile_exists, plugin_enabled=hermes.plugin_enabled,
         enable_plugin=hermes.enable_plugin, profile_names=hermes.profile_names, check_schedule=hermes.check_schedule,
         check_prompt=hermes.check_prompt, check_gateway_lifecycle=hermes.check_gateway_lifecycle,
-        templates=directory, bundled_templates=bundled, sweep_status=sweep_status, clock=clock,
+        templates=directory, bundled_templates=bundled, sweep_status=sweep_status, install=install,
+        push_status=push_status, clock=clock,
     )
 
 
@@ -139,11 +150,132 @@ def _error(reply):
 # --- GET /health --------------------------------------------------------------
 
 
-def test_health_reports_the_schema_and_the_plugin_version(ops):
+def _installed(hermes, tmp_path):
+    """The proposal templates installed and the plugin enabled in the one profile ``default``."""
+    hermes.profiles, hermes.enabled = {"default"}, {"default"}
+    assert ensure_templates(tmp_path / "bundled", templates_dir(tmp_path)) == "installed"
+
+
+def test_health_reports_every_field_the_app_reads(ops, hermes, tmp_path):
+    """The exact body the app relies on: a change here is a change to what the app reads, and raises the api level."""
+    _installed(hermes, tmp_path)
+
     reply = ops.health()
 
-    assert (reply.status, reply.body) == (
-        200, {"ok": True, "schema_version": 2, "plugin_version": ergates.__version__, "sweep": SWEEP_STATUS})
+    assert (reply.status, reply.body) == (200, {
+        "ok": True, "plugin_version": ergates.__version__, "api_level": 1, "min_api_level": 1, "schema_version": 2,
+        "store": {"plugin_schema_version": 2, "min_schema_version": 2, "writable": True},
+        "install": INSTALL,
+        "setup": {"finished": True, "templates": "installed", "profiles": [{"name": "default", "enabled": True}]},
+        "push": {"configured": True, "token_set": False, "legacy_config_token": False},
+        "sweep": SWEEP_STATUS,
+    })
+
+
+def test_min_api_level_is_at_most_api_level():
+    """``API_LEVEL`` rises with a route or body change the app relies on; ``MIN_API_LEVEL`` follows at least one
+    release later, so an app built for the oldest level in the window still works."""
+    assert isinstance(ergates.API_LEVEL, int) and isinstance(ergates.MIN_API_LEVEL, int)
+    assert 1 <= ergates.MIN_API_LEVEL <= ergates.API_LEVEL
+
+
+def test_health_on_a_store_too_new_says_it_cannot_write(ops_on_a_v4_store):
+    reply = ops_on_a_v4_store.health()
+
+    assert reply.status == 200
+    assert reply.body["ok"] is True
+    assert reply.body["schema_version"] == 4
+    assert reply.body["store"] == {"plugin_schema_version": 2, "min_schema_version": 4, "writable": False}
+
+
+def test_health_survives_a_profile_lookup_that_raises(ops, hermes, tmp_path):
+    _installed(hermes, tmp_path)
+    hermes.profile_lookup_error = RuntimeError("/secret/hermes/profiles is unreadable")
+
+    reply = ops.health()
+
+    assert reply.status == 200
+    assert reply.body["setup"] == {"finished": False, "templates": "installed", "profiles": [],
+                                   "error": "RuntimeError"}
+    assert "secret" not in json.dumps(reply.body)
+
+
+def test_health_names_a_profile_whose_plugin_check_raises_and_reports_the_others(ops, hermes, tmp_path):
+    _installed(hermes, tmp_path)
+    hermes.profiles = {"default", "mira", "zoe"}
+    hermes.enabled = {"default", "zoe"}
+    hermes.unreadable = {"mira"}
+
+    reply = ops.health()
+
+    assert reply.status == 200
+    assert reply.body["setup"] == {"finished": False, "templates": "installed", "profiles": [
+        {"name": "default", "enabled": True}, {"name": "mira", "enabled": False, "error": "RuntimeError"},
+        {"name": "zoe", "enabled": True}]}
+
+
+def test_health_reports_the_setup_state_and_writes_nothing(ops, hermes, tmp_path):
+    """A profile without the plugin and templates that differ are reported, not repaired: only ``POST /setup`` writes."""
+    hermes.profiles = {"default", "mira"}
+    hermes.enabled = {"default"}
+    before = {path.name: path.read_bytes() for path in templates_dir(tmp_path).iterdir()}
+
+    reply = ops.health()
+
+    assert reply.body["setup"] == {"finished": False, "templates": "differ", "profiles": [
+        {"name": "default", "enabled": True}, {"name": "mira", "enabled": False}]}
+    assert hermes.enable_calls == []
+    assert {path.name: path.read_bytes() for path in templates_dir(tmp_path).iterdir()} == before
+
+
+def test_health_says_whether_the_bad_template_is_the_bundled_one_or_an_installed_file(ops, hermes, tmp_path):
+    _installed(hermes, tmp_path)
+    (tmp_path / "elsewhere.json").write_text("{}", encoding="utf-8")
+    (templates_dir(tmp_path) / "bookkeeper.json").unlink()
+    (templates_dir(tmp_path) / "bookkeeper.json").symlink_to(tmp_path / "elsewhere.json")
+
+    installed_file = ops.health().body["setup"]
+    (tmp_path / "bundled" / "researcher.json").write_text("{not json", encoding="utf-8")
+    bundle = ops.health().body["setup"]
+
+    assert (installed_file["templates"], installed_file["templates_detail"]) == ("invalid", "installed")
+    assert (bundle["templates"], bundle["templates_detail"]) == ("invalid", "bundle")
+    assert installed_file["finished"] is bundle["finished"] is False
+
+
+def test_health_reports_the_install_as_it_is_at_each_call(store, cron, clock, hermes, tmp_path):
+    states = iter([dict(INSTALL), {"kind": "deployment", "commit": None, "catalog_name": None}])
+    ops = _operations(store, cron, clock, hermes, tmp_path, install=lambda: next(states))
+
+    first, second = ops.health(), ops.health()
+
+    assert first.body["install"] == INSTALL
+    assert second.body["install"] == {"kind": "deployment", "commit": None, "catalog_name": None}
+
+
+def test_health_reports_push_as_booleans_and_never_a_value(store, cron, clock, hermes, tmp_path):
+    leaky = {"configured": "https://ntfy.example.internal", "token_set": "tk_secret_value",
+             "legacy_config_token": None, "token": "tk_secret_value"}
+    ops = _operations(store, cron, clock, hermes, tmp_path, push_status=lambda: leaky)
+
+    reply = ops.health()
+
+    assert reply.body["push"] == {"configured": True, "token_set": True, "legacy_config_token": False}
+    assert "tk_secret_value" not in json.dumps(reply.body) and "ntfy.example" not in json.dumps(reply.body)
+
+
+def test_health_survives_a_push_read_that_raises(store, cron, clock, hermes, tmp_path):
+    def unreadable():
+        raise RuntimeError("/secret/hermes/config.yaml could not be parsed")
+
+    ops = _operations(store, cron, clock, hermes, tmp_path, push_status=unreadable)
+
+    reply = ops.health()
+
+    assert reply.status == 200
+    assert reply.body["push"] == {"configured": False, "token_set": False, "legacy_config_token": False,
+                                  "error": "RuntimeError"}
+    assert "secret" not in json.dumps(reply.body)
 
 
 def test_health_reports_the_sweep_as_it_is_at_each_call(store, cron, clock, hermes, tmp_path):

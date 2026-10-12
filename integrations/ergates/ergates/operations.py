@@ -33,12 +33,12 @@ from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from . import __version__
+from . import API_LEVEL, MIN_API_LEVEL, __version__
 from .attention import AttentionError, AttentionService
 from .proposals import ProposalError, ProposalService
 from .reminders import CronPort, ReminderError, ReminderService, _REQUEST_ID_RE
-from .setup import enable_everywhere, ensure_templates, setup_report
-from .store import ControlStore, StoreError, StoreReadOnly
+from .setup import enable_everywhere, ensure_templates, setup_report, templates_status
+from .store import SCHEMA_VERSION, ControlStore, StoreError, StoreReadOnly
 from .templates import load_template
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,7 @@ _NOT_AN_OBJECT = "the request body must be a JSON object"
 _STEP_STATUS_NOT_STRINGS = "step and status must be strings"
 PROMPT_REFUSED = "prompt is not one Hermes cron accepts"
 PROMPT_STOPS_GATEWAY = "prompt reads as a command to stop or restart the Hermes gateway, which Hermes cron refuses"
+PUSH_KEYS = ("configured", "token_set", "legacy_config_token")
 
 
 @dataclass(frozen=True)
@@ -156,10 +157,13 @@ class Operations:
         enable_plugin: Callable[[str], None], profile_names: Callable[[], list[str]],
         check_schedule: Callable[[str, str], None], check_prompt: Callable[[str], None],
         check_gateway_lifecycle: Callable[[str, str], None], templates: Path, bundled_templates: Path,
-        sweep_status: Callable[[], dict], clock: Callable[[], float] = time.time,
+        sweep_status: Callable[[], dict], install: Callable[[], dict], push_status: Callable[[], dict],
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self._store = store
         self._sweep_status = sweep_status
+        self._install = install
+        self._push_status = push_status
         self._profile_exists = profile_exists
         self._plugin_enabled = plugin_enabled
         self._enable_plugin = enable_plugin
@@ -176,10 +180,29 @@ class Operations:
     # GET /health
     @_guard_store
     def health(self) -> Reply:
-        """The store's schema, the plugin version and the periodic sweep's ``status()`` (``ergates.sweep``)."""
+        """What the app reads before it relies on this plugin; 503 only when the store cannot be read.
+
+        ``api_level`` and ``min_api_level`` say which routes and bodies the
+        app may rely on. ``schema_version`` is the store file's;
+        ``store`` adds this plugin's own schema, the oldest plugin schema
+        allowed to write the store and whether this plugin may write it: a
+        store a newer plugin made read-only still answers 200, with
+        ``writable`` false. ``install`` is how the plugin got here
+        (``ergates.install_info``), ``setup`` the state ``POST /setup`` would
+        make (read, never written), ``push`` three booleans and ``sweep`` the
+        periodic sweep's ``status()`` (``ergates.sweep``).
+        """
         schema_version = self._store.schema_version
-        return Reply(200, {"ok": True, "schema_version": schema_version, "plugin_version": __version__,
-                           "sweep": self._sweep_status()})
+        return Reply(200, {
+            "ok": True, "plugin_version": __version__, "api_level": API_LEVEL, "min_api_level": MIN_API_LEVEL,
+            "schema_version": schema_version,
+            "store": {"plugin_schema_version": SCHEMA_VERSION, "min_schema_version": self._store.min_schema_version,
+                      "writable": self._store.writable},
+            "install": self._install(),
+            "setup": self._setup_state(),
+            "push": self._push(),
+            "sweep": self._sweep_status(),
+        })
 
     # POST /reminders
     @_guard_store
@@ -301,6 +324,36 @@ class Operations:
             return error_reply(400, "invalid", str(exc))
         return Reply(200, {"prefs": prefs})
 
+    def _setup_state(self) -> dict:
+        """The body of ``POST /setup`` as it would be now, without writing anything.
+
+        ``templates_detail`` (``bundle`` or ``installed``) says where the bad
+        template is when ``templates`` is ``invalid``, and is absent
+        otherwise. When Hermes cannot list the profiles, ``profiles`` is
+        empty, ``finished`` false and ``error`` names the exception class.
+        """
+        templates, where = templates_status(self._bundled_templates, self._templates)
+        error = None
+        try:
+            profiles = enable_everywhere(self._profile_names(), _enable_nothing, self._plugin_enabled)
+        except Exception as exc:  # health must answer even when Hermes cannot list the profiles
+            profiles, error = [], type(exc).__name__
+        state = setup_report(templates, profiles)
+        if where is not None:
+            state["templates_detail"] = where
+        if error is not None:
+            state["error"] = error
+        return state
+
+    def _push(self) -> dict:
+        """The three push booleans. An error reading them is three ``False`` and the exception class under ``error``;
+        a value is never passed on, only ``bool`` of it."""
+        try:
+            status = self._push_status()
+            return {key: bool(status[key]) for key in PUSH_KEYS}
+        except Exception as exc:
+            return {**dict.fromkeys(PUSH_KEYS, False), "error": type(exc).__name__}
+
     def _reminder_request(self, body: Any) -> dict:
         """The service arguments of a valid request; ``ReminderError`` otherwise.
 
@@ -360,6 +413,10 @@ class Operations:
         except ProposalError as exc:
             return _proposal_error(exc)
         return Reply(200, {"proposal": {**receipt, "template": None}})
+
+
+def _enable_nothing(profile: str) -> None:
+    """``enable_everywhere``'s ``enable`` for a report that must write nothing."""
 
 
 def _is_profile_name(value: Any) -> bool:

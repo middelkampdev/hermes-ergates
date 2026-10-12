@@ -56,12 +56,55 @@ def _reminder(profile, **overrides):
 SWEEP_OFF = {"interval_seconds": 0, "last_run_at": None, "last_error": None}
 
 
-def test_hermes_serve_mounts_the_router_and_health_answers(web, token_headers):
+def test_hermes_serve_mounts_the_router_and_health_answers(web, token_headers, monkeypatch):
+    monkeypatch.delenv("ERGATES_NTFY_TOKEN", raising=False)  # this process serves the root, so Hermes would read it
+    reply = web.get(f"{API}/health", headers=token_headers)
+    body = reply.json()
+    print(json.dumps(body, indent=2))
+
+    assert reply.status_code == 200
+    assert (body["ok"], body["plugin_version"], body["api_level"], body["min_api_level"]) == (
+        True, ergates.__version__, 1, 1)
+    assert body["schema_version"] == SCHEMA_VERSION
+    assert body["store"] == {"plugin_schema_version": SCHEMA_VERSION, "min_schema_version": SCHEMA_VERSION,
+                             "writable": True}
+    # The session root links its plugin folder to this checkout, which no commit describes.
+    assert body["install"] == {"kind": "manual copy", "commit": None, "catalog_name": None}
+    # Other tests add profiles to this root; the default profile is always first and has the plugin.
+    assert body["setup"]["templates"] == "installed"
+    assert body["setup"]["profiles"][0] == {"name": "default", "enabled": True}
+    assert body["push"] == {"configured": False, "token_set": False, "legacy_config_token": False}
+    assert body["sweep"] == SWEEP_OFF
+
+
+def test_health_says_deployment_when_the_serving_process_is_marked_so_at_each_call(web, token_headers, monkeypatch):
+    """The Compose file sets ``ERGATES_INSTALL_KIND`` on ``hermes-serve``; a deployment has no install record."""
+    monkeypatch.setenv("ERGATES_INSTALL_KIND", "deployment")
+    marked = web.get(f"{API}/health", headers=token_headers).json()["install"]
+    monkeypatch.delenv("ERGATES_INSTALL_KIND")
+    unmarked = web.get(f"{API}/health", headers=token_headers).json()["install"]
+
+    assert marked == {"kind": "deployment", "commit": None, "catalog_name": None}
+    assert unmarked["kind"] == "manual copy"
+
+
+def test_health_reports_push_as_booleans_and_never_a_value(web, token_headers, monkeypatch, tmp_path):
+    """The root's config.yaml holds the server, the topic and a token left from 0.2; the token that counts is the
+    install secret, which this process (it serves the root, without multiplexing) reads from its environment."""
+    module = _module()
+    (tmp_path / "config.yaml").write_text(
+        "plugins:\n  entries:\n    ergates:\n      settings:\n        ntfy:\n"
+        "          server: https://ntfy.example.internal\n          topic: ergates-alerts\n"
+        "          token: tk_left_in_config\n", encoding="utf-8")
+    monkeypatch.setattr(module, "_operations", None)
+    monkeypatch.setattr(module, "hermes_root", lambda: tmp_path)
+    monkeypatch.setenv("ERGATES_NTFY_TOKEN", "tk_in_the_environment")
+
     reply = web.get(f"{API}/health", headers=token_headers)
 
-    assert (reply.status_code, reply.json()) == (
-        200, {"ok": True, "schema_version": SCHEMA_VERSION, "plugin_version": ergates.__version__,
-              "sweep": SWEEP_OFF})
+    assert (reply.status_code, reply.json()["push"]) == (
+        200, {"configured": True, "token_set": True, "legacy_config_token": True})
+    assert "tk_" not in reply.text and "ntfy.example" not in reply.text
 
 
 def test_the_session_server_runs_no_sweep_when_the_interval_is_0(web, token_headers):
@@ -442,6 +485,8 @@ def _operations_with(root, **adapter):
         "check_gateway_lifecycle")}
     return Operations(ControlStore(store_path(root)), cron=hermes_adapter.HermesCron(), templates=templates_dir(root),
                       bundled_templates=bundled_templates_dir(), sweep_status=_module().sweep_status,
+                      install=lambda: {"kind": "manual copy", "commit": None, "catalog_name": None},
+                      push_status=lambda: {"configured": False, "token_set": False, "legacy_config_token": False},
                       **{**functions, **adapter})
 
 

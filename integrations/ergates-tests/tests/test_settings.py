@@ -3,6 +3,7 @@ and the ntfy token, a Hermes plugin secret in the root's .env."""
 
 import logging
 
+import pytest
 import yaml
 
 from ergates import hermes_adapter
@@ -12,6 +13,7 @@ from ergates.settings import (
     TOKEN_ENV,
     load_settings,
     push_settings,
+    push_status,
     settings_from_config,
     sweep_interval,
 )
@@ -151,6 +153,86 @@ def test_a_token_left_in_config_yaml_is_ignored_and_logged_without_its_value(tmp
     assert "ERGATES_NTFY_TOKEN" in caplog.text
     assert "tk_left_in_config" not in caplog.text
     assert push_settings(tmp_path).token == ""
+
+
+# --- push_status: what push has, as booleans for GET /health --------------------------
+
+
+def _secret(monkeypatch, value):
+    asked = []
+    monkeypatch.setattr(hermes_adapter, "install_secret", lambda name: asked.append(name) or value)
+    return asked
+
+
+def test_push_status_says_what_push_has_in_booleans(tmp_path, monkeypatch):
+    asked = _secret(monkeypatch, "tk_in_the_env")
+    _write_config(tmp_path)
+
+    assert push_status(tmp_path) == {"configured": True, "token_set": True, "legacy_config_token": False}
+    assert asked == ["ERGATES_NTFY_TOKEN"]
+
+
+def test_push_status_of_a_root_without_push_settings_or_config(tmp_path, monkeypatch):
+    _secret(monkeypatch, None)
+
+    assert push_status(tmp_path) == {"configured": False, "token_set": False, "legacy_config_token": False}
+
+
+def test_push_is_configured_only_with_a_usable_server_and_topic(tmp_path, monkeypatch):
+    """The same rule as ``push_settings``: both set, and neither an unexpanded reference."""
+    _secret(monkeypatch, None)
+    cases = [
+        ({"server": "https://ntfy.example.internal"}, False),
+        ({"topic": "ergates-alerts"}, False),
+        ({"server": '"  "', "topic": "ergates-alerts"}, False),
+        ({"server": "${NTFY_SERVER}", "topic": "ergates-alerts"}, False),
+        ({"server": "https://ntfy.example.internal", "topic": "${NTFY_TOPIC}"}, False),
+        ({"server": "https://ntfy.example.internal", "topic": "ergates-alerts"}, True),
+        ({"server": "https://ntfy.example.internal", "topic": "ergates-alerts", "connection_id": "${C}"}, True),
+    ]
+    for ntfy, configured in cases:
+        _write_config(tmp_path, **ntfy)
+        assert push_status(tmp_path)["configured"] is configured, ntfy
+        assert (push_settings(tmp_path) is not None) is configured, ntfy
+
+
+def test_a_token_left_in_config_yaml_is_reported_whatever_its_value_and_is_not_the_token(tmp_path, monkeypatch):
+    _secret(monkeypatch, None)
+    for value in ("tk_left_in_config", '""', "null"):
+        _write_config(tmp_path, server="https://ntfy.example.internal", topic="ergates-alerts", token=value)
+
+        assert push_status(tmp_path) == {"configured": True, "token_set": False, "legacy_config_token": True}
+
+
+def test_push_status_never_carries_a_value_and_logs_nothing(tmp_path, monkeypatch, caplog):
+    """The app polls ``health``: a leftover token or a bad reference must not warn on every call, and no value
+    is ever in the answer."""
+    _secret(monkeypatch, "tk_in_the_env")
+    _write_config(tmp_path, server="${NTFY_SERVER}", topic="ergates-alerts", token="tk_left_in_config")
+
+    with caplog.at_level(logging.DEBUG):
+        status = push_status(tmp_path)
+
+    assert all(type(value) is bool for value in status.values())
+    assert sorted(status) == ["configured", "legacy_config_token", "token_set"]
+    assert caplog.records == []
+
+
+def test_push_status_reads_the_root_config_only(tmp_path):
+    """A profile's own config.yaml carries no push settings (see the module docstring)."""
+    profile = tmp_path / "profiles" / "mira"
+    _write_config(profile)
+
+    assert push_status(tmp_path)["configured"] is False
+
+
+def test_push_status_raises_what_an_unreadable_config_raises(tmp_path):
+    """``GET /health`` catches it and names the class; hiding it here would report "push is off" for a config
+    nobody could parse."""
+    (tmp_path / "config.yaml").write_text("plugins: [unclosed", encoding="utf-8")
+
+    with pytest.raises(yaml.YAMLError):
+        push_status(tmp_path)
 
 
 def test_the_settings_form_declares_every_setting_with_the_defaults_the_code_uses():

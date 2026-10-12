@@ -20,6 +20,8 @@ from conftest import HERMES_UID, OWNER_CHANGES
 from ergates import setup
 from ergates.paths import bundled_templates_dir, store_path, templates_dir
 from ergates.setup import (
+    BAD_BUNDLE,
+    BAD_INSTALLED,
     DIFFER,
     FAILED,
     INSTALLED,
@@ -33,6 +35,7 @@ from ergates.setup import (
     source_templates,
     templates_match,
     templates_state,
+    templates_status,
 )
 from ergates.store import ControlStore
 from ergates.templates import load_template
@@ -644,6 +647,67 @@ def test_a_source_that_cannot_be_read_has_the_state_missing(source, target, monk
     monkeypatch.setattr("ergates.setup.source_templates", unreadable)
 
     assert templates_state(source, target) == MISSING
+
+
+def test_a_failure_nobody_foresaw_reading_the_source_has_the_state_invalid_and_is_the_bundle(source, target, monkeypatch):
+    """The state never raises: a health report is built on it."""
+    def broken(folder):
+        raise RuntimeError("/secret/plugin/templates")
+
+    monkeypatch.setattr("ergates.setup.source_templates", broken)
+
+    assert templates_state(source, target) == INVALID
+    assert templates_status(source, target) == (INVALID, BAD_BUNDLE)
+
+
+def test_a_failure_nobody_foresaw_reading_the_target_has_the_state_invalid_and_is_the_installed_set(
+        source, target, monkeypatch):
+    def broken(folder):
+        raise RuntimeError("/secret/hermes/ergates/templates")
+
+    monkeypatch.setattr("ergates.setup._installed_templates", broken)
+
+    assert templates_state(source, target) == INVALID
+    assert templates_status(source, target) == (INVALID, BAD_INSTALLED)
+
+
+# --- templates_status: the state, and for an invalid one where the bad file is ---
+
+
+def test_an_invalid_bundled_template_is_named_as_the_bundle(source, target):
+    ensure_templates(source, target)
+    _write(source, "general-assistant", "{not json")
+
+    assert templates_status(source, target) == (INVALID, "bundle")
+    assert (BAD_BUNDLE, BAD_INSTALLED) == ("bundle", "installed")
+
+
+def test_an_installed_file_that_is_no_regular_file_is_named_as_the_installed_set(source, target, outside):
+    ensure_templates(source, target)
+    (target / "bookkeeper.json").unlink()
+    (target / "bookkeeper.json").symlink_to(outside / "victim.json")
+
+    assert templates_status(source, target) == (INVALID, "installed")
+
+
+def test_a_bad_bundle_wins_over_a_bad_installed_file(source, target, outside):
+    ensure_templates(source, target)
+    (target / "bookkeeper.json").unlink()
+    (target / "bookkeeper.json").symlink_to(outside / "victim.json")
+    _write(source, "general-assistant", "{not json")
+
+    assert templates_status(source, target) == (INVALID, "bundle")
+
+
+@pytest.mark.parametrize("state", [INSTALLED, DIFFER, MISSING])
+def test_every_other_state_has_no_detail(state, source, target, tmp_path):
+    if state == INSTALLED:
+        ensure_templates(source, target)
+    elif state == MISSING:
+        source = tmp_path / "empty"
+        source.mkdir()
+
+    assert templates_status(source, target) == (state, None)
 
 
 # --- the parts ensure_templates is made of ------------------------------------

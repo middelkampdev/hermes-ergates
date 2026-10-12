@@ -351,6 +351,10 @@ field looks like this:
 stays `null` while the passes succeed. Otherwise it names the error class of
 the last pass, which the `hermes-serve` log also names.
 
+The same answer has `"install": {"kind": "deployment", ...}`. The Compose
+file sets `ERGATES_INSTALL_KIND: deployment` on `hermes-serve` because the
+plugin is a read-only mount there, not an install Hermes made and recorded.
+
 An earlier version of this runbook ran the sweep from host cron
 (`python -m ergates.flush`). That crontab line can go. If it stays, it does
 no harm: two sweeps on one store send each due push once, because a push is

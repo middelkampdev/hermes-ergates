@@ -19,6 +19,7 @@ import yaml
 DEPLOY = Path(__file__).resolve().parents[1]
 # The accept route's own template check; the ergates package needs no dependency.
 sys.path.insert(0, str(DEPLOY.parent / "integrations" / "ergates"))
+from ergates.install_info import INSTALL_KIND_ENV  # noqa: E402
 from ergates.templates import load_template  # noqa: E402
 
 # The proposal templates ship inside the plugin folder the controllers mount.
@@ -253,6 +254,14 @@ def test_hermes_serve_listens_on_its_container_network_for_the_ingress() -> None
     """The Tailscale IP exists only on the host; binding it inside the container fails."""
     command = SERVICES["hermes-serve"]["command"]
     assert command[command.index("--host") + 1] == "0.0.0.0"
+
+
+def test_hermes_serve_says_it_is_a_deployment() -> None:
+    """The plugin on the VPS is a read-only mount, not an install Hermes made, so it has no install record; the
+    marker is how ``GET /health`` tells the app. Only hermes-serve answers ``health``."""
+    assert INSTALL_KIND_ENV == "ERGATES_INSTALL_KIND"
+    assert SERVICES["hermes-serve"]["environment"][INSTALL_KIND_ENV] == "deployment"
+    assert INSTALL_KIND_ENV not in SERVICES["hermes-gateway"]["environment"]
 
 
 def test_ntfy_knows_the_url_phones_subscribe_with() -> None:

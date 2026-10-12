@@ -69,6 +69,10 @@ services:
     environment:
       <<: *through-the-egress-proxy
       HERMES_HOME: /opt/data
+      # The plugin here is a read-only mount, not an install Hermes made and
+      # recorded. This marker is how the plugin's `health` route says so.
+      # Only this service answers `health`.
+      ERGATES_INSTALL_KIND: deployment
       HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:?set in .env -- never commit a real value}
       # Hash, not plaintext (04 section 6: "password hash where supported").
       # The stock provider prefers password_hash and only hashes a plaintext

@@ -36,6 +36,7 @@ integrations/ergates/
     proposals.py       # ergates.agent-proposal.v1 validation, hash, ProposalService
     templates.py       # proposal templates under <root>/ergates/templates/
     setup.py           # installs the shipped templates there, enables the plugin in every profile
+    install_info.py    # how the plugin got onto the server (git install, deployment, manual copy), for `health`
     attention.py       # AttentionService: events, outbox rows, prefs, expiry, retention
     delivery.py        # DeliveryWorker: leased outbox delivery to ntfy, deep link
     settings.py        # the install-wide push and sweep settings in the root's config.yaml
@@ -226,7 +227,7 @@ refuses in its own shape (400, or 404 `Profile '<name>' does not exist.`, as
 
 | Method and path | Success | Errors |
 |---|---|---|
-| `GET /health` | 200 `{"ok": true, "schema_version": 2, "plugin_version": "<version>", "sweep": {...}}`, the version in `plugin.yaml` and the sweep's state (see "Periodic sweep") | 503 `store_unavailable` |
+| `GET /health` | 200 with the plugin version, API level, store, install, setup, push and sweep state (see "Health") | 503 `store_unavailable` |
 | `POST /reminders` `{profile, schedule, timezone, prompt, request_id, label?}` | 201 new, 200 existing, 202 uncertain; body `{"receipt"}` | 409 `conflict` (with `receipt`), 400 `invalid`, 404 `unknown_profile` |
 | `GET /proposals/{id}` | 200 `{"proposal"}` | 404 `not_found` |
 | `POST /proposals/{id}/accept` `{proposal}` | 200 `{"proposal"}` with `template` | 409 `hash_mismatch` / `not_acceptable` / `name_taken`, 410 `expired`, 422 `unknown_template` |
@@ -278,6 +279,72 @@ included). Only then does it create, so a schedule or prompt Hermes
 refuses is a 400 with a fixed message, never an uncertain create the app
 would resend. A second identical request waits up to 5 s for the first
 and answers the same receipt.
+
+### Health
+
+`GET /health` is the route a client reads before it relies on the rest. It
+writes nothing. The body of a plugin installed from a git commit, with the
+setup finished:
+
+```json
+{"ok": true, "plugin_version": "<version>", "api_level": 1, "min_api_level": 1, "schema_version": 2,
+ "store": {"plugin_schema_version": 2, "min_schema_version": 2, "writable": true},
+ "install": {"kind": "git install", "commit": "<40 hex>", "catalog_name": null},
+ "setup": {"finished": true, "templates": "installed", "profiles": [{"name": "default", "enabled": true}]},
+ "push": {"configured": true, "token_set": true, "legacy_config_token": false},
+ "sweep": {"interval_seconds": 120, "last_run_at": 1760000000.0, "last_error": null}}
+```
+
+- `plugin_version` is the version in `plugin.yaml`.
+- `api_level` and `min_api_level` (`API_LEVEL` and `MIN_API_LEVEL` in
+  `ergates/__init__.py`) say which routes and bodies a client may rely on.
+  A route or body change a client relies on raises `API_LEVEL`.
+  `MIN_API_LEVEL`, the oldest level this plugin still serves, follows at
+  least one release later. A client that needs a level above `api_level`
+  needs a newer plugin; one built for a level below `min_api_level` needs a
+  newer client.
+- `schema_version` is the store file's schema. `store.plugin_schema_version`
+  is this plugin's own, `store.min_schema_version` the oldest plugin schema
+  allowed to write the store and `store.writable` whether this plugin may
+  (see "Schema versions and older plugins"). A store a newer plugin made
+  read-only still answers 200, with `writable` false. Going back to an
+  earlier plugin commit works only when that plugin's schema, the
+  `plugin_schema_version` it reports (0.2.0 reports none, read as 1), is at
+  least the current `min_schema_version`.
+- `install` says how the plugin got onto the server
+  (`ergates/install_info.py`). `deployment`: the serving process has
+  `ERGATES_INSTALL_KIND=deployment`, which the Compose file in `deploy/` sets
+  because it mounts the plugin read-only. `git install`: Hermes recorded a
+  40-hex revision for the plugin and the plugin folder is a real folder;
+  `commit` is that revision in lower case and `catalog_name` the name of
+  the plugin catalog entry, or `null` for an install from a URL.
+  `manual copy`: anything else, a copied or linked folder included. Only a
+  git install has a `commit`. The answer never carries the record's `source`
+  or a path.
+- `setup` is the report `POST /setup` would give now, read without writing.
+  `finished` is true only when `templates` is `installed`, there is at least
+  one profile and every profile is enabled. `templates` is `installed`,
+  `differ` (the installed set is not the set the plugin ships; `POST /setup`
+  installs it), `invalid` or `missing`. When it is `invalid`,
+  `templates_detail` says where the bad template is: `bundle` for a
+  template the plugin ships that the accept route would refuse (nothing is
+  installed and the previous set stays), `installed` for an entry in the
+  installed folder that is not a regular file within the size limit. The key
+  is absent for every other state. `profiles` has one `{"name", "enabled"}`
+  per profile, plus `"error"` with the exception class when checking that
+  profile raised. When Hermes cannot list the profiles, `profiles` is `[]`,
+  `finished` is false and `setup.error` names the exception class.
+- `push` holds three booleans and never a value. `configured`: `ntfy.server`
+  and `ntfy.topic` are both set in the root's `config.yaml`. `token_set`:
+  `ERGATES_NTFY_TOKEN` has a value in the root's `.env`.
+  `legacy_config_token`: a `ntfy.token` key still sits in the root's
+  `config.yaml`, where it is ignored. When reading them raises, the three
+  are false and `push.error` names the exception class.
+- `sweep` is the periodic sweep's state (see "Periodic sweep").
+
+`health` answers 503 `store_unavailable` only when the control store cannot
+be read, so the setup, push and install parts above never turn into an error
+of their own.
 
 ## Tools and the tool gate
 

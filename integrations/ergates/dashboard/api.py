@@ -37,6 +37,7 @@ imports here; this file needs none, because every Hermes call goes through
 import functools
 import json
 import logging
+import os
 import sqlite3
 import sys
 import threading
@@ -52,9 +53,10 @@ if _PLUGIN_DIR not in sys.path:
     sys.path.append(_PLUGIN_DIR)
 
 from ergates import flush, hermes_adapter, setup  # noqa: E402
+from ergates.install_info import INSTALL_KIND_ENV, install_info  # noqa: E402
 from ergates.operations import Operations, Reply, internal_error, store_unavailable  # noqa: E402
 from ergates.paths import bundled_templates_dir, hermes_root, store_path, templates_dir  # noqa: E402
-from ergates.settings import sweep_interval  # noqa: E402
+from ergates.settings import push_status, sweep_interval  # noqa: E402
 from ergates.store import ControlStore, StoreError  # noqa: E402
 from ergates.sweep import SWEEP_INTERVAL_SECONDS, Sweep  # noqa: E402
 
@@ -97,6 +99,17 @@ def sweep_status() -> dict:
     return _sweep.status()
 
 
+def install() -> dict:
+    """How the plugin got here, for ``GET /health`` (``ergates.install_info``), read at each call.
+
+    The ``ERGATES_INSTALL_KIND`` marker is read from the environment at each
+    call, not when the operations are built.
+    """
+    return install_info(
+        hermes_adapter.install_record(), hermes_adapter.root_plugin_dir(), os.environ.get(INSTALL_KIND_ENV),
+    )
+
+
 def operations() -> Operations:
     """The process's one ``Operations``, built on first use.
 
@@ -125,6 +138,8 @@ def operations() -> Operations:
                 templates=templates_dir(root),
                 bundled_templates=bundled,
                 sweep_status=sweep_status,
+                install=install,
+                push_status=functools.partial(push_status, root),
             )
         return _operations
 
