@@ -789,6 +789,20 @@ def test_the_app_grant_is_what_hermes_resolves_for_the_cli_platform(monkeypatch)
     assert calls == [("cli", True)]
 
 
+@pytest.mark.parametrize("config", [
+    {"platform_toolsets": {"cli": [" terminal"]}},
+    {"tools": {"enabled_toolsets": ["terminal "]}},
+], ids=["app-pin", "legacy-pin"])
+def test_a_pinned_name_with_blanks_grants_nothing_because_hermes_resolves_nothing_for_it(
+        provisioned_thijs, monkeypatch, config):
+    """Hermes compares toolset names as written, so `" terminal"` is no toolset there; the gate does not strip it."""
+    _stub_hermes_grant_modules(monkeypatch, config)
+    monkeypatch.setattr(hermes_adapter, "toolset_for_tool", {"terminal": "terminal"}.get)
+
+    assert "terminal" not in hermes_adapter.granted_toolsets("thijs")
+    assert _gate(_RecordingCtx())(tool_name="terminal", args={}) == {"action": "block", "message": BLOCK_REVOKED}
+
+
 def test_an_explicit_empty_app_pin_grants_no_toolset(provisioned_thijs, monkeypatch):
     """``cli: []`` is an explicit zero-tool selection for Hermes (#82010), never "no pin"."""
     _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": []}},

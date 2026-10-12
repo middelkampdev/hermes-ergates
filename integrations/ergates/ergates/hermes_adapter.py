@@ -516,7 +516,8 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
     from utils import is_truthy_value
 
     def toolsets_granted_by(pinned) -> set[str]:
-        names = {str(name).strip() for name in pinned if str(name).strip()}
+        # As written, never stripped: Hermes resolves " terminal" to no toolset, so it grants none here either.
+        names = {str(name) for name in pinned if str(name)}
         owners = {owner for name in names for tool in resolve_toolset(name) if (owner := get_toolset_for_tool(tool))}
         return names | owners
 

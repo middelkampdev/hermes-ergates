@@ -239,6 +239,22 @@ def test_rule_3_a_pinned_name_grants_the_toolsets_its_tools_are_registered_under
     assert gate("wim", "terminal", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
 
 
+def test_rule_3_a_pinned_name_with_blanks_grants_nothing_as_in_hermes(gate, provision):
+    """Hermes compares toolset names as written: `" terminal"` in `platform_toolsets.cli` gives an app
+    session no `terminal` (`_get_platform_tools`), so the grant has none either."""
+    from hermes_cli.config import load_config_readonly
+    from hermes_cli.tools_config import _get_platform_tools
+
+    provision("kees", ["web"])
+    _edit_config("kees", lambda config: config["platform_toolsets"].update(cli=["web", " terminal"]))
+    with _profile_home("kees"):
+        hermes_gives = _get_platform_tools(load_config_readonly(), "cli", include_default_mcp_servers=True)
+
+    assert "terminal" not in hermes_gives
+    assert gate("kees", "terminal", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
+    assert gate("kees", "web_search", {}) == []
+
+
 @pytest.fixture
 def mcp_tool():
     """``mcp_tool(server, tool)`` registers ``tool`` the way Hermes's MCP runtime registers a
