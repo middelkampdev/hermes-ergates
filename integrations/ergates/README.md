@@ -163,7 +163,7 @@ refuses in its own shape (400, or 404 `Profile '<name>' does not exist.`, as
 
 | Method and path | Success | Errors |
 |---|---|---|
-| `GET /health` | 200 `{"ok": true, "schema_version": 1, "plugin_version": "<version>"}`, the version in `plugin.yaml` | 503 `store_unavailable` |
+| `GET /health` | 200 `{"ok": true, "schema_version": 2, "plugin_version": "<version>"}`, the version in `plugin.yaml` | 503 `store_unavailable` |
 | `POST /reminders` `{profile, schedule, timezone, prompt, request_id, label?}` | 201 new, 200 existing, 202 uncertain; body `{"receipt"}` | 409 `conflict` (with `receipt`), 400 `invalid`, 404 `unknown_profile` |
 | `GET /proposals/{id}` | 200 `{"proposal"}` | 404 `not_found` |
 | `POST /proposals/{id}/accept` `{proposal}` | 200 `{"proposal"}` with `template` | 409 `hash_mismatch` / `not_acceptable` / `name_taken`, 410 `expired`, 422 `unknown_template` |
@@ -175,7 +175,10 @@ refuses in its own shape (400, or 404 `Profile '<name>' does not exist.`, as
 
 Also on every route: 400 `invalid` for a body that is not a JSON object or a
 field that fails validation, 404 `not_found` for an unknown proposal,
-503 `store_unavailable` when the control store cannot be opened, and 500
+503 `store_unavailable` when the control store cannot be opened, 503
+`store_too_new` (message `the Ergates control store needs a newer Ergates
+plugin`) for a write to a store this plugin may only read (see "Schema
+versions and older plugins"), and 500
 `internal` (message `The request could not be completed.`) for a failure
 the route does not name, such as a Hermes call that raised; the log names
 the exception class only. A client treats `internal` like any code it does
@@ -255,6 +258,7 @@ flush) shares it. The file and its folder are created private (`0600`,
 | `attention_events` | approval or completion event: profile, session, surface, correlation hash, state (`pending`, `resolved`, `expired`), choice, times |
 | `attention_outbox` | one push per event: state (`due`, `sent`, `cancelled`, `gave_up`), attempts, next attempt, lease, last error class |
 | `attention_prefs` | per profile (`*` = default): muted, quiet hours |
+| `store_meta` | facts about the store itself: `min_schema_version`, the oldest plugin schema allowed to write it |
 
 Rules the store enforces:
 
@@ -266,10 +270,42 @@ Rules the store enforces:
 - An attention event and its outbox row commit in one transaction. Delivery
   writes only the outbox row; an event's state changes only through
   resolution or expiry.
-- The schema is versioned with `PRAGMA user_version`; a file written by a
-  newer plugin is refused.
+- The schema is versioned with `PRAGMA user_version`. Opening the store
+  applies the missing migrations in one transaction, so a migration that
+  fails leaves the file as it was.
 - No column holds prompt, command, briefing or description text. Receipts
   and events keep identifiers and sha256 hashes (docs/04 sections 4 and 8).
+
+### Schema versions and older plugins
+
+A migration is additive unless it is marked `additive=False`. An additive
+migration only adds tables, indexes, columns that need no value, and
+`store_meta` rows; `integrations/ergates-tests/tests/test_store.py` checks
+each one. A plugin that knows only the earlier versions keeps reading and
+writing such a store and ignores the parts it does not know.
+
+The `store_meta` row `min_schema_version` is the oldest plugin schema
+allowed to write the store. Schema 2 creates it with the value 2, and
+additive migrations leave it alone. A migration marked `additive=False`
+(one that changes or removes anything) raises it to that migration's
+version.
+
+A plugin that opens a store newer than its own schema applies nothing. If
+the marker is at or below the plugin's schema, the plugin reads and writes
+as usual. If the marker is higher, missing or unreadable, the plugin only
+reads. Every write then raises `StoreReadOnly`: a route answers 503
+`store_too_new` and a tool answers an error. The log says so once, with
+version numbers only.
+
+Two plugin versions can share one store, for example another profile's
+copy of the plugin, or a process that has not restarted since an update.
+A newer plugin can therefore take writing away from an older one that is
+already running, so every write repeats the check under the write lock.
+
+Plugin 0.2.0 (schema 1) refuses every schema above its own, so it cannot
+open a schema 2 store: its tool gate blocks every tool call and its routes
+answer 503 `store_unavailable`. Going back to 0.2.0 after this plugin has
+opened a store is not supported.
 
 ### Retention and expiry
 

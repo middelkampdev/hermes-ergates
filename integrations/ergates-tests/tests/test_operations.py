@@ -18,6 +18,7 @@ from conftest import FakeClock, raw_bytes, rows
 from ergates.operations import LABEL_MAX_LEN, Operations, internal_error
 from ergates.paths import templates_dir
 from ergates.proposals import PROPOSAL_EXPIRY, ProposalService, validate_proposal
+from ergates.store import MIN_SCHEMA_KEY, ControlStore
 
 PLUGIN_DIR = Path(__file__).resolve().parents[2] / "ergates"
 TEMPLATE = {"template_id": "bookkeeper", "soul": "You keep the books.",
@@ -84,6 +85,21 @@ def hermes():
 
 @pytest.fixture
 def ops(store, cron, clock, hermes, tmp_path):
+    return _operations(store, cron, clock, hermes, tmp_path)
+
+
+@pytest.fixture
+def ops_on_a_v4_store(store, cron, clock, hermes, tmp_path):
+    """Operations on a store that a plugin at schema 4 changed so that only schema 4 or newer
+    may write it. ``thijs`` has muted prefs from before."""
+    with store.transaction() as conn:
+        conn.execute("INSERT INTO attention_prefs (profile, muted, updated_at) VALUES ('thijs', 1, 1.0)")
+        conn.execute("UPDATE store_meta SET value = '4' WHERE key = ?", (MIN_SCHEMA_KEY,))
+        conn.execute("PRAGMA user_version = 4")
+    return _operations(ControlStore(store.path), cron, clock, hermes, tmp_path)
+
+
+def _operations(store, cron, clock, hermes, tmp_path):
     directory = templates_dir(tmp_path)
     directory.mkdir(parents=True)
     (directory / "bookkeeper.json").write_text(json.dumps(TEMPLATE), encoding="utf-8")
@@ -112,7 +128,7 @@ def test_health_reports_the_schema_and_the_plugin_version(ops):
     reply = ops.health()
 
     assert (reply.status, reply.body) == (
-        200, {"ok": True, "schema_version": 1, "plugin_version": ergates.__version__})
+        200, {"ok": True, "schema_version": 2, "plugin_version": ergates.__version__})
 
 
 def test_health_is_503_when_the_store_is_unavailable(ops, store):
@@ -145,6 +161,29 @@ def test_every_store_backed_route_is_503_when_the_store_is_unavailable(ops, stor
 
     assert reply.status == 503
     assert reply.body == {"error": {"code": "store_unavailable", "message": "the Ergates control store is unavailable"}}
+
+
+@pytest.mark.parametrize("call", [
+    lambda ops: ops.create_reminder(_reminder()),
+    lambda ops: ops.set_prefs({"profile": "thijs", "muted": False, "quiet_start": None, "quiet_end": None}),
+], ids=["create_reminder", "set_prefs"])
+def test_a_write_route_on_a_store_too_new_is_503_store_too_new(ops_on_a_v4_store, store, cron, call):
+    """After going back to an older plugin, a write has its own code, so the app can tell it
+    from a store it cannot reach. Nothing is written and no cron job is created."""
+    reply = call(ops_on_a_v4_store)
+
+    assert (reply.status, reply.body) == (503, {"error": {
+        "code": "store_too_new", "message": "the Ergates control store needs a newer Ergates plugin"}})
+    assert cron.create_calls == []
+    assert rows(store, "reminder_receipts") == []
+    assert [(row["profile"], row["muted"]) for row in rows(store, "attention_prefs")] == [("thijs", 1)]
+
+
+def test_reads_still_answer_on_a_store_too_new(ops_on_a_v4_store):
+    reply = ops_on_a_v4_store.get_prefs("thijs")
+
+    assert (reply.status, reply.body) == (
+        200, {"prefs": {"profile": "thijs", "muted": True, "quiet_start": None, "quiet_end": None}})
 
 
 def test_internal_error_is_the_error_body_with_a_fixed_message():

@@ -29,7 +29,7 @@ from ergates.paths import store_path
 from ergates.policy import BLOCK_RAW_CRON, BLOCK_REVOKED, BLOCK_SETUP, BLOCK_UNVERIFIED
 from ergates.proposals import PROVISION_STEPS, ProposalService, payload_hash, validate_proposal
 from ergates.reminders import ReminderService
-from ergates.store import ControlStore, StoreError
+from ergates.store import MIN_SCHEMA_KEY, ControlStore, StoreError
 from ergates.tool import (
     _resolve_profile,
     completed_platforms,
@@ -838,16 +838,15 @@ def _store_folder_is_a_file(root):
     (root / "ergates").write_text("", encoding="utf-8")
 
 
-def _store_from_a_newer_plugin(root):
-    store = ControlStore(store_path(root))
-    with store.transaction() as conn:
-        conn.execute("PRAGMA user_version = 99")
+def _store_file_is_not_a_database(root):
+    store_path(root).parent.mkdir()
+    store_path(root).write_bytes(b"not a database, but long enough for SQLite to read a header from")
 
 
 @pytest.mark.parametrize(
     ("break_the_store", "error_class"),
-    [(_store_folder_is_a_file, NotADirectoryError), (_store_from_a_newer_plugin, StoreError)],
-    ids=["folder-is-a-file", "newer-schema"],
+    [(_store_folder_is_a_file, NotADirectoryError), (_store_file_is_not_a_database, sqlite3.DatabaseError)],
+    ids=["folder-is-a-file", "not-a-database"],
 )
 def test_register_registers_the_gate_when_the_store_cannot_open(tmp_path, profile_process, caplog, break_the_store,
                                                                 error_class):
@@ -870,6 +869,26 @@ def test_register_registers_the_gate_when_the_store_cannot_open(tmp_path, profil
     assert reminded == {"error": f"the reminder could not be recorded ({error_class.__name__})"}
     assert error_class.__name__ in caplog.text
     assert str(tmp_path) not in caplog.text
+
+
+def test_on_a_store_too_new_the_gate_still_decides_and_a_tool_records_nothing(tmp_path, profile_process):
+    """A store a newer plugin changed so that this one may only read it still opens: the
+    gate reads what it needs and decides as usual, and a tool that has to write answers
+    the error class without its message."""
+    store = ControlStore(store_path(tmp_path))
+    with store.transaction() as conn:
+        conn.execute("UPDATE store_meta SET value = '99' WHERE key = ?", (MIN_SCHEMA_KEY,))
+        conn.execute("PRAGMA user_version = 99")
+    ctx = _RecordingCtx()
+
+    gate = _gate(ctx)
+    proposed = json.loads(ctx.tools["ergates_propose_agent"](_valid_args(), session_id="s-1"))
+
+    assert gate(tool_name="cronjob_manage", args={"action": "list"}, task_id="t") is None
+    assert gate(tool_name="cronjob_manage", args={"action": "create", "prompt": "p"}, task_id="t") == {
+        "action": "block", "message": BLOCK_RAW_CRON}
+    assert proposed == {"error": "the proposal could not be recorded (StoreReadOnly)"}
+    assert rows(store, "proposal_receipts") == []
 
 
 def test_the_gate_opens_the_store_once_it_can(tmp_path, profile_process):

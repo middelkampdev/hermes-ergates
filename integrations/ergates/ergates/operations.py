@@ -37,7 +37,7 @@ from . import __version__
 from .attention import AttentionError, AttentionService
 from .proposals import ProposalError, ProposalService
 from .reminders import CronPort, ReminderError, ReminderService, _REQUEST_ID_RE
-from .store import ControlStore, StoreError
+from .store import ControlStore, StoreError, StoreReadOnly
 from .templates import load_template
 
 logger = logging.getLogger(__name__)
@@ -69,6 +69,11 @@ def error_reply(status: int, code: str, message: str, **extra: Any) -> Reply:
 def store_unavailable() -> Reply:
     """503 ``store_unavailable``: the control store cannot be opened or read."""
     return error_reply(503, "store_unavailable", "the Ergates control store is unavailable")
+
+
+def store_too_new() -> Reply:
+    """503 ``store_too_new``: a newer plugin changed the control store so that this one may only read it."""
+    return error_reply(503, "store_too_new", "the Ergates control store needs a newer Ergates plugin")
 
 
 def internal_error() -> Reply:
@@ -114,11 +119,14 @@ def _encodes_as_utf8(value: str) -> bool:
 
 
 def _guard_store(method: Callable[..., "Reply"]) -> Callable[..., "Reply"]:
-    """Map a control-store failure from any route to 503 ``store_unavailable``.
+    """Map a control-store failure from any route to 503 ``store_unavailable``, or
+    to 503 ``store_too_new`` for a write the store refuses.
 
     The store opens a fresh connection per operation (``store.py``
     ``transaction``/``read``), so any route that touches it -- not only
-    ``health()`` -- can hit a closed store or a schema a newer plugin wrote.
+    ``health()`` -- can hit a closed store. A write can also hit a store a
+    newer plugin changed so that this one may only read it; the store logs
+    that once itself, so the guard does not log it per request.
     A bare ``OSError`` is deliberately not caught here: ``hermes_adapter``
     raises it for reasons that have nothing to do with the store, and this
     guard must not turn one of those into a false "store unavailable"; the
@@ -129,6 +137,8 @@ def _guard_store(method: Callable[..., "Reply"]) -> Callable[..., "Reply"]:
     def wrapper(self: "Operations", *args: Any, **kwargs: Any) -> Reply:
         try:
             return method(self, *args, **kwargs)
+        except StoreReadOnly:
+            return store_too_new()
         except (StoreError, sqlite3.Error) as exc:
             logger.warning("operations: the control store is unavailable (%s)", type(exc).__name__)
             return store_unavailable()

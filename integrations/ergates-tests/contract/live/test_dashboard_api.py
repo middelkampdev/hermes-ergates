@@ -18,7 +18,7 @@ from ergates import hermes_adapter
 from ergates.operations import Operations
 from ergates.paths import store_path, templates_dir
 from ergates.proposals import PROVISION_STEPS, ProposalService, validate_proposal
-from ergates.store import ControlStore
+from ergates.store import SCHEMA_VERSION, ControlStore
 
 API = "/api/plugins/ergates"
 TEMPLATE = {"template_id": "bookkeeper", "soul": "You keep the books.",
@@ -51,7 +51,7 @@ def test_hermes_serve_mounts_the_router_and_health_answers(web, token_headers):
     reply = web.get(f"{API}/health", headers=token_headers)
 
     assert (reply.status_code, reply.json()) == (
-        200, {"ok": True, "schema_version": 1, "plugin_version": ergates.__version__})
+        200, {"ok": True, "schema_version": SCHEMA_VERSION, "plugin_version": ergates.__version__})
 
 
 @pytest.mark.parametrize(("method", "path"), ROUTES)
