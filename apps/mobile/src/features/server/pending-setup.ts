@@ -13,6 +13,9 @@ import { useDeviceStore, type Connection } from '@/state/device-store'
 
 import type { ServerCheck } from './server-check'
 
+/** The setup that is going for each connection. */
+const finishing = new Map<string, Promise<SetupState>>()
+
 export function markPendingSetup(connectionId: string, commit: string): void {
   useDeviceStore.getState().updateConnection(connectionId, { pendingPluginSetup: commit })
 }
@@ -21,18 +24,39 @@ export function clearPendingSetup(connectionId: string): void {
   useDeviceStore.getState().updateConnection(connectionId, { pendingPluginSetup: undefined })
 }
 
+function hasPendingSetup(connectionId: string): boolean {
+  return useDeviceStore.getState().connections.find(connection => connection.id === connectionId)?.pendingPluginSetup !== undefined
+}
+
+async function runPendingSetup(port: GatewayPort, connectionId: string): Promise<SetupState> {
+  const report = await port.ergates.setup()
+  clearPendingSetup(connectionId)
+  return report
+}
+
 /**
  * Runs the plugin's setup when the check finds the plugin ready and the
  * connection has a pending setup, then clears the flag and returns the report.
  * Any other check, or a connection without the flag, answers null and calls
- * nothing. A setup that fails keeps the flag and rejects (a 401 too), so the
- * caller can show the error and try again with the next check.
+ * nothing. The flag is read from the device store by `connection.id`, so a
+ * connection object that is out of date cannot start a second setup. Callers
+ * at the same time share one setup and its result. A setup that fails keeps
+ * the flag and rejects (a 401 too), so the caller can show the error and try
+ * again with the next check.
  */
 export async function finishPendingSetup(port: GatewayPort, connection: Connection, check: ServerCheck): Promise<SetupState | null> {
-  if (check.kind !== 'ready' || connection.pendingPluginSetup === undefined) {
+  if (check.kind !== 'ready' || !hasPendingSetup(connection.id)) {
     return null
   }
-  const report = await port.ergates.setup()
-  clearPendingSetup(connection.id)
-  return report
+  const going = finishing.get(connection.id)
+  if (going) {
+    return going
+  }
+  const attempt = runPendingSetup(port, connection.id)
+  finishing.set(connection.id, attempt)
+  const forget = () => {
+    finishing.delete(connection.id)
+  }
+  void attempt.then(forget, forget)
+  return attempt
 }

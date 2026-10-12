@@ -96,6 +96,65 @@ describe('finishPendingSetup', () => {
     expect(stored('c-1').pendingPluginSetup).toBe(COMMIT)
   })
 
+  it('reads the flag from the device store, not from the connection it is handed', async () => {
+    const gateway = new FakeGateway()
+    const stale = { ...first, pendingPluginSetup: COMMIT }
+
+    const report = await finishPendingSetup(gateway, stale, ready)
+
+    expect(report).toBeNull()
+    expect(gateway.ergates.setupCalls).toBe(0)
+  })
+
+  it('runs the setup for a flag the store holds although the connection it is handed has none', async () => {
+    const gateway = new FakeGateway()
+    markPendingSetup('c-1', COMMIT)
+
+    const report = await finishPendingSetup(gateway, first, ready)
+
+    expect(report).toEqual(FAKE_SETUP)
+    expect(gateway.ergates.setupCalls).toBe(1)
+  })
+
+  it('runs the setup once when two callers finish it at the same time, and gives both the report', async () => {
+    const gateway = new FakeGateway()
+    markPendingSetup('c-1', COMMIT)
+
+    const reports = await Promise.all([finishPendingSetup(gateway, stored('c-1'), ready), finishPendingSetup(gateway, stored('c-1'), ready)])
+
+    expect(reports).toEqual([FAKE_SETUP, FAKE_SETUP])
+    expect(gateway.ergates.setupCalls).toBe(1)
+    expect(stored('c-1').pendingPluginSetup).toBeUndefined()
+  })
+
+  it('gives both callers the failure of the one setup, and lets the next caller try again', async () => {
+    const gateway = new FakeGateway()
+    const error = new GatewayError('unknown', 'The request could not be completed.', { status: 500 })
+    gateway.ergates.fail('setup', error)
+    markPendingSetup('c-1', COMMIT)
+
+    const attempts = await Promise.allSettled([finishPendingSetup(gateway, stored('c-1'), ready), finishPendingSetup(gateway, stored('c-1'), ready)])
+
+    expect(attempts).toEqual([
+      { status: 'rejected', reason: error },
+      { status: 'rejected', reason: error }
+    ])
+    expect(gateway.ergates.setupCalls).toBe(1)
+    expect(stored('c-1').pendingPluginSetup).toBe(COMMIT)
+    await expect(finishPendingSetup(gateway, stored('c-1'), ready)).resolves.toEqual(FAKE_SETUP)
+    expect(gateway.ergates.setupCalls).toBe(2)
+  })
+
+  it('does not share the setup between connections', async () => {
+    const gateway = new FakeGateway()
+    markPendingSetup('c-1', COMMIT)
+    markPendingSetup('c-2', COMMIT)
+
+    await Promise.all([finishPendingSetup(gateway, stored('c-1'), ready), finishPendingSetup(gateway, stored('c-2'), ready)])
+
+    expect(gateway.ergates.setupCalls).toBe(2)
+  })
+
   it('leaves another connection\'s flag alone', async () => {
     const gateway = new FakeGateway()
     markPendingSetup('c-1', COMMIT)

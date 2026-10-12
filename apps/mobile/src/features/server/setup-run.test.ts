@@ -101,7 +101,9 @@ beforeEach(() => {
   useDeviceStore.setState({ connections: [{ ...connection }] })
 })
 
-afterEach(() => {
+afterEach(async () => {
+  // A run that a test left waiting would otherwise be joined by the next test's run.
+  await vi.runAllTimersAsync()
   vi.useRealTimers()
 })
 
@@ -264,6 +266,28 @@ describe('runSetup: the install request is lost', () => {
     expect(gateway.ergates.setupCalls).toBe(1)
   })
 
+  it('looks again right after the loss and then every 5 seconds, no more often and no less', async () => {
+    const gateway = freshServer()
+    gateway.plugins.fail('install', networkError())
+    const hub = vi.spyOn(gateway.plugins, 'hub')
+    const running = start(gateway)
+
+    // The first look at the plugin is the check before the install; the second follows the loss at once.
+    await vi.advanceTimersByTimeAsync(0)
+    expect([healthCalls(gateway), hub.mock.calls.length]).toEqual([2, 2])
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect([healthCalls(gateway), hub.mock.calls.length]).toEqual([2, 2])
+    await vi.advanceTimersByTimeAsync(1)
+    expect([healthCalls(gateway), hub.mock.calls.length]).toEqual([3, 3])
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect([healthCalls(gateway), hub.mock.calls.length]).toEqual([3, 3])
+    await vi.advanceTimersByTimeAsync(1)
+    expect([healthCalls(gateway), hub.mock.calls.length]).toEqual([4, 4])
+    expect(running.settled).toBeNull()
+    gateway.plugins.rows = [row('enabled')]
+    await running.finish()
+  })
+
   it.each([
     ['times out', new GatewayError('timeout', 'The gateway took too long to answer.')],
     ['answers 502 from a proxy', new GatewayError('unknown', 'The gateway had an internal problem.', { status: 502 })],
@@ -378,10 +402,8 @@ describe('runSetup: Hermes refuses', () => {
     expect(result.last).toEqual({ install: 'failed' })
   })
 
-  it.each([
-    ['400', mapHttpError(400, { detail: "Plugin 'ergates' is not installed or bundled." })],
-    ['500', mapHttpError(500, { detail: 'Internal.' })]
-  ])('ends in the manual path with the text when the enable route answers %s', async (_status, error) => {
+  it('ends in the manual path with the text when the enable route refuses with a 400', async () => {
+    const error = mapHttpError(400, { detail: "Plugin 'ergates' is not installed or bundled." })
     const gateway = serverListing('disabled')
     gateway.plugins.fail('enable', error)
 
@@ -392,13 +414,20 @@ describe('runSetup: Hermes refuses', () => {
     expect(flag()).toBe(COMMIT)
   })
 
-  it('fails the enable step, not the manual path, when the enable request never got an answer', async () => {
+  it.each([
+    ['gets no answer', new GatewayError('network', 'Could not reach the gateway.')],
+    ['times out', new GatewayError('timeout', 'The gateway took too long to answer.')],
+    ['fails with a 500', mapHttpError(500, { detail: 'Internal.' })],
+    ['is answered 502 by a proxy', new GatewayError('unknown', 'The gateway had an internal problem.', { status: 502 })]
+  ])('fails the enable step, so the user can try again, when the enable request %s', async (_title, error) => {
     const gateway = serverListing('disabled')
-    gateway.plugins.fail('enable', networkError())
+    gateway.plugins.fail('enable', error)
 
     const result = await run(gateway)
 
-    expect(result.outcome).toEqual({ kind: 'failed', step: 'enable', message: 'Could not reach the gateway.' })
+    expect(result.outcome).toEqual({ kind: 'failed', step: 'enable', message: error.message })
+    expect(result.last).toMatchObject({ install: 'skipped', enable: 'failed' })
+    expect(flag()).toBe(COMMIT)
   })
 
   it('fails the setup step and keeps the pending setup when the setup does not run', async () => {
@@ -421,6 +450,91 @@ describe('runSetup: Hermes refuses', () => {
     const result = await run(gateway)
 
     expect(result.outcome).toEqual({ kind: 'failed', step: 'install', message: 'Something went wrong during setup.' })
+  })
+})
+
+describe('runSetup: one run per connection', () => {
+  const steps = (log: Transition[]) => (step: SetupStep, status: StepStatus) => {
+    log.push([step, status])
+  }
+
+  it('joins a run that is still waiting on a lost install instead of starting another', async () => {
+    const gateway = freshServer()
+    gateway.plugins.fail('install', networkError())
+    const first = start(gateway)
+    await vi.advanceTimersByTimeAsync(7_000)
+    expect(first.transitions).toEqual([['install', 'active']])
+
+    const joined: Transition[] = []
+    const second = runSetup({ port: gateway, build: buildRecord(), connectionId: connection.id }, steps(joined))
+    // The joiner is told where the run is at once.
+    expect(joined).toEqual([['install', 'active']])
+    gateway.plugins.rows = [row('enabled')]
+    const result = await first.finish()
+
+    const everything: Transition[] = [
+      ['install', 'active'],
+      ['install', 'done'],
+      ['enable', 'skipped'],
+      ['start', 'active'],
+      ['start', 'done'],
+      ['setup', 'active'],
+      ['setup', 'done']
+    ]
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    await expect(second).resolves.toEqual(result.outcome)
+    expect(first.transitions).toEqual(everything)
+    expect(joined).toEqual(everything)
+    expect(gateway.plugins.installs).toHaveLength(1)
+    expect(gateway.ergates.setupCalls).toBe(1)
+  })
+
+  it('tells a joiner the current status of every step that has reported, in order', async () => {
+    const gateway = freshServer()
+    gateway.ergates.setHealth(() => ({ state: 'absent' }))
+    const first = start(gateway)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    const joined: Transition[] = []
+    const second = runSetup({ port: gateway, build: buildRecord(), connectionId: connection.id }, steps(joined))
+
+    expect(joined).toEqual([
+      ['install', 'done'],
+      ['enable', 'skipped'],
+      ['start', 'active']
+    ])
+    const result = await first.finish()
+    expect(result.outcome).toEqual({ kind: 'failed', step: 'start', message: 'Hermes did not load the plugin.' })
+    await expect(second).resolves.toEqual(result.outcome)
+    expect(joined.slice(3)).toEqual([['start', 'failed']])
+  })
+
+  it('starts a fresh run once the earlier one has ended', async () => {
+    const gateway = freshServer()
+    const firstRun = await run(gateway)
+    expect(firstRun.outcome).toMatchObject({ kind: 'done' })
+
+    const secondRun = await run(gateway)
+
+    expect(secondRun.outcome).toMatchObject({ kind: 'done' })
+    expect(secondRun.last).toEqual({ install: 'skipped', enable: 'skipped', start: 'done', setup: 'done' })
+    expect(gateway.ergates.setupCalls).toBe(2)
+    expect(gateway.plugins.installs).toHaveLength(1)
+  })
+
+  it('does not join the run of another connection', async () => {
+    useDeviceStore.setState({ connections: [{ ...connection }, { ...connection, id: 'c-2', label: 'Office server' }] })
+    const gateway = freshServer()
+    gateway.plugins.fail('install', networkError())
+    const first = start(gateway)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    const other = runSetup({ port: freshServer(), build: buildRecord(), connectionId: 'c-2' }, () => undefined)
+
+    await expect(other).resolves.toMatchObject({ kind: 'done' })
+    expect(first.settled).toBeNull()
+    gateway.plugins.rows = [row('enabled')]
+    await first.finish()
   })
 })
 

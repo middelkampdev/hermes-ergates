@@ -220,8 +220,9 @@ class SetupRun {
     try {
       await this.port.plugins.enable(PLUGIN_NAME)
     } catch (error) {
-      // Hermes answered and said no, in words of its own: the user enables the plugin by hand.
-      if (isGatewayError(error) && error.status !== undefined && error.kind !== 'unauthorized') {
+      // Hermes answered 400 and said no in words of its own: the user enables the plugin by hand.
+      // Any other failure (no answer, a 5xx, a 403) may pass, so the step fails and the user can try again.
+      if (isGatewayError(error) && error.status === 400) {
         return { kind: 'manual', failure: 'enable_refused', detail: error.message }
       }
       throw error
@@ -257,17 +258,50 @@ class SetupRun {
   }
 }
 
+interface Flight {
+  promise: Promise<SetupOutcome>
+  /** The latest status of each step that has reported, in the order the steps first reported. */
+  statuses: Map<SetupStep, StepStatus>
+  listeners: ((step: SetupStep, status: StepStatus) => void)[]
+}
+
+/** The run that is going for each connection. */
+const flights = new Map<string, Flight>()
+
 /**
  * Brings the server to a plugin that is installed, enabled, served and set
  * up, and says how it went. `onStep` reports each step's transitions; a step
  * the server did not need ends as `skipped`, and no step is left `active` when
  * the run returns. The build must carry a commit to install: a build without
  * one is answered with the manual path before anything else happens.
+ *
+ * One run goes at a time per connection. A call while one is going joins it
+ * (the port and build of the call are not used): `onStep` first gets the
+ * latest status of every step that has reported, then every later transition,
+ * and the promise settles with the same outcome. The call after the run ended
+ * starts a new one.
  */
 export async function runSetup(deps: SetupDeps, onStep: (step: SetupStep, status: StepStatus) => void): Promise<SetupOutcome> {
+  const going = flights.get(deps.connectionId)
+  if (going) {
+    going.statuses.forEach((status, step) => onStep(step, status))
+    going.listeners.push(onStep)
+    return going.promise
+  }
   const { commit } = deps.build.requiredPlugin
   if (commit === null) {
     return { kind: 'manual', failure: 'refused', detail: null }
   }
-  return new SetupRun(deps, commit, onStep).execute()
+  const statuses = new Map<SetupStep, StepStatus>()
+  const listeners = [onStep]
+  const promise = new SetupRun(deps, commit, (step, status) => {
+    statuses.set(step, status)
+    listeners.forEach(listener => listener(step, status))
+  }).execute()
+  flights.set(deps.connectionId, { promise, statuses, listeners })
+  const forget = () => {
+    flights.delete(deps.connectionId)
+  }
+  void promise.then(forget, forget)
+  return promise
 }
