@@ -786,10 +786,11 @@ Hermes, with its locked dependencies exported from the pin's `uv.lock`, in
 a temporary Hermes root. Or point `HERMES_SOURCE` at a clean checkout of
 `818c13be1dc4fd28987e1e881a9408224afd4535` (v0.21.6). Never point either
 suite at a real `~/.hermes`: the live suite makes its own. The live
-hot-mount test installs the plugin through Hermes's install route, which on
+hot-mount tests install the plugin through Hermes's install route, which on
 a source checkout first prepares Hermes's own dependency runtime (about
-560 MB in the temporary root, downloads included): it needs the network and
-takes about a minute.
+560 MB in the temporary root, downloads included). They need the network.
+The first install of a run takes about a minute; the others reuse its
+downloads and take about 15 seconds.
 
 Hermes scans every plugin install (`tools/plugin_guard.py`). A `safe`
 verdict installs; `caution` needs a confirmation the app's one-tap setup

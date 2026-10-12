@@ -46,6 +46,8 @@ SERVE_SCRIPT = Path(__file__).with_name("hermes_serve.py")
 # dependency runtime first (downloads included), which takes about a minute.
 SERVER_TIMEOUT_SECONDS = 600
 _temporary: list[Path] = []
+# Where the child servers of one test session share Hermes's package-manager downloads (see serve_hermes).
+_child_runtime: list[Path] = []
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -58,6 +60,7 @@ def pytest_configure(config: pytest.Config) -> None:
         pytest.exit(failure, returncode=4)
     base = Path(tempfile.mkdtemp(prefix="ergates-live-")).resolve()
     _temporary.append(base)
+    _child_runtime.append(base / "child-runtime")
     home, root = base / "home", base / "hermes"
     home.mkdir()
     (root / "plugins").mkdir(parents=True)
@@ -197,17 +200,32 @@ def serve_hermes():
     When the test ends, every server is
     stopped and its root removed: a first plugin install leaves Hermes's own
     dependency runtime there, about half a gigabyte.
+
+    A first plugin install on a source checkout prepares that runtime with
+    Hermes's package manager, which downloads its toolchain (Python and uv)
+    into its store and fills a uv cache at ``<root>/cache/uv``
+    (``pm/packages.py:317`` at the pin). It drops an ambient ``UV_CACHE_DIR``
+    (``pm/environment.py:206-208``), so the children of one test session
+    share both another way: one store through ``HERMES_RUNTIME_DIR``
+    (``pm/environments.py:220-223``) and one uv cache, linked into each
+    root, both in the session's temporary folder. Only the first install of
+    a session downloads; the others build their runtime from what it left.
     """
     import httpx
 
     started: list[tuple[Path, subprocess.Popen, threading.Thread, httpx.Client]] = []
+    store, uv_cache = _child_runtime[0] / "store", _child_runtime[0] / "uv-cache"
 
     def start(root: Path) -> httpx.Client:
         home = root.parent / "home"
         home.mkdir(exist_ok=True)
+        uv_cache.mkdir(parents=True, exist_ok=True)
+        (root / "cache").mkdir(exist_ok=True)
+        if not (root / "cache" / "uv").exists():
+            (root / "cache" / "uv").symlink_to(uv_cache, target_is_directory=True)  # rmtree removes the link only
         log = root.parent / "hermes-serve.log"
         log.write_text("", encoding="utf-8")
-        env = {**os.environ, "HOME": str(home), "HERMES_HOME": str(root),
+        env = {**os.environ, "HOME": str(home), "HERMES_HOME": str(root), "HERMES_RUNTIME_DIR": str(store),
                "HERMES_DASHBOARD_SESSION_TOKEN": SESSION_TOKEN, "PYTHONDONTWRITEBYTECODE": "1"}
         # Append mode for the child and the drain thread alike, so neither overwrites the other.
         with log.open("a", encoding="utf-8") as stderr:
