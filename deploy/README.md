@@ -6,7 +6,7 @@
 `docker compose config` on `docker-compose.yml` and
 `tests/test_static.py`, which checks the wiring contract of
 `docs/03-technical-design.md` section 9 as rules: published ports, networks
-and the egress proxy, image digests, plugin and template mounts, profile
+and the egress proxy, image digests, the plugin mount, profile
 settings, templates. **It has not been run on a VPS.** `VERIFY.md` is the
 list of live checks that must pass before this stack holds real data; it
 is not a footnote.
@@ -17,7 +17,8 @@ is not a footnote.
 deploy/
   docker-compose.yml               # hermes-serve, hermes-gateway, ntfy, egress-proxy, ingress
                                    #  + read-only mount of ../integrations/ergates
-                                   #    at /opt/data/plugins/ergates in both controllers
+                                   #    at /opt/data/plugins/ergates in both controllers;
+                                   #    its templates/ folder holds the reviewed role templates
   proxy/squid.conf                 # egress: settings shared by both modes, includes the mode file
   proxy/mode-standard.conf         # egress mode "standard" (default): any public host, no private ranges
   proxy/mode-strict.conf           # egress mode "strict": HTTPS to listed hosts only (today's original)
@@ -27,8 +28,6 @@ deploy/
   profiles/
     concierge/{config.yaml,SOUL.md}            # default/launch profile
     specialist-template/{config.yaml,SOUL.md}  # copy per specialist during provisioning
-  templates/<template_id>.json     # reviewed role templates; `python -m ergates.install`
-                                   #   copies them into /opt/data/ergates/templates
   tests/test_static.py             # the wiring rules below, checked in CI
   README.md                        # this file
 ```
@@ -116,7 +115,11 @@ The plugin is not copied anywhere: `docker-compose.yml` bind-mounts
 `../integrations/ergates` read-only at `/opt/data/plugins/ergates`, which is
 the user-plugin directory Hermes scans (`get_hermes_home()/plugins`, per
 `hermes_cli/plugins_discovery.py`). Step 4 of the first-run provisioning
-below enables it in every profile and installs the proposal templates.
+below enables it in every profile. The reviewed proposal templates travel
+inside the plugin folder (`../integrations/ergates/templates/`), so the mount
+carries them too. `hermes serve` copies them into `/opt/data/ergates/templates`
+the first time the plugin's routes are used, and step 4 does the same right
+away.
 
 ## Egress and ingress
 
@@ -272,7 +275,8 @@ already done above, before first start.
    `...ntfy.connection_id`. Then fill in every `TODO` each `config.yaml`
    calls out (workspace volumes, effective toolset, MCP include list) before
    treating a profile as ready. Specialists are normally created by the app
-   from a template in `templates/`, with `mirror_credentials: false`; a
+   from a template in `../integrations/ergates/templates/`, with
+   `mirror_credentials: false`; a
    specialist made by hand from `profiles/specialist-template/` goes to
    `data/hermes/profiles/<name>/` -- never copy the concierge's credentials
    (04 section 6; 11 section 4.1).
@@ -291,9 +295,9 @@ already done above, before first start.
    ```
 
    `--check` exits 0 only when every profile would load the plugin and the
-   installed templates equal `templates/`. Run step 4 again after every
-   update of this repository and after making a profile by hand; the app
-   enables the plugin in the profiles it creates.
+   installed templates equal the plugin's `templates/` folder. Run step 4
+   again after every update of this repository and after making a profile by
+   hand; the app enables the plugin in the profiles it creates.
 
 5. **Schedule the plugin's retry/retention sweep** (below). A failed push is
    scheduled for a retry that nothing in Hermes runs, so without this step
@@ -375,8 +379,8 @@ docker compose up -d
 
 Then run the installer again, as in step 4 of the first-run provisioning,
 after every image update and after every `git pull` of this repository: the
-plugin's code and `templates/` come from the checkout, and `hermes serve`
-mounts the plugin's routes only when it starts.
+plugin's code and its `templates/` folder come from the checkout, and
+`hermes serve` mounts the plugin's routes only when it starts.
 
 ```bash
 docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-serve python -m ergates.install

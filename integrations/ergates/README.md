@@ -27,13 +27,15 @@ integrations/ergates/
     manifest.json      # tells `hermes serve` to mount api.py (no dashboard page)
     api.py             # the HTTP routes under /api/plugins/ergates (FastAPI router)
     index.js           # empty dashboard bundle, so the dashboard reports no error
+  templates/           # the proposal templates the plugin ships, one <template_id>.json each
   ergates/             # the actual logic, plain importable package
     hermes_adapter.py  # the only module that imports Hermes
-    paths.py           # hermes_root(), store_path(), templates_dir()
+    paths.py           # hermes_root(), store_path(), templates_dir(), bundled_templates_dir()
     store.py           # ControlStore: SQLite, WAL, BEGIN IMMEDIATE, versioned schema
     reminders.py       # ReminderService: idempotent reminders on top of Hermes cron
     proposals.py       # ergates.agent-proposal.v1 validation, hash, ProposalService
     templates.py       # proposal templates under <root>/ergates/templates/
+    setup.py           # installs the shipped templates there (first use, install.py)
     attention.py       # AttentionService: events, outbox rows, prefs, expiry, retention
     delivery.py        # DeliveryWorker: leased outbox delivery to ntfy, deep link
     settings.py        # the install-wide push settings in the root's config.yaml
@@ -41,7 +43,7 @@ integrations/ergates/
     policy.py          # the pre_tool_call tool gate
     tool.py            # ctx.register_tool / ctx.register_hook wiring
     flush.py           # `python -m ergates.flush`: due pushes, expiry, retention
-    install.py         # `python -m ergates.install`: templates, the plugin in every profile
+    install.py         # `python -m ergates.install`: the templates, the plugin in every profile
 ```
 
 This folder is what a user installs, so it holds only the plugin's runtime
@@ -85,18 +87,24 @@ so the plugin is installed once at the root and linked into each profile:
    `plugin_enabled` provisioning step. It takes effect on the profile's next
    session.
 
+The proposal templates need no step of their own. They ship in this folder
+(`templates/`), so a git install and a read-only mount both carry them, and
+`hermes serve` copies them into `<root>/ergates/templates/` the first time it
+serves a request, before it opens the store. It checks every
+`<template_id>.json` the way the accept route would and makes the target hold
+exactly those files, removing any other. One invalid template installs
+nothing and leaves the previous set in place. A template that cannot be
+installed is logged by state and error class only and does not stop the
+routes.
+
 `python -m ergates.install` does steps 2 and 3 for the default profile and
-every named profile at once, and installs the proposal templates: it checks
-every `<template_id>.json` in `--templates` (default `/opt/ergates/templates`,
-where `deploy/docker-compose.yml` mounts `deploy/templates`) the way the
-accept route would, then makes `<root>/ergates/templates/` hold exactly
-those files. One invalid template installs nothing. `--check` changes no
-template or plugin setting and reports the same facts; the exit code is 0
-only when every profile would load the plugin and the templates match. Run
-it as the user that owns the Hermes root, inside the Hermes runtime, and
-restart `hermes serve` after the first run so it loads the plugin's hooks
-and tools. (On Hermes v0.21.6 the routes alone would mount on their first
-request.)
+every named profile at once, and runs the same template install without
+waiting for a request. `--check` changes no template or plugin setting and
+reports the same facts; the exit code is 0 only when every profile would load
+the plugin and the installed templates equal the shipped ones. Run it as the
+user that owns the Hermes root, inside the Hermes runtime, and restart
+`hermes serve` after the first run so it loads the plugin's hooks and tools.
+(On Hermes v0.21.6 the routes alone would mount on their first request.)
 
 ## Configuration
 
@@ -365,8 +373,9 @@ proposed, without edits, or rejects it through the HTTP API.
 
 Accepting answers the proposal's template, read from
 `<hermes root>/ergates/templates/<template_id>.json` (fields `template_id`,
-`soul`, `enabled_toolsets`, `enabled_mcp_servers`); an unknown template is a
-422 and reserves nothing. The app then performs the provisioning steps in
+`soul`, `enabled_toolsets`, `enabled_mcp_servers`), where the plugin copied it
+from its own `templates/` folder; an unknown template is a 422 and reserves
+nothing. The app then performs the provisioning steps in
 order and reports each one: `profile_created` (`profiles.create` with
 `mirror_credentials: false`), `plugin_enabled` (after
 `POST /profiles/{profile}/plugin`), `configured` (`profiles.configure` from

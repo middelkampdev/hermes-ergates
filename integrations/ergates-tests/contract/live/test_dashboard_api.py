@@ -16,7 +16,7 @@ import pytest
 import ergates
 from ergates import hermes_adapter
 from ergates.operations import Operations
-from ergates.paths import store_path, templates_dir
+from ergates.paths import bundled_templates_dir, store_path, templates_dir
 from ergates.proposals import PROVISION_STEPS, ProposalService, validate_proposal
 from ergates.store import SCHEMA_VERSION, ControlStore
 
@@ -266,6 +266,44 @@ def test_a_store_that_cannot_be_opened_is_503_store_unavailable(web, token_heade
     reply = web.get(f"{API}/health", headers=token_headers)
 
     assert (reply.status_code, reply.json()["error"]["code"]) == (503, "store_unavailable")
+
+
+def test_the_bundled_templates_are_installed_before_the_store_opens(web, token_headers, monkeypatch, tmp_path):
+    """A root that never ran the installer serves the plugin's templates after its first request."""
+    module = _module()
+    seen = []
+
+    class WatchingStore(ControlStore):
+        def __init__(self, *args, **kwargs):
+            seen.append(sorted(path.name for path in templates_dir(tmp_path).glob("*.json")))
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(module, "_operations", None)
+    monkeypatch.setattr(module, "hermes_root", lambda: tmp_path)
+    monkeypatch.setattr(module, "ControlStore", WatchingStore)
+
+    reply = web.get(f"{API}/health", headers=token_headers)
+
+    assert reply.status_code == 200
+    assert seen == [["bookkeeper.json", "general-assistant.json"]]
+    for path in bundled_templates_dir().glob("*.json"):
+        assert (templates_dir(tmp_path) / path.name).read_bytes() == path.read_bytes()
+
+
+def test_a_template_the_accept_route_would_refuse_installs_nothing_and_the_routes_still_serve(
+        web, token_headers, monkeypatch, tmp_path):
+    module = _module()
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "broken.json").write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(module, "_operations", None)
+    monkeypatch.setattr(module, "hermes_root", lambda: tmp_path / "root")
+    monkeypatch.setattr(module, "bundled_templates_dir", lambda: bundle)
+
+    reply = web.get(f"{API}/health", headers=token_headers)
+
+    assert reply.status_code == 200
+    assert not templates_dir(tmp_path / "root").exists()
 
 
 INTERNAL = {"error": {"code": "internal", "message": "The request could not be completed."}}

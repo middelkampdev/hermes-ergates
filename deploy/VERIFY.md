@@ -197,22 +197,20 @@ Expected: `templates=installed`, one `plugin=enabled` line per profile, and
 `exit 0`. Then, signed in in the app, open the concierge and ask it to
 propose a bookkeeper; the proposal card appears (the routes answer).
 
-`hermes-gateway` is where the hooks and the tool gate actually fire, and it
-has no templates mount, so its own `--check` needs an explicit
-`--templates` to get past the missing default `/opt/ergates/templates` and
-reach the per-profile lines:
+`hermes-gateway` is where the hooks and the tool gate actually fire. It
+mounts the same plugin folder and the same data volume, so its own `--check`
+needs no option:
 
 ```bash
-docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-gateway python -m ergates.install --check --templates /opt/data/plugins/ergates; echo "exit $?"
+docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-gateway python -m ergates.install --check; echo "exit $?"
 ```
 
-Expected: the same `plugin=enabled` line per profile that `hermes-serve`
-printed. The exit code here is not `0` -- the plugin's own source folder has
-no `*.json` templates to match the installed set, and that is fine; this
-run is only about the plugin lines. Re-run `python -m ergates.install`
-(without `--check`, on `hermes-serve`) after every `git pull` of this
-repository and after making a profile by hand: templates and plugin
-enablement only change on a re-run, never automatically.
+Expected: the same `templates=installed` line, the same `plugin=enabled` line
+per profile and `exit 0` as `hermes-serve` printed. After a `git pull` of this
+repository, restart `hermes-serve` or run `python -m ergates.install` (without
+`--check`, on `hermes-serve`): either installs the plugin's current templates.
+Plugin enablement in a profile made by hand only changes on a re-run of the
+installer; the app enables the plugin in the profiles it creates.
 
 Result:
 

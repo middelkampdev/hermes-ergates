@@ -27,8 +27,8 @@
 #     "Update" says how to move one.
 #   - The integration plugin is bind-mounted read-only into both controllers
 #     at /opt/data/plugins/ergates, the user-plugin folder Hermes scans. The
-#     reviewed templates are mounted read-only at /opt/ergates/templates for
-#     `python -m ergates.install`, and host cron runs `python -m ergates.flush`
+#     reviewed proposal templates sit in the plugin's own templates/ folder, so
+#     they need no mount of their own. Host cron runs `python -m ergates.flush`
 #     (deploy/README.md).
 #
 # No credentials live in this file or in .env.example -- every secret is a
@@ -87,11 +87,6 @@ services:
       # and HERMES_HOME is /opt/data here, so this path is what makes the
       # plugin exist in the deployed stack at all.
       - ../integrations/ergates:/opt/data/plugins/ergates:ro
-      # The reviewed proposal templates, read-only and outside /opt/data:
-      # `python -m ergates.install` copies them into /opt/data/ergates/templates
-      # as the hermes user (a mount inside /opt/data would make Docker create
-      # /opt/data/ergates owned by root).
-      - ./templates:/opt/ergates/templates:ro
       # Host Docker daemon access, restricted to this trusted controller
       # (03 section 9). This is NOT the same socket a shell sandbox gets --
       # profiles must keep terminal.docker_network / socket access off; see

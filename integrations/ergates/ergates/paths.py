@@ -46,3 +46,13 @@ def store_path(root: Path) -> Path:
 def templates_dir(root: Path) -> Path:
     """``<root>/ergates/templates``: the proposal templates of a Hermes install."""
     return Path(root) / STORE_DIR_NAME / TEMPLATES_DIR_NAME
+
+
+def bundled_templates_dir() -> Path:
+    """``<plugin folder>/templates``: the proposal templates the plugin ships.
+
+    They sit in the plugin folder, so a git install and a read-only mount of
+    that folder carry them. :func:`ergates.setup.ensure_templates` copies
+    them into :func:`templates_dir`, the folder the accept route reads.
+    """
+    return Path(__file__).resolve().parents[1] / TEMPLATES_DIR_NAME

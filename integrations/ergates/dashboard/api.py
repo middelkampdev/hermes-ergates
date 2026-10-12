@@ -16,7 +16,7 @@ the event loop.
 One ``Operations`` -- one ``ControlStore`` -- serves every request of the
 process. It is built on first use, not at import, so a store that cannot be
 opened answers 503 ``store_unavailable`` instead of keeping the router from
-mounting.
+mounting. Building it also installs the plugin's proposal templates.
 
 Hermes imports this file under its own module name, outside any package, so
 the plugin folder is added to ``sys.path`` to import the ``ergates`` package.
@@ -42,9 +42,9 @@ _PLUGIN_DIR = str(Path(__file__).resolve().parents[1])
 if _PLUGIN_DIR not in sys.path:
     sys.path.append(_PLUGIN_DIR)
 
-from ergates import hermes_adapter  # noqa: E402
+from ergates import hermes_adapter, setup  # noqa: E402
 from ergates.operations import Operations, Reply, internal_error, store_unavailable  # noqa: E402
-from ergates.paths import hermes_root, store_path, templates_dir  # noqa: E402
+from ergates.paths import bundled_templates_dir, hermes_root, store_path, templates_dir  # noqa: E402
 from ergates.store import ControlStore, StoreError  # noqa: E402
 
 logger = logging.getLogger("ergates.dashboard")
@@ -56,11 +56,19 @@ _operations: Optional[Operations] = None
 
 
 def operations() -> Operations:
-    """The process's one ``Operations``, built on first use."""
+    """The process's one ``Operations``, built on first use.
+
+    The plugin's own proposal templates are installed first, before the store
+    opens (``ergates.setup.ensure_templates``): a root that never ran
+    ``python -m ergates.install`` still serves them. That call logs and
+    returns a state; it never raises, so a template that cannot be installed
+    does not stop the routes.
+    """
     global _operations
     with _lock:
         if _operations is None:
             root = hermes_root()
+            setup.ensure_templates(bundled_templates_dir(), templates_dir(root))
             _operations = Operations(
                 ControlStore(store_path(root)),
                 cron=hermes_adapter.HermesCron(),

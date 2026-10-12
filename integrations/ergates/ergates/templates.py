@@ -6,10 +6,12 @@ with exactly the ``ProposalTemplate`` fields::
     {"template_id": "bookkeeper", "soul": "...",
      "enabled_toolsets": ["file"], "enabled_mcp_servers": []}
 
-The server only reads them; ``python -m ergates.install`` installs them
-from ``deploy/templates/``. The accept route answers the template with the
-accepted proposal, so the app configures the new profile from what the
-server holds, never from what the model proposed.
+The plugin ships them in its own ``templates/`` folder and installs them
+(``ergates.setup.ensure_templates``, run by ``hermes serve`` on its first
+request and by ``python -m ergates.install``); the server only reads the
+installed copies. The accept route answers the template with the accepted
+proposal, so the app configures the new profile from what the server holds,
+never from what the model proposed.
 
 ``enabled_toolsets`` must name at least one toolset: ``profiles.configure``
 treats an empty list as "remove the toolset pin", and the new agent would

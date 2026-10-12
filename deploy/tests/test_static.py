@@ -21,8 +21,9 @@ DEPLOY = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(DEPLOY.parent / "integrations" / "ergates"))
 from ergates.templates import load_template  # noqa: E402
 
-TEMPLATES = sorted(path.stem for path in (DEPLOY / "templates").glob("*.json"))
-TEMPLATE_MOUNT = "./templates:/opt/ergates/templates:ro"
+# The proposal templates ship inside the plugin folder the controllers mount.
+TEMPLATES_DIR = DEPLOY.parent / "integrations" / "ergates" / "templates"
+TEMPLATES = sorted(path.stem for path in TEMPLATES_DIR.glob("*.json"))
 COMPOSE_TEXT = (DEPLOY / "docker-compose.yml").read_text(encoding="utf-8")
 COMPOSE = yaml.safe_load(COMPOSE_TEXT)
 SERVICES = COMPOSE["services"]
@@ -331,7 +332,7 @@ def test_the_concierge_holds_the_install_wide_push_settings_without_a_secret() -
 def test_there_are_templates_and_each_is_one_the_accept_route_serves() -> None:
     assert TEMPLATES
     for template_id in TEMPLATES:
-        template = load_template(DEPLOY / "templates", template_id)
+        template = load_template(TEMPLATES_DIR, template_id)
         assert template["enabled_toolsets"], template_id
         assert "{{" not in template["soul"], template_id
 
@@ -342,7 +343,7 @@ def test_a_readonly_labeled_template_never_grants_file_writes() -> None:
     surface the operator sees would call a writer read-only."""
     for template_id in TEMPLATES:
         if "readonly" in template_id:
-            template = load_template(DEPLOY / "templates", template_id)
+            template = load_template(TEMPLATES_DIR, template_id)
             assert "file" not in template["enabled_toolsets"], template_id
 
 
@@ -352,10 +353,13 @@ def test_the_concierge_proposes_exactly_the_shipped_templates() -> None:
     assert named == TEMPLATES
 
 
-def test_hermes_serve_mounts_the_templates_read_only_outside_the_data_volume() -> None:
-    """The installer copies them into /opt/data/ergates/templates as the hermes user; a bind
-    mount inside /opt/data would make Docker create /opt/data/ergates owned by root."""
-    assert TEMPLATE_MOUNT in SERVICES["hermes-serve"]["volumes"]
+def test_the_templates_come_with_the_plugin_mount() -> None:
+    """The templates sit in the plugin folder, which both controllers already mount. The plugin copies
+    them into /opt/data/ergates/templates as the hermes user, so no service mounts them on its own:
+    a bind mount below /opt/data/ergates would make Docker create that folder owned by root."""
+    assert PLUGIN_MOUNT in SERVICES["hermes-serve"]["volumes"]
+    for name, service in SERVICES.items():
+        assert not [volume for volume in service.get("volumes", []) if "/opt/ergates/templates" in str(volume)], name
 
 
 # Each live check of VERIFY.md and a phrase it must keep: the checks earlier

@@ -29,11 +29,12 @@ The app's proposal, reminder and notification screens need the Ergates
 plugin in that Hermes (`integrations/ergates/README.md`, "Install"): link
 `integrations/ergates` to `~/.hermes/plugins/ergates`, then, from the
 repository root and with the Python your Hermes runs on, run
-`PYTHONPATH=integrations/ergates python -m ergates.install --templates deploy/templates`
+`PYTHONPATH=integrations/ergates python -m ergates.install`
 and restart `hermes serve` so it loads the plugin's hooks and tools. On
 Hermes v0.21.6 the routes alone would mount on their first request without a
 restart. The installer edits `~/.hermes/config.yaml` and the `config.yaml` of
-every profile.
+every profile, and installs the proposal templates the plugin ships.
+`hermes serve` installs those templates itself on its first request.
 
 ## Verification
 

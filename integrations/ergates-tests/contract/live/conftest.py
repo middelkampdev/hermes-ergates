@@ -110,11 +110,20 @@ def make_profile():
 @pytest.fixture(scope="session")
 def web():
     """Hermes's dashboard app, imported the way ``hermes serve`` loads it; the
-    import mounts every enabled plugin's API router."""
+    import mounts every enabled plugin's API router.
+
+    The plugin installs its own proposal templates when the router builds its
+    operations, on the first request, and removes any other template then. One
+    request here makes that happen before any test runs, so a test that writes
+    a template of its own (``provision``, the accept test) can write after it.
+    """
     from fastapi.testclient import TestClient
     from hermes_cli.web_server import app
 
-    return TestClient(app)
+    client = TestClient(app)
+    first = client.get("/api/plugins/ergates/health", headers={"X-Hermes-Session-Token": SESSION_TOKEN})
+    assert first.status_code == 200, first.text
+    return client
 
 
 @pytest.fixture(scope="session")
