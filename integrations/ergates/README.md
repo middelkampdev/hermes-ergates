@@ -187,6 +187,32 @@ integrations/ergates-tests/
 The plugin needs Hermes 0.21.6 or later (`requires_hermes` in `plugin.yaml`);
 an older Hermes skips it.
 
+The Ergates app installs the plugin for you. When its check after sign-in
+finds no plugin, it shows the source and the commit it will install. On one
+tap it asks Hermes's plugin install route to install and enable it, waits
+until Hermes serves it and calls `POST /api/plugins/ergates/setup` once. Your
+server downloads the plugin from GitHub and runs Hermes's install scan; the
+phone does not contact GitHub for the install. The app installs only
+`middelkampdev/hermes-ergates/integrations/ergates`, at the commit its own
+build names, and offers the one tap only on Hermes versions that CI has
+tested. For the others it shows the command below.
+
+To install by hand, run this on the server as the user that runs Hermes:
+
+```bash
+hermes plugins install middelkampdev/hermes-ergates/integrations/ergates --ref <40-hex commit> --enable
+```
+
+The command installs the plugin, enables it and asks a running `hermes serve`
+to load it. The plugin declares no dependencies, no required environment
+variables and no capabilities, so the command asks nothing. To move an
+install to another commit, run the same command with `--force`, then restart
+Hermes: it mounts the plugin's routes once per process. The app fills in the
+commit when it shows the command.
+
+The rest of this section covers linking or mounting the folder yourself, as
+the Compose deployment and a development checkout do.
+
 Hermes loads a user plugin from the ACTIVE home's `plugins/` folder, and only
 when that home's `config.yaml` lists it in `plugins.enabled`
 (`hermes_cli/plugins_discovery.py`). A named profile runs with its own home,
@@ -210,8 +236,10 @@ so the plugin is installed once at the root and linked into each profile:
    `plugin_enabled` provisioning step. It takes effect on the profile's next
    session. `POST /api/plugins/ergates/setup` with the body `{}` does this for
    the default profile and every named one at once, after it installs the
-   templates, and reports each profile (see "HTTP API"). The app is to call it
-   after it installs or updates the plugin (built in a later step);
+   templates, and reports each profile (see "HTTP API"). The app calls it once
+   after it has set the plugin up, or after you followed its Finish screen to
+   install, turn on or update the plugin, and at no other time, because each
+   call enables the plugin in every profile again;
    `python -m ergates.install` does the same by hand.
 
 The proposal templates need no step of their own. They ship in this folder
@@ -306,8 +334,9 @@ An install that ran version 0.2.0 needs three changes by hand:
   two sweeps from sending the same push at the same moment.
 - **Run the setup once.** `POST /api/plugins/ergates/setup` with the body
   `{}`, or `python -m ergates.install`, installs the templates and enables
-  the plugin in every profile (see "Install"). The app is to call the route
-  after it installs or updates the plugin (built in a later step).
+  the plugin in every profile (see "Install"). When the app showed you the
+  update instructions, it calls the route itself once the plugin answers.
+  Otherwise run it yourself.
 
 ## Upgrading from 0.1
 
@@ -467,6 +496,15 @@ from a git commit, with the setup finished:
   `config.yaml`, where it is ignored. When reading them raises, the three
   are false and `push.error` names the exception class.
 - `sweep` is the periodic sweep's state (see "Periodic sweep").
+
+The app decides from this body whether the plugin fits it. A plugin is
+outdated when its `api_level` is below the app's (a plugin that reports none
+counts as level 0) or when `store.writable` is false. An app is too old for
+the plugin when its level is below `min_api_level`. `install.kind` decides
+what the app tells the user to do about an outdated plugin: run the install
+command with `--force` for a `git install`, update the folder it was copied or
+linked from for a `manual copy`, and update the deployment for a
+`deployment`.
 
 `health` answers 503 `store_unavailable` only when the control store cannot
 be read, so the setup, push and install parts above never turn into an error

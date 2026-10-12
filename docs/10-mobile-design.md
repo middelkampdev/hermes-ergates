@@ -289,6 +289,42 @@ Development builds have Settings › Developer tools › Design system. It opens
 | Empty search | One explanatory line and a clear dismiss path |
 | Large text | Wrap settings and message text; hide optional role badge before compressing names. A text-size change while the app is open re-lays out every page at once: page content remounts, so scroll position, focus, open menus and expanded rows reset, while typed drafts and clarify answers stay |
 | Reduced motion | Static working indicator; native transitions reduced; no perpetual decorative animation |
+| Server plugin missing, off, not loaded, outdated or unavailable | One short sentence and, when the user can fix it, a button to the screen that does (server plugin screens below). Chat keeps working |
+| Server restarted during setup | The Finish screen says "Your server restarted. Sign in again to continue." with a Sign in again button; the plugin's setup still runs after sign-in |
+
+### Server plugin screens
+
+Home, Settings and every feature that needs the Ergates plugin read one server check (03 section 4, ADR-043) and say what it found in place, in the words of the table. A button opens the screen that fixes it. A new routine, notification settings and an agent proposal card in chat show the sentence where they would otherwise show "Not found". The form for a new routine disables Save while the plugin cannot take the routine.
+
+| The server check finds | Sentence | Button |
+|---|---|---|
+| No plugin | Ergates is not set up on this server. | Set up |
+| Plugin turned off | The Ergates plugin is turned off on this server. | Turn on |
+| Plugin enabled, Hermes has not loaded it | Hermes has not loaded the Ergates plugin yet. | Show me how |
+| Plugin older than this app needs | The Ergates plugin on this server needs an update. | Update |
+| Plugin needs a newer app | This server's Ergates plugin needs a newer version of this app. Update Ergates. | none |
+| Plugin cannot open its data | The Ergates plugin cannot open its data on this server, followed by the server's own reason | none |
+
+On Home the sentence is one tappable line in the style of the error line, and a tap anywhere on it opens the screen. When Home has an error line, that line is shown instead. In Settings > Gateway the Ergates plugin row shows the plugin's version, or the sentence, and opens the screen when there is a button. A check that could not reach the server shows no sentence, and the screen behaves as it did before the check. The Settings row then says "Could not check".
+
+After Connect and after Sign in again the app opens the screen itself: Set up your server for a missing or turned-off plugin, Finish on your server for one that is not loaded or outdated. Anything else goes Home.
+
+The Set up your server page is pushed, with a back button. It says what the plugin is for ("Ergates needs its plugin on your Hermes server for routines, new agents from chat and notification settings. Chat works without it."). Under that, one source line names what gets installed and from where: the plugin version, `github.com/middelkampdev/hermes-ergates` and the first seven characters of the commit. A note below says that Hermes calls the source unreviewed, because the plugin is not in the Hermes plugin catalog yet, and that the server downloads it from GitHub and runs Hermes's security check before it installs. The buttons are **Set up this server** and **Not now**. A turned-off plugin gets "The Ergates plugin is on your server but turned off." and **Turn it on**. A Hermes older or newer than the tested versions, or one whose version the app cannot read, gets a note that says why and **Show me how**, which opens the Finish screen. A build without a commit gets "This build of Ergates does not know which plugin version to install." and **Not now** only.
+
+While a run goes, the page shows four steps in a group: Installing the plugin, Turning it on, Starting it, Setting up your agents. Each has a leading icon: an empty circle while it waits, a spinner while it runs, a check when it is done or was not needed, a cross in the destructive color when it failed. A screen reader hears the step and one of "waiting", "in progress", "done", "not needed" or "failed". The run ends in one of four ways. When it is done, the page says "Your server is ready." and shows **Done**; a profile that could not be turned on is named under it. When Hermes refused the install, or the plugin needs a restart, the page opens the Finish screen. When something else failed, the page shows the message with **Try again**. When the server asks for a new sign-in, the page says so with **Sign in again**. A screen that opens while a run is going joins it and shows its steps.
+
+The Finish on your server page serves every case where the user acts on the server. Its heading reads "Finish on your server", or "Update your Ergates deployment" for a deployment. The page shows:
+
+- one or two sentences of why, for example that Hermes refused the install or that the plugin needs an update;
+- the command to run on the server in a monospace box with a **Copy** button;
+- the heading "Then restart Hermes:" and four ways to restart, when a restart is needed;
+- a status line, "Checking…", "Waiting for your server…" or "Your server is ready.", set as a live region for screen readers;
+- **Check now**, which becomes **Done** once the server answers and its setup went through, and **Sign in again** when the server asked for it;
+- **Open the guide**, which opens `https://middelkamp.dev/ergates/server/` at the part that fits the case (`#manual`, `#restart` or `#deployment`).
+
+The page asks the server every 5 seconds while it is in view. When the plugin answers, the page runs the plugin's setup by itself and clears the instructions. After a restart the page offers **Sign in again** in place of the command, and the guide button changes to **How to stay signed in** (`#stay-signed-in`).
+
+The sign-in screen carries one line that says Hermes signs the user out after a restart unless the server has a fixed sign-in secret, and a **How to stay signed in** link to the same part of the guide.
 
 ## 6. Visual acceptance
 

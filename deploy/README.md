@@ -306,9 +306,10 @@ already done above, before first start.
    again after every update of this repository and after making a profile by
    hand; the app enables the plugin in the profiles it creates.
 
-   The app is to run the same setup through the plugin's `POST /setup` after
-   it installs or updates the plugin (built in a later step).
-   `python -m ergates.install` does it by hand.
+   The app does not install or update a deployment's plugin. When the plugin
+   is outdated (its health reports `install.kind` `deployment`), the app tells
+   the user to update the deployment and does not run the setup, so run this
+   step yourself after an update.
 
 5. **Check the plugin's sweep** (below). `hermes-serve` runs it on its own
    thread, so there is nothing to schedule.

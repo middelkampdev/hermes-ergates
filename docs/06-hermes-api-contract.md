@@ -28,6 +28,8 @@ Source: `hermes_cli/dashboard_auth/routes.py`, `ws_tickets.py`, `native_flow.py`
 
 Basic login is JSON, not HTTP Basic Authorization. The app keeps the session cookie itself (SecureStore, or memory only on a rooted or jailbroken phone, ADR-041) and replays it as a `Cookie` header; requests send `credentials: 'omit'` and skip the platform cookie jar (`src/gateway/real/http.ts`). Inspect secure-cookie behavior on the chosen private HTTP/HTTPS endpoint. Do not assume React Native and a system browser share a cookie jar.
 
+A restart ends a session unless the server pins the key that signs it. In loopback mode the session token is random for each start unless `HERMES_DASHBOARD_SESSION_TOKEN` is set (`hermes_cli/web_server.py:380-383`). A basic-provider session survives a restart only when `dashboard.basic_auth.secret` or `HERMES_DASHBOARD_BASIC_AUTH_SECRET` is set; without one the provider signs with a random per-process key (`plugins/dashboard_auth/basic/__init__.py:191-198`). Otherwise every call after the restart answers 401, and the app asks the user to sign in again.
+
 After login, mint a fresh ticket and open:
 
 ```text
@@ -189,6 +191,31 @@ Do not translate “all toolsets off” to an empty `enabled_toolsets`: on v0.21
 Read before editing, submit only changed sections and inspect each result. Metadata CAS does not make SOUL/model/assets atomic or versioned. Re-read non-metadata fields before save, keep partial failures visible, and require serialization if stronger concurrency guarantees are needed. Avoid desktop's local-only fallback when reporting a server save.
 
 `PATCH /api/profiles/{name}` is profile renaming using `new_name`; for non-default profiles it can rename directories and stop a gateway. It is **not** the friendly-name editor path above. Actual identifier migration requires reconciling jobs, sessions, subscriptions, links and caches and remains outside this editor.
+
+### Server plugin: check, install and setup
+
+Rechecked at v0.21.6. The app uses these routes to find out whether the server has the Ergates plugin and to put it there (ADR-043). Each one takes the token header in loopback mode and the cookie session in gated mode, and none needs a CSRF header (`hermes_cli/web_server.py:483-497`).
+
+| Method | Route | Use |
+|---|---|---|
+| GET | `/api/status` | Public. `version` is the clean base version, such as `0.21.6`, or `unknown`; it never carries a `+N.gSHA` suffix (`hermes_cli/web_routers/status.py:509`). The app compares it with the Hermes versions its build has tested |
+| GET | `/api/plugins/ergates/health` | 200 with the plugin's health (`integrations/ergates/README.md`, "Health"). 404 `{"detail": "Plugin not found"}` when Hermes does not serve the plugin: not installed, not enabled, or turned off (`hermes_cli/web_server.py:687`). 404 `{"detail": "Not Found"}` when the plugin is enabled and its routes are not mounted, because its import failed or because this Hermes cannot mount a plugin after it started. 503 `store_unavailable` when the plugin cannot open its store |
+| GET | `/api/dashboard/plugins/hub` | `{"plugins": [{name, version, source, runtime_status, ...}]}` with `runtime_status` of `enabled`, `disabled` or `inactive`. There is no commit field. The app reads `name`, `version` and `runtime_status`, because the 404 above does not tell a turned-off plugin from a missing one |
+| POST | `/api/dashboard/agent-plugins/install` | Body `{identifier, force=false, enable=true, catalog_name, ref}`, where `identifier` is required. Answers 200 with `plugin_name` and `enabled`. The app sends `identifier: "middelkampdev/hermes-ergates/integrations/ergates"`, a 40-hex `ref`, `enable: true` and `force: false` |
+| POST | `/api/dashboard/agent-plugins/{name}/enable` | No body. 200 `{"ok": true, ...}`; 400 `{"detail"}` when Hermes refuses |
+| POST | `/api/plugins/ergates/setup` | Body `{}` as JSON. 200 `{"setup": {finished, templates, profiles}}`. The app calls it once after it has set the plugin up (ADR-042, ADR-043) |
+
+The install is synchronous. It answers when the clone, the fetch of the commit, the checkout and the scan have ended. Hermes allows each git phase `plugins.clone_timeout_seconds`, 300 seconds by default, and has no progress route. Every failure is HTTP 400 `{"detail": "<text>"}` with no code. Only that text reaches a REST client; the scan's structured fields do not (`hermes_cli/web_routers/dashboard_ui.py:169-180`). The app tells the failures apart by the start of the text (`apps/mobile/src/gateway/real/hermes-plugin-messages.json`):
+
+| `detail` starts with | Meaning |
+|---|---|
+| `Security scan blocked plugin install` | The scan's verdict was `caution` or `dangerous` |
+| `git is not installed or not in PATH.` | The server has no Git |
+| `Could not download the plugin from`, `Git clone timed out after`, `Git commit '`, `Git checkout of commit '`, `Git fetch of commit '` | The clone, the fetch of the commit or the checkout failed or timed out |
+| `Plugin 'ergates' already exists.` | Raised after the clone and the scan: another phone or an earlier try installed it first |
+| `enable refused:` | The plugin is installed and Hermes refused to turn it on |
+
+Any other 400 text is shown as Hermes wrote it. `contract/test_hermes_plugin_messages.py` checks that each prefix is a text the pinned Hermes source can write, and `contract/live/test_hot_mount.py` checks them against a running server.
 
 ## 5. Events and recovery
 
