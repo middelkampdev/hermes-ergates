@@ -5,6 +5,7 @@ Hermes's own web server; these tests pin each status code and body.
 """
 
 import json
+import logging
 import os
 import re
 import threading
@@ -928,6 +929,31 @@ def test_setup_reports_a_profile_that_fails_by_error_class_and_goes_on(ops, herm
                      {"name": "mira", "enabled": False, "error": "FileExistsError"},
                      {"name": "zoe", "enabled": True}]}})
     assert hermes.enable_calls == ["default", "mira", "zoe"]
+
+
+def test_setup_logs_each_profile_that_fails_by_name_and_error_class(ops, hermes, caplog):
+    hermes.profiles = {"default", "mira", "zoe"}
+    hermes.broken = {"mira", "zoe"}
+
+    with caplog.at_level(logging.DEBUG, logger="ergates.operations"):
+        ops.setup({})
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "setup: the plugin could not be enabled in profile mira (FileExistsError)",
+        "setup: the plugin could not be enabled in profile zoe (FileExistsError)",
+    ]
+
+
+def test_setup_logs_a_profile_name_hermes_would_refuse_without_the_name(ops, hermes, caplog):
+    """A name that is not a Hermes profile id could carry a line break into the log."""
+    hermes.profiles = {"bad\nname"}
+    hermes.broken = {"bad\nname"}
+
+    with caplog.at_level(logging.WARNING, logger="ergates.operations"):
+        ops.setup({})
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "setup: the plugin could not be enabled in a profile with an invalid name (FileExistsError)"]
 
 
 def test_setup_installs_the_templates_before_it_enables_any_profile(store, cron, clock, tmp_path):

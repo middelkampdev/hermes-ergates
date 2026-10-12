@@ -299,7 +299,9 @@ class Operations:
         The body must be a JSON object (``{}``), so that a request the router
         could not read as JSON is refused before anything is touched.
         Profiles that fail are named in the report and do not make the reply
-        an error. It touches no store table, but the router builds an
+        an error; each is logged with its name and exception class (a name
+        Hermes would refuse as a profile id is left out). It touches no store
+        table, but the router builds an
         ``Operations`` only once the store opens, so as root on a Hermes root
         another user owns it writes nothing (``store.root_run_would_break``).
         """
@@ -310,6 +312,11 @@ class Operations:
             profiles = enable_everywhere(self._profile_names(), self._enable_plugin, self._plugin_enabled)
         finally:  # after the writes, so a health computed during them is dropped too
             self._forget_setup_and_push()
+        for item in profiles:
+            if "error" in item:
+                name = item["name"]
+                where = f"profile {name}" if _is_profile_name(name) else "a profile with an invalid name"
+                logger.warning("setup: the plugin could not be enabled in %s (%s)", where, item["error"])
         return Reply(200, {"setup": setup_report(templates, profiles)})
 
     # GET /attention/prefs?scope=<name or *>, or ?profile=<name>
