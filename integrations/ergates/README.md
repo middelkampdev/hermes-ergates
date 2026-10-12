@@ -127,13 +127,14 @@ Install-wide settings live in the Hermes root's `config.yaml` (the default
 profile's), under `plugins.entries.ergates.settings`. Every profile's hooks,
 the sweep and `python -m ergates.flush` read them there
 (`ergates/settings.py`), so a push goes to the same place whichever profile
-raised it:
+raised it. The ntfy token is a Hermes plugin secret and lives in the root's
+`.env` instead:
 
 | Key | Default | Purpose |
 |---|---|---|
 | `ntfy.server` | unset (push disabled) | ntfy server base URL |
 | `ntfy.topic` | unset (push disabled) | ntfy topic to publish attention events to |
-| `ntfy.token` | unset | ntfy publish token (Bearer), or `user:pass` for Basic |
+| `ntfy.token`: `ERGATES_NTFY_TOKEN` in `<hermes root>/.env` | unset | ntfy publish token (Bearer), or `user:pass` for Basic |
 | `ntfy.connection_id` | unset | app connection id used to build the `Click` deep link |
 | `sweep.interval_seconds` | `120` | seconds between two sweeps inside `hermes serve` (see "Periodic sweep"); `0` turns the sweep off |
 
@@ -145,9 +146,44 @@ setting is per profile, read with `ctx.get_config` from that profile's own
 |---|---|---|
 | `attention.completed_platforms` | `["cron"]` | platforms whose finished turns push "A routine finished" (by default routines only, not every chat reply); `[]` turns them off |
 
+`plugin.yaml` declares every key above in its `config_schema`, so Hermes
+Desktop lists them in the plugin's settings. Desktop saves a setting in the
+active profile's `config.yaml` and the token in the active profile's `.env`,
+so set the install-wide ones while the default profile is active.
+
+The token is a `type: secret` field, which Hermes keeps in `.env` as
+`ERGATES_NTFY_TOKEN`. The plugin reads it through Hermes
+(`install_secret` in `ergates/hermes_adapter.py`) from the root's `.env` in
+every process, including a named profile's turn on a multiplexed gateway. A
+named profile's `.env` is never read for it, and the multiplexed gateway
+never reads it from the process environment, so keep it in that file.
+Ergates has a variable name of its own because Hermes's bundled ntfy
+platform reads `NTFY_TOKEN` and `NTFY_TOPIC` and treats every message on
+that topic as user input. A `ntfy.token` left in `config.yaml` is ignored,
+and the log names the key and `ERGATES_NTFY_TOKEN`, never the value.
+
 No credentials are ever read from, or written into, this repository or the
 store. Push is skipped (not an error) whenever `ntfy.server` or `ntfy.topic`
 is unset; the event and its outbox row are still recorded.
+
+## Upgrading from 0.2
+
+An install that ran version 0.2.0 needs three changes by hand:
+
+- **The ntfy token moves to `.env`.** Delete `ntfy.token` from
+  `plugins.entries.ergates.settings` in `<hermes root>/config.yaml` and add
+  the same value to `<hermes root>/.env` as `ERGATES_NTFY_TOKEN=<token>`.
+  The plugin ignores a token left in `config.yaml` and logs a warning each
+  time it reads the settings. Pushes then go out without a token, and an
+  ntfy server with a deny-by-default ACL refuses them.
+- **The host cron line can go.** `hermes serve` runs the sweep itself now
+  (see "Periodic sweep"), so delete the crontab line that ran
+  `python -m ergates.flush`. A line that stays does no harm: two sweeps on
+  one store send each due push once.
+- **Run the setup once.** `POST /api/plugins/ergates/setup` with the body
+  `{}`, or `python -m ergates.install`, installs the templates and enables
+  the plugin in every profile (see "Install"). The app calls the route when
+  it connects to the server.
 
 ## Upgrading from 0.1
 
@@ -160,9 +196,10 @@ An install that ran version 0.1.0 needs three changes by hand:
   push settings under the Hermes root, whichever `HERMES_HOME` it runs with.
 - **Push settings live in the root's `config.yaml` only.** `ntfy.*` settings
   kept in a named profile's `config.yaml` are ignored, and
-  `ntfy.default_profile` is gone. Move `ntfy.server`, `ntfy.topic`,
-  `ntfy.token` and `ntfy.connection_id` to
-  `plugins.entries.ergates.settings` in `<hermes root>/config.yaml`.
+  `ntfy.default_profile` is gone. Move `ntfy.server`, `ntfy.topic` and
+  `ntfy.connection_id` to `plugins.entries.ergates.settings` in
+  `<hermes root>/config.yaml`, and the token to `<hermes root>/.env` (see
+  "Upgrading from 0.2").
   `attention.completed_platforms` stays per profile.
 - **Existing named profiles need the plugin enabled.** Hermes loads the
   plugin in a profile only from that profile's own `plugins/` folder, with
@@ -457,9 +494,10 @@ later, then one every `sweep.interval_seconds` (120 by default). A pass sends
 every due push from the outbox, expires approvals past their timeout, applies
 the retention rules above, and asks Hermes cron whether each reminder's job
 still exists. It reads the install-wide push settings from the root's
-`config.yaml` on every pass. Only a process that loads Hermes's dashboard
-server imports that file, so the gateway and cron processes, which load
-only the plugin's hooks, start no sweep.
+`config.yaml`, and the token from the root's `.env`, on every pass. Only a
+process that loads Hermes's dashboard server imports that file, so the
+gateway and cron processes, which load only the plugin's hooks, start no
+sweep.
 
 `GET /health` reports the sweep:
 
@@ -490,13 +528,15 @@ HERMES_HOME=/opt/data python -m ergates.flush [--quiet]
 # ergates.flush: retried=0 expired_notifications=0 pruned_notifications=0 pruned_proposals=0 pruned_reminders=0
 ```
 
-No credential is ever passed as an argument or printed. Run it as the user
-that owns the Hermes root (`hermes` in the container). As root it refuses to
-start when another user owns the Hermes root (see "Install"). SQLite creates
-the store's `-wal` and `-shm` files as the user that opens the store, so a
-root run would leave files the Hermes user cannot open, and every hook would
-fail. If an older plugin left such files, repair them inside the container
-with `chown -R hermes:hermes /opt/data/ergates`.
+No credential is ever passed as an argument or printed. Run it inside the
+Hermes runtime, as the user that owns the Hermes root (`hermes` in the
+container): the token comes through Hermes, so a run outside it sends its
+pushes without one. As root it refuses to start when another user owns the
+Hermes root (see "Install"). SQLite creates the store's `-wal` and `-shm`
+files as the user that opens the store, so a root run would leave files the
+Hermes user cannot open, and every hook would fail. If an older plugin left
+such files, repair them inside the container with
+`chown -R hermes:hermes /opt/data/ergates`.
 
 Quiet hours are read in the time zone Hermes cron uses: `HERMES_TIMEZONE`
 (which the multiplexed gateway ignores), else `timezone` in the

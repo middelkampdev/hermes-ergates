@@ -31,7 +31,8 @@ from ergates.reminders import CronUnavailable
 @pytest.fixture
 def without_hermes(monkeypatch):
     """Every Hermes import fails, as it does outside a Hermes runtime."""
-    for name in ("hermes_constants", "hermes_cli", "hermes_cli.profiles", "hermes_cli.config",
+    for name in ("agent", "agent.secret_scope", "hermes_constants", "hermes_cli", "hermes_cli.profiles",
+                 "hermes_cli.config",
                  "hermes_cli.plugins_discovery", "tools", "tools.cronjob_tools", "tools.cronjob_prompt_scan",
                  "tools.mcp_tool_common", "cron", "cron.jobs", "cron.lifecycle_guard", "model_tools",
                  "toolsets", "utils"):
@@ -227,6 +228,60 @@ def test_outside_a_hermes_runtime_the_grant_and_the_toolset_are_unknown(without_
 def test_enable_plugin_outside_a_hermes_runtime_fails_loudly(without_hermes):
     with pytest.raises(ImportError):
         hermes_adapter.enable_plugin("thijs")
+
+
+def test_install_secret_is_none_outside_a_hermes_runtime(without_hermes):
+    assert hermes_adapter.install_secret("ERGATES_NTFY_TOKEN") is None
+
+
+def _hermes_secret_scope(monkeypatch, root, env, *, read_fails=False) -> list:
+    """Stand in for Hermes's ``agent.secret_scope`` and ``get_default_hermes_root``; returns the calls."""
+    calls: list = []
+    bound: list = []
+    scope = types.ModuleType("agent.secret_scope")
+
+    def build_profile_secret_scope(home):
+        calls.append(("build", Path(home)))
+        return dict(env)
+
+    def set_secret_scope(secrets, *, profile_home=None):
+        bound.append(secrets)
+        calls.append(("set", profile_home))
+        return len(bound)
+
+    def reset_secret_scope(token):
+        bound.pop()
+        calls.append(("reset", token))
+
+    def get_secret(name, default=None):
+        if read_fails:
+            raise RuntimeError("the read failed")
+        return bound[-1].get(name, default)
+
+    scope.build_profile_secret_scope = build_profile_secret_scope
+    scope.set_secret_scope = set_secret_scope
+    scope.reset_secret_scope = reset_secret_scope
+    scope.get_secret = get_secret
+    constants = types.ModuleType("hermes_constants")
+    constants.get_default_hermes_root = lambda: root
+    monkeypatch.setitem(sys.modules, "agent", types.ModuleType("agent"))
+    monkeypatch.setitem(sys.modules, "agent.secret_scope", scope)
+    monkeypatch.setitem(sys.modules, "hermes_constants", constants)
+    return calls
+
+
+def test_install_secret_binds_the_root_scope_for_one_read_and_always_resets_it(tmp_path, monkeypatch):
+    calls = _hermes_secret_scope(monkeypatch, tmp_path, {"ERGATES_NTFY_TOKEN": "tok", "BLANK": "  "})
+
+    assert hermes_adapter.install_secret("ERGATES_NTFY_TOKEN") == "tok"
+    assert calls == [("build", tmp_path), ("set", str(tmp_path)), ("reset", 1)]
+    assert hermes_adapter.install_secret("BLANK") is None
+    assert hermes_adapter.install_secret("MISSING") is None
+
+    calls = _hermes_secret_scope(monkeypatch, tmp_path, {}, read_fails=True)
+    with pytest.raises(RuntimeError):
+        hermes_adapter.install_secret("ERGATES_NTFY_TOKEN")
+    assert calls[-1] == ("reset", 1)
 
 
 def test_link_plugin_creates_the_link_and_accepts_it_again(tmp_path):

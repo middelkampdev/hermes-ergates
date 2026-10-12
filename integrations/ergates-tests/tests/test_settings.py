@@ -1,13 +1,25 @@
-"""Tests for ergates.settings: the install-wide push settings in the Hermes root's config.yaml."""
+"""Tests for ergates.settings: the install-wide push settings in the Hermes root's config.yaml,
+and the ntfy token, a Hermes plugin secret in the root's .env."""
 
 import logging
 
-from ergates.delivery import NtfySettings
-from ergates.settings import load_settings, push_settings, settings_from_config, sweep_interval
-from ergates.sweep import SWEEP_INTERVAL_SECONDS
+import yaml
 
-SETTINGS = {"server": "https://ntfy.example.internal", "topic": "ergates-alerts", "token": "tok",
-            "connection_id": "conn-1"}
+from ergates import hermes_adapter
+from ergates.delivery import NtfySettings
+from ergates.settings import (
+    SETTING_KEYS,
+    TOKEN_ENV,
+    load_settings,
+    push_settings,
+    settings_from_config,
+    sweep_interval,
+)
+from ergates.sweep import SWEEP_INTERVAL_SECONDS
+from ergates.tool import DEFAULT_COMPLETED_PLATFORMS
+from plugin_tree import PLUGIN_DIR
+
+SETTINGS = {"server": "https://ntfy.example.internal", "topic": "ergates-alerts", "connection_id": "conn-1"}
 
 
 def _config(**ntfy):
@@ -30,9 +42,9 @@ def _write_config(home, **ntfy):
 
 
 def test_settings_come_from_the_plugin_entry_in_the_config():
-    settings = settings_from_config(_config(server="https://x", topic="t", token="tok", connection_id="c"))
+    settings = settings_from_config(_config(server="https://x", topic="t", connection_id="c"))
 
-    assert settings == {"server": "https://x", "topic": "t", "token": "tok", "connection_id": "c"}
+    assert settings == {"server": "https://x", "topic": "t", "connection_id": "c"}
 
 
 def test_settings_are_empty_when_the_plugin_is_not_configured():
@@ -45,7 +57,7 @@ def test_settings_tolerate_a_config_of_the_wrong_shape():
     """A hook or a maintenance sweep must not die on a config typo."""
     assert settings_from_config({"plugins": {"entries": {"ergates": "oops"}}}) == {}
     assert settings_from_config({"plugins": "oops"}) == {}
-    assert settings_from_config(_config(server="", topic=None, token=7)) == {}
+    assert settings_from_config(_config(server="", topic=None, connection_id=7)) == {}
     assert settings_from_config({"plugins": {"entries": {"ergates": {"settings": {"ntfy": "oops"}}}}}) == {}
 
 
@@ -75,13 +87,13 @@ def test_a_setting_that_still_has_unexpanded_dollar_braces_is_dropped_and_logged
     """Values are read as written (PyYAML does not expand ${VAR}); an owner who
     typed a template reference by mistake must not have it sent to ntfy as a
     literal string, and the setting key (never the value) is logged."""
-    _write_config(tmp_path, server="${NTFY_SERVER}", topic="ergates-alerts", token="tok", connection_id="conn-1")
+    _write_config(tmp_path, server="${NTFY_SERVER}", topic="ergates-alerts", connection_id="conn-1")
 
     with caplog.at_level(logging.WARNING, logger="ergates.settings"):
         settings = load_settings(tmp_path)
 
     assert "server" not in settings
-    assert settings == {"topic": "ergates-alerts", "token": "tok", "connection_id": "conn-1"}
+    assert settings == {"topic": "ergates-alerts", "connection_id": "conn-1"}
     assert "server" in caplog.text
     # The key is named; the value ("${NTFY_SERVER}") never is.
     assert "NTFY_SERVER" not in caplog.text
@@ -95,25 +107,63 @@ def test_a_dollar_braces_value_turns_push_off_when_it_is_server_or_topic(tmp_pat
     assert push_settings(tmp_path) is None
 
 
-def test_a_dollar_braces_token_does_not_block_the_other_settings(tmp_path):
-    """token and connection_id are not required for push to be on; a bad token
-    just means no Authorization header, same as an unset one."""
-    settings = _config(server="https://ntfy.example.internal", topic="ergates-alerts",
-                        token="${NTFY_TOKEN}", connection_id="conn-1")
-    tmp_path.mkdir(parents=True, exist_ok=True)
-    (tmp_path / "config.yaml").write_text(
-        "plugins:\n  entries:\n    ergates:\n      settings:\n        ntfy:\n"
-        "          server: https://ntfy.example.internal\n"
-        "          topic: ergates-alerts\n"
-        "          token: ${NTFY_TOKEN}\n"
-        "          connection_id: conn-1\n",
-        encoding="utf-8",
-    )
+def test_a_dollar_braces_connection_id_does_not_block_the_other_settings(tmp_path):
+    """connection_id is not required for push to be on; a bad one just means a
+    deep link without a connection, same as an unset one."""
+    _write_config(tmp_path, server="https://ntfy.example.internal", topic="ergates-alerts",
+                  connection_id="${CONNECTION_ID}")
 
     settings = push_settings(tmp_path)
 
-    assert settings == NtfySettings(server="https://ntfy.example.internal", topic="ergates-alerts",
-                                    token="", connection_id="conn-1")
+    assert settings == NtfySettings(server="https://ntfy.example.internal", topic="ergates-alerts")
+
+
+# --- the ntfy token: a Hermes plugin secret, never a config.yaml value ------------
+
+
+def test_the_token_comes_from_the_install_secret_not_config_yaml(tmp_path, monkeypatch):
+    _write_config(tmp_path, server="https://ntfy.example.internal", topic="ergates-alerts", token="old")
+    asked = []
+    monkeypatch.setattr(hermes_adapter, "install_secret", lambda name: asked.append(name) or "new")
+
+    settings = load_settings(tmp_path)
+
+    assert TOKEN_ENV == "ERGATES_NTFY_TOKEN"
+    assert SETTING_KEYS == ("server", "topic", "connection_id")
+    assert settings == {"server": "https://ntfy.example.internal", "topic": "ergates-alerts", "token": "new"}
+    assert asked == ["ERGATES_NTFY_TOKEN"]
+    assert push_settings(tmp_path).token == "new"
+
+
+def test_a_token_left_in_config_yaml_is_ignored_and_logged_without_its_value(tmp_path, monkeypatch, caplog):
+    """A 0.2 install kept the token in config.yaml. It is not sent any more, and the
+    log says where it goes now, without the value."""
+    _write_config(tmp_path, server="https://ntfy.example.internal", topic="ergates-alerts",
+                  token="tk_left_in_config")
+    monkeypatch.setattr(hermes_adapter, "install_secret", lambda name: None)
+
+    with caplog.at_level(logging.WARNING, logger="ergates.settings"):
+        settings = load_settings(tmp_path)
+
+    assert settings == {"server": "https://ntfy.example.internal", "topic": "ergates-alerts"}
+    assert len(caplog.records) == 1
+    assert "ntfy.token" in caplog.text
+    assert "ERGATES_NTFY_TOKEN" in caplog.text
+    assert "tk_left_in_config" not in caplog.text
+    assert push_settings(tmp_path).token == ""
+
+
+def test_the_settings_form_declares_every_setting_with_the_defaults_the_code_uses():
+    """Hermes builds the plugin's settings form from plugin.yaml's config_schema and shows its defaults."""
+    schema = yaml.safe_load((PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8"))["config_schema"]
+
+    assert sorted(schema) == sorted([*(f"ntfy.{key}" for key in (*SETTING_KEYS, "token")),
+                                     "sweep.interval_seconds", "attention.completed_platforms"])
+    assert all(spec["description"].strip() for spec in schema.values())
+    assert schema["ntfy.token"] == {"type": "secret", "env": TOKEN_ENV,
+                                    "description": schema["ntfy.token"]["description"]}
+    assert schema["sweep.interval_seconds"]["default"] == SWEEP_INTERVAL_SECONDS
+    assert set(schema["attention.completed_platforms"]["default"]) == DEFAULT_COMPLETED_PLATFORMS
 
 
 # --- the periodic sweep's interval ----------------------------------------------

@@ -22,11 +22,13 @@ they act on that profile, and no other thread sees the override.
 
 Since v0.21.6 the RPC also binds the profile's secret scope and terminal
 policy (``_session_profile_runtime_scope`` in ``tui_gateway/model_switch.py``).
-This module does not: no setting it reads or writes is a secret, and it
-runs no command. A ``${VAR}`` reference in the profile's ``config.yaml``
-expands against whatever secret scope the caller already holds (the
-request's in a dashboard route, the turn's in a hook), and ``save_config``
-writes the reference back, not the value.
+These per-profile calls do not: no setting they read or write is a secret,
+and none runs a command. A ``${VAR}`` reference in the profile's
+``config.yaml`` expands against whatever secret scope the caller already
+holds (the request's in a dashboard route, the turn's in a hook), and
+``save_config`` writes the reference back, not the value. The one secret
+this module reads, :func:`install_secret`, comes from the Hermes root's own
+secret scope, bound for that read only.
 """
 
 from __future__ import annotations
@@ -62,6 +64,45 @@ def default_hermes_root() -> Path | None:
     except ImportError:
         return None
     return Path(get_default_hermes_root())
+
+
+def install_secret(name: str) -> str | None:
+    """The secret ``name`` of the whole install, from the Hermes root's ``.env``; ``None`` when unset or blank.
+
+    Hermes keeps a plugin's ``type: secret`` setting in ``.env`` under the
+    name its ``config_schema`` gives (``hermes_cli/plugins_settings.py``),
+    and a plugin reads it with ``agent.secret_scope.get_secret``, which
+    answers from the secret scope bound to the current task: a hook runs in
+    its turn's profile scope, a dashboard route in the request's. The
+    Ergates push settings are one feed for the whole install, so their
+    secret lives in the root's ``.env`` only. This binds the root's own
+    scope (``build_profile_secret_scope(<root>)``, stamped with the root as
+    its home) for this one read and puts the caller's scope back
+    afterwards, the way Hermes binds a profile's scope for a turn.
+
+    A miss is ``None`` under multiplexing and in a process launched for a
+    named profile: Hermes then never reads the process environment. Only a
+    process launched for the root, without multiplexing, falls back to its
+    own environment, as Hermes does for every credential there.
+    ``integrations/ergates-tests/contract/test_hermes_adapter.py`` pins the
+    calls and ``contract/live/test_adapter.py`` runs them. ``None`` outside a
+    Hermes runtime. The value is never logged.
+    """
+    try:
+        from agent.secret_scope import build_profile_secret_scope, get_secret, reset_secret_scope, set_secret_scope
+    except ImportError:
+        return None
+    root = default_hermes_root()
+    if root is None:
+        return None
+    token = set_secret_scope(build_profile_secret_scope(root), profile_home=str(root))
+    try:
+        value = get_secret(name)
+    finally:
+        reset_secret_scope(token)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()
 
 
 def configured_timezone() -> tzinfo | None:

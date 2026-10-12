@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import ast
 
-from ergates import hermes_adapter, reminders
+import yaml
+
+from ergates import hermes_adapter, reminders, settings
 from pinned import PinnedSource
+from plugin_tree import PLUGIN_DIR
 
 CONSTANTS = "hermes_constants.py"
 HERMES_TIME = "hermes_time.py"
@@ -31,6 +34,9 @@ RPC = "tui_gateway/methods_tools.py"
 MODEL_SWITCH = "tui_gateway/model_switch.py"
 PROMPT_TURN = "tui_gateway/prompt_turn.py"
 PROMPT_SCAN = "tools/cronjob_prompt_scan.py"
+SECRET_SCOPE = "agent/secret_scope.py"
+PLUGINS_SETTINGS = "hermes_cli/plugins_settings.py"
+PLUGINS_MANIFEST = "hermes_cli/plugins_manifest.py"
 
 
 def _arguments(function: ast.FunctionDef) -> list[str]:
@@ -553,3 +559,64 @@ def test_the_profile_listing_names_default_and_every_profile_folder(hermes: Pinn
         "        and named_profile_has_identity(entry)\n"
         "        and not (live_only and named_profile_is_deleted(entry))"
     )
+
+
+def test_the_secret_scope_functions_the_plugin_calls(hermes: PinnedSource) -> None:
+    """``install_secret`` binds the Hermes root's secret scope for one read, the way Hermes binds a
+    profile's scope for a turn: ``build_profile_secret_scope(<root>)``, then
+    ``set_secret_scope(mapping, profile_home=<root>)``, ``get_secret(name)`` and
+    ``reset_secret_scope(token)``."""
+    for name, line, arguments in (
+        ("set_secret_scope", 143, ["secrets", "profile_home"]),
+        ("reset_secret_scope", 154, ["token"]),
+        ("get_secret", 219, ["name", "default"]),
+        ("build_profile_secret_scope", 391, ["hermes_home"]),
+    ):
+        function = hermes.function(SECRET_SCOPE, name)
+        assert function.lineno == line, name
+        assert _arguments(function) == arguments, name
+    assert [a.arg for a in hermes.function(SECRET_SCOPE, "set_secret_scope").args.kwonlyargs] == ["profile_home"]
+    # agent/secret_scope.py:395: the scope is the home's .env (plus its external and managed sources).
+    assert hermes.lines(SECRET_SCOPE, 395, 395) == '    secrets = load_env_file(Path(hermes_home) / ".env")'
+    # agent/secret_scope.py:231-236: the bound scope answers first. A miss returns the default
+    # when the task serves a routed profile, and only falls through to os.environ otherwise ...
+    assert hermes.lines(SECRET_SCOPE, 231, 236) == (
+        "    bound = _SECRET_SCOPE.get()\n"
+        "    if bound is not None:\n"
+        "        val = bound.mapping.get(name)\n"
+        "        if val is not None:\n"
+        "            return val\n"
+        "        return default if serves_routed_profile() else _environ_or(name, default)"
+    )
+    # ... and every task under multiplexing serves a routed profile (agent/secret_scope.py:101-102).
+    assert hermes.lines(SECRET_SCOPE, 101, 102) == "    if is_multiplex_active():\n        return True"
+
+
+def test_a_secret_field_with_env_is_stored_under_that_name(hermes: PinnedSource) -> None:
+    """``plugin.yaml`` declares ``ntfy.token`` as ``type: secret`` with ``env: ERGATES_NTFY_TOKEN``.
+    Hermes keeps a secret field's value in the active profile's ``.env`` under that name, never
+    in ``config.yaml``, and its settings form writes it there."""
+    # hermes_cli/plugins_settings.py:58-64
+    assert hermes.lines(PLUGINS_SETTINGS, 58, 64) == (
+        "def secret_env_name(plugin_id: str, key: str, spec: Mapping[str, Any]) -> str:\n"
+        '    """``.env`` variable a ``type: secret`` field is stored under: the manifest\'s ``env:`` or\n'
+        "    ``<PLUGIN_ID>_<KEY>`` upper-snaked (``image_gen/fal`` + ``api_key`` \u2192 ``IMAGE_GEN_FAL_API_KEY``).\"\"\"\n"
+        '    declared = str(spec.get("env") or "").strip()\n'
+        "    if declared:\n"
+        "        return declared\n"
+        '    return _ENV_NAME_CLEAN_RE.sub("_", f"{plugin_id}_{key}".upper()).strip("_")'
+    )
+    # hermes_cli/plugins_settings.py:7-9
+    assert hermes.lines(PLUGINS_SETTINGS, 7, 9) == (
+        "setting lives. Secrets are declared with ``type: secret`` and never touch ``config.yaml``: the\n"
+        "field carries the ``.env`` name (``env:`` or ``<PLUGIN>_<KEY>``) plus a presence flag, and the\n"
+        "client writes the value through the existing ``PUT /api/env`` credential route."
+    )
+    assert hermes.assigned(PLUGINS_SETTINGS, "_FIELD_TYPES")["secret"] == "secret"
+    # hermes_cli/plugins_manifest.py:50: the loader and `hermes plugins validate` know the type.
+    assert hermes.lines(PLUGINS_MANIFEST, 50, 50) == '    "secret": (str,),'
+
+    manifest = yaml.safe_load((PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8"))
+    token = manifest["config_schema"]["ntfy.token"]
+    assert token["type"] == "secret"
+    assert token["env"] == settings.TOKEN_ENV == "ERGATES_NTFY_TOKEN"

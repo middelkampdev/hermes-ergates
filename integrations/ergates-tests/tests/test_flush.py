@@ -13,7 +13,7 @@ import time
 import pytest
 
 from conftest import FakeCron, raw_bytes, rows
-from ergates import flush
+from ergates import flush, hermes_adapter
 from ergates.attention import APPROVAL_TTL_SECONDS, RETENTION_SECONDS, AttentionService
 from ergates.delivery import LEASE_SECONDS
 from ergates.flush import flush_once, main
@@ -22,11 +22,20 @@ from ergates.reminders import REMINDER_MAX_IDLE_SECONDS, ReminderService
 
 SETTINGS = {"server": "https://ntfy.example.internal", "topic": "ergates-alerts", "token": "tok",
             "connection_id": "conn-1"}
+# What config.yaml holds; the token is the install secret ERGATES_NTFY_TOKEN in the root's .env.
+CONFIG = {key: value for key, value in SETTINGS.items() if key != "token"}
+
+
+@pytest.fixture
+def install_token(monkeypatch):
+    """Hermes answers the install secret ERGATES_NTFY_TOKEN with the token of SETTINGS."""
+    secrets = {"ERGATES_NTFY_TOKEN": SETTINGS["token"]}
+    monkeypatch.setattr(hermes_adapter, "install_secret", secrets.get)
 
 
 def _write_config(home, **ntfy):
     """Write a config.yaml shaped exactly like the one the runbook edits."""
-    settings = ntfy or SETTINGS
+    settings = ntfy or CONFIG
     home.mkdir(parents=True, exist_ok=True)
     (home / "config.yaml").write_text(
         "plugins:\n"
@@ -169,7 +178,7 @@ def test_the_store_never_carries_content_after_a_flush(tmp_path, store):
 # --- one sweep: what hermes serve runs every interval -------------------------
 
 
-def test_sweep_once_reads_the_root_push_settings_and_asks_hermes_cron(tmp_path, store, monkeypatch):
+def test_sweep_once_reads_the_root_push_settings_and_asks_hermes_cron(tmp_path, store, monkeypatch, install_token):
     _write_config(tmp_path)
     cron = FakeCron()
     monkeypatch.setattr(flush, "HermesCron", lambda: cron)
@@ -208,7 +217,7 @@ def test_sweep_once_skips_push_when_config_yaml_is_unreadable(tmp_path, store, m
 # --- the command line -------------------------------------------------------
 
 
-def test_main_reports_counts_and_never_prints_a_secret(tmp_path, capsys, monkeypatch, store):
+def test_main_reports_counts_and_never_prints_a_secret(tmp_path, capsys, monkeypatch, store, install_token):
     monkeypatch.setitem(sys.modules, "hermes_constants", None)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     _write_config(tmp_path)
@@ -245,7 +254,7 @@ def test_main_survives_a_malformed_root_config_and_still_prunes(tmp_path, capsys
 
 
 def test_main_sweeps_the_shared_store_with_the_install_settings_from_a_profile_process(
-        tmp_path, capsys, monkeypatch, store):
+        tmp_path, capsys, monkeypatch, store, install_token):
     """With HERMES_HOME=<root>/profiles/<name> the sweep once opened the
     profile's own journals. It sweeps the one store under the Hermes root, and it
     pushes with the install-wide settings in the root's config.yaml, not with
@@ -331,8 +340,8 @@ def test_main_refuses_to_run_as_root_when_another_user_owns_the_hermes_root(tmp_
 
 
 def test_main_takes_no_credential_arguments_and_no_profile():
-    """The whole point of reading config.yaml: a token must never reach a process
-    listing (04 section 6). argparse rejects anything token-shaped. The push
+    """The whole point of reading the settings from config.yaml and the token from
+    the root's .env: a token must never reach a process listing (04 section 6). argparse rejects anything token-shaped. The push
     settings are install-wide, so there is no profile to choose either."""
     with pytest.raises(SystemExit):
         main(["--token", "secret"])

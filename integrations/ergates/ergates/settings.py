@@ -2,10 +2,19 @@
 
 One control store serves every profile of an install, and so do the push
 settings. Every hook, in every profile, and ``python -m ergates.flush`` read
-them from the Hermes root's ``config.yaml`` (the default profile's config,
+``ntfy.server``, ``ntfy.topic`` and ``ntfy.connection_id`` from the Hermes
+root's ``config.yaml`` (the default profile's config,
 ``<hermes root>/config.yaml``) at ``plugins.entries.ergates.settings.ntfy.*``.
 A profile's own ``config.yaml`` keeps only per-profile settings, such as
 ``attention.completed_platforms``.
+
+The ntfy token is a Hermes plugin secret: ``plugin.yaml`` declares
+``ntfy.token`` in its ``config_schema`` as ``type: secret`` stored as
+``ERGATES_NTFY_TOKEN`` (:data:`TOKEN_ENV`), so Hermes keeps it in ``.env``,
+and the plugin reads it through Hermes from the root's ``.env``
+(:func:`ergates.hermes_adapter.install_secret`), never from a file it opens
+itself. A ``ntfy.token`` still in ``config.yaml`` is ignored, with a warning
+that names the key and the variable, never the value.
 
 The same section holds ``sweep.interval_seconds``, how often ``hermes serve``
 runs the periodic sweep (:func:`sweep_interval`, :mod:`ergates.sweep`).
@@ -26,13 +35,17 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
+from . import hermes_adapter
 from .delivery import NtfySettings, ntfy_settings
 from .sweep import SWEEP_INTERVAL_SECONDS
 
 logger = logging.getLogger(__name__)
 
 PLUGIN_ID = "ergates"
-SETTING_KEYS = ("server", "topic", "token", "connection_id")
+SETTING_KEYS = ("server", "topic", "connection_id")
+# Its own name, never NTFY_TOKEN or NTFY_TOPIC: Hermes's bundled ntfy platform
+# reads those and takes every message on its topic as user input.
+TOKEN_ENV = "ERGATES_NTFY_TOKEN"
 
 _UNEXPANDED_MARKER = "${"
 
@@ -44,7 +57,8 @@ def settings_from_config(config: Any, plugin_id: str = PLUGIN_ID) -> Dict[str, s
     anywhere along the path counts as absent rather than raising: a sweep
     or a hook must not die on a config typo. A value that still contains
     ``${`` (an unexpanded template reference) comes back absent too, logged
-    by key name only, never by value.
+    by key name only, never by value. A ``token`` key is ignored, with one
+    warning that says where the token goes now.
     """
     node: Any = config
     for segment in ("plugins", "entries", plugin_id, "settings", "ntfy"):
@@ -53,6 +67,11 @@ def settings_from_config(config: Any, plugin_id: str = PLUGIN_ID) -> Dict[str, s
         node = node[segment]
     if not isinstance(node, Mapping):
         return {}
+    if "token" in node:
+        logger.warning(
+            "ergates: plugins.entries.%s.settings.ntfy.token in config.yaml is ignored; "
+            "set %s in the Hermes root's .env instead", plugin_id, TOKEN_ENV,
+        )
     settings: Dict[str, str] = {}
     for key in SETTING_KEYS:
         value = node.get(key)
@@ -71,12 +90,17 @@ def settings_from_config(config: Any, plugin_id: str = PLUGIN_ID) -> Dict[str, s
 
 
 def load_settings(root: Path, plugin_id: str = PLUGIN_ID) -> Dict[str, str]:
-    """The ``ntfy.*`` settings in ``<root>/config.yaml``; empty when the file is missing."""
+    """The ``ntfy.*`` settings in ``<root>/config.yaml``, plus ``token`` when the install secret
+    :data:`TOKEN_ENV` is set; empty when the file is missing."""
     config = _root_config(root)
     if config is None:
         logger.info("ergates: no config at %s; push settings unavailable", Path(root) / "config.yaml")
         return {}
-    return settings_from_config(config, plugin_id)
+    settings = settings_from_config(config, plugin_id)
+    token = hermes_adapter.install_secret(TOKEN_ENV)
+    if token:
+        settings["token"] = token
+    return settings
 
 
 def sweep_interval(root: Path, plugin_id: str = PLUGIN_ID) -> int:

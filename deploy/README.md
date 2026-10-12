@@ -251,13 +251,19 @@ already done above, before first start.
    token and nothing else. One token per device keeps revocation per device
    (`ntfy token remove`). ([ntfy user/access/token CLI][ntfy-config])
 
-   The publisher token goes **only** into the plugin's install-wide
-   settings (`plugins.entries.ergates.settings.ntfy.token` in the Hermes
-   root's `config.yaml`, `/opt/data/config.yaml`, which every profile's
-   hooks and the sweep read -- see `integrations/ergates/README.md`); the subscriber
-   tokens go **only** into the ntfy app on each device. Neither belongs in
-   this `deploy/` tree, in `.env`, or on any command line other than the
-   `ntfy token add` above.
+   The publisher token goes **only** into the Hermes root's `.env`: add the
+   line `ERGATES_NTFY_TOKEN=<token>` with an editor to `data/hermes/.env`,
+   which is `/opt/data/.env` in the containers and the file `hermes setup`
+   wrote in step 1. It is the plugin's one secret, and every profile's hooks
+   and the sweep read it there through Hermes (see
+   `integrations/ergates/README.md`). The subscriber tokens go **only** into
+   the ntfy app on each device. Neither belongs in this `deploy/` tree, in
+   `deploy/.env`, in any `config.yaml`, or on any command line other than
+   the `ntfy token add` above. A server set up with an earlier version of
+   this runbook has the publisher token in `data/hermes/config.yaml` as
+   `plugins.entries.ergates.settings.ntfy.token`. Move it to
+   `data/hermes/.env`: the plugin ignores it in `config.yaml`, and pushes
+   then go out without it.
 
    The topic itself must match the ACL pattern: set
    `plugins.entries.ergates.settings.ntfy.topic` to an `ergates-`-prefixed
@@ -269,13 +275,14 @@ already done above, before first start.
    `config.yaml`: merge its keys into `data/hermes/config.yaml` (the file
    `hermes setup` wrote) and copy `profiles/concierge/SOUL.md` to
    `data/hermes/SOUL.md`. It enables the plugin and holds the install-wide
-   push settings; add the publisher token from step 2 as
-   `plugins.entries.ergates.settings.ntfy.token`, and the app's connection
-   id (the app's Settings, "Connection id (for push links)") as
-   `...ntfy.connection_id`. Then fill in every `TODO` each `config.yaml`
-   calls out (workspace volumes, effective toolset, MCP include list) before
-   treating a profile as ready. Specialists are normally created by the app
-   from a template in `../integrations/ergates/templates/`, with
+   push settings; add the app's connection id (the app's Settings,
+   "Connection id (for push links)") as
+   `plugins.entries.ergates.settings.ntfy.connection_id`. The publisher
+   token stays in `data/hermes/.env` (step 2). Then fill in every `TODO`
+   each `config.yaml` calls out (workspace volumes, effective toolset, MCP
+   include list) before treating a profile as ready. Specialists are
+   normally created by the app from a template in
+   `../integrations/ergates/templates/`, with
    `mirror_credentials: false`; a
    specialist made by hand from `profiles/specialist-template/` goes to
    `data/hermes/profiles/<name>/` -- never copy the concierge's credentials
@@ -320,10 +327,12 @@ exists, so a job deleted in the Routines screen drops its receipt. Only
 `hermes-serve` runs it: `hermes-gateway` loads the plugin's hooks but not
 its routes.
 
-The sweep reads the ntfy server, topic, token and connection id from the Hermes root's `config.yaml`
-(the same install-wide `plugins.entries.ergates.settings.ntfy.*` keys every hook reads),
-so **no credential is ever passed as an argument** and none appears in a
-process listing or in a log line (04 section 6).
+The sweep reads the ntfy server, topic and connection id from the Hermes
+root's `config.yaml` (the same install-wide
+`plugins.entries.ergates.settings.ntfy.*` keys every hook reads) and the
+publisher token from `/opt/data/.env`, so **no credential is ever passed as
+an argument** and none appears in a process listing or in a log line (04
+section 6).
 `plugins.entries.ergates.settings.sweep.interval_seconds` in the same file
 sets the interval (120 by default; `0` turns the sweep off). Two minutes is
 chosen against the plugin's 30s / 2min / 10min publish backoff, so a due

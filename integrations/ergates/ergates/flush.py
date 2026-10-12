@@ -12,10 +12,12 @@ runs no timer for a plugin:
 
 ``hermes serve`` runs :func:`sweep_once` on its own thread every
 ``sweep.interval_seconds``, two minutes by default (:mod:`ergates.sweep`);
-``python -m ergates.flush`` runs it once, by hand. The ntfy credentials are the install-wide push settings in the Hermes
-root's ``config.yaml`` (:mod:`ergates.settings`), the same ones every hook
-reads, so **no token ever appears on a command line, in a process listing,
-or in this module's output**. The only argument is ``--quiet``.
+``python -m ergates.flush`` runs it once, by hand. The ntfy settings are
+the install-wide ones every hook reads: the Hermes root's ``config.yaml``,
+and for the token the root's ``.env`` through Hermes
+(:mod:`ergates.settings`), so **no token ever appears on a command line, in
+a process listing, or in this module's output**. The only argument is
+``--quiet``.
 
 Inside the Hermes runtime the reminder sweep asks Hermes cron
 (:class:`~ergates.hermes_adapter.HermesCron`) whether each receipt's job
@@ -123,7 +125,8 @@ def main(argv: Optional[list] = None) -> int:
         prog="python -m ergates.flush",
         description=(
             "Send due ntfy pushes and apply retention to the ergates control store. "
-            "Credentials are read from the Hermes root's config.yaml, never from arguments."
+            "Settings are read from the Hermes root's config.yaml and the token from its .env, "
+            "through Hermes, never from arguments."
         ),
     )
     parser.add_argument(

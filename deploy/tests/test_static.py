@@ -322,10 +322,23 @@ def test_each_profile_enables_the_plugin(name: str) -> None:
     assert "ergates" in profile(name)["plugins"]["enabled"]
 
 
+def _keys(node: object) -> set[str]:
+    """Every mapping key anywhere in a parsed YAML document."""
+    if isinstance(node, dict):
+        return {str(key) for key in node} | {key for value in node.values() for key in _keys(value)}
+    if isinstance(node, list):
+        return {key for item in node for key in _keys(item)}
+    return set()
+
+
 def test_the_concierge_holds_the_install_wide_push_settings_without_a_secret() -> None:
-    """The concierge's config.yaml is the Hermes root's, where every hook and the sweep read ntfy.*."""
-    ntfy = profile("concierge")["plugins"]["entries"]["ergates"]["settings"]["ntfy"]
+    """The concierge's config.yaml is the Hermes root's, where every hook and the sweep read ntfy.*.
+    The publisher token is the plugin secret ERGATES_NTFY_TOKEN in the root's .env, so no `token`
+    key appears anywhere in this file."""
+    concierge = profile("concierge")
+    ntfy = concierge["plugins"]["entries"]["ergates"]["settings"]["ntfy"]
     assert ntfy == {"server": "http://ntfy", "topic": "ergates-attention"}
+    assert "token" not in _keys(concierge)
     assert "entries" not in profile("specialist-template")["plugins"]
 
 
