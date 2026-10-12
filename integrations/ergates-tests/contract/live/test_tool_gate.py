@@ -318,21 +318,35 @@ def test_rule_3_an_mcp_allowlist_in_the_app_pin_grants_only_the_listed_server(ga
     assert gate("maud", "mcp_calendar_list", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
 
 
-def test_rule_3_an_mcp_server_off_by_the_legacy_disabled_key_is_blocked_on_the_app_pin(gate, provision, mcp_tool):
+@pytest.mark.parametrize(("profile", "pin"), [
+    ("femke", ["web"]),
+    ("floor", ["web", "mcp-drafts"]),
+    ("frits", ["all"]),
+], ids=["selected-by-hermes", "listed-as-its-toolset", "all"])
+def test_rule_3_an_mcp_server_off_by_the_legacy_disabled_key_is_blocked_on_the_app_pin(gate, provision, mcp_tool,
+                                                                                        profile, pin):
     """Hermes reads only ``enabled``, so it still selects and connects a server that a config written
-    before v0.21.6 turned off with ``disabled: true`` (until config migration 46 rewrites it). The grant
-    leaves that server out, and its name too: through the alias it would resolve to the server's tools."""
-    provision("femke", ["web"])
-    _edit_config("femke", lambda config: config.update(mcp_servers={"drafts": {**_url("drafts"), "disabled": True}}))
+    before v0.21.6 turned off with ``disabled: true`` (until config migration 46 rewrites it). However
+    the server's toolset gets into the grant (its name through the alias Hermes registers, ``mcp-drafts``
+    in the list, or ``all``, which spans every toolset), the grant takes it out again."""
+    provision(profile, ["web"])
+
+    def legacy_off(config):
+        config["mcp_servers"] = {"drafts": {**_url("drafts"), "disabled": True}}
+        config["platform_toolsets"]["cli"] = pin
+
+    _edit_config(profile, legacy_off)
     mcp_tool("drafts", "mcp_drafts_list")
 
-    assert gate("femke", "mcp_drafts_list", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
+    assert gate(profile, "mcp_drafts_list", {}) == [{"action": "block", "message": BLOCK_REVOKED}]
+    assert gate(profile, "web_search", {}) == []
 
 
 def test_rule_3_the_legacy_pin_still_grants_every_enabled_mcp_server(gate, provision, mcp_tool):
     """A profile configured before v0.21.6 pins ``tools.enabled_toolsets``, which no Hermes surface
-    reads, so there is no MCP selection of Hermes's to follow: every enabled server counts, and a
-    server turned off with either key does not."""
+    reads, so there is no MCP selection of Hermes's to follow: every enabled server adds its toolset,
+    and a server turned off with either key adds none. (A server name in the list itself would still
+    resolve to its tools through Hermes's alias; this list names none.)"""
     provision("lars", ["web"])
 
     def legacy_pin(config):

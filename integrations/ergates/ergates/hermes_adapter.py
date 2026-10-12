@@ -454,16 +454,24 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
     tools Hermes registers under other toolsets (``browser`` bundles
     ``browser-cdp``) grants those toolsets too.
     An MCP server's toolset is ``mcp-<server>``. On ``platform_toolsets.cli``
-    it is granted only for a server Hermes selects for ``cli``: the answer of
-    ``_get_platform_tools`` holds the servers an app session gets, after
-    ``no_mcp`` (none) and an allowlist of server names in the list (only
-    those), and ``enabled_mcp_server_names`` tells a server from the other
-    names in it. On the legacy pin, which Hermes no longer reads, every server
-    the config enables counts (``tools.mcp_tool_common.mcp_server_enabled``:
-    ``enabled``, true unless set). Either way a server switched off with the
-    legacy ``disabled`` key, which ``profiles.configure`` wrote before v0.21.6
-    and Hermes's MCP runtime never reads, is left out, and so is its name:
-    once the server connects, its name is an alias of its ``mcp-`` toolset.
+    the answer of ``_get_platform_tools`` also holds the MCP servers an app
+    session gets: none when the list holds ``no_mcp``, only the listed ones
+    when the list names at least one enabled server (an MCP allowlist), and
+    every enabled server otherwise. Each server in it that
+    ``enabled_mcp_server_names`` names adds its ``mcp-`` toolset. A name in
+    the list that resolves to a server's tools grants that server's toolset
+    too, as for any toolset: ``mcp-<server>`` itself, ``all``, or the server's
+    name, which is an alias of its toolset once the server connects. On the
+    legacy pin, which Hermes no longer reads, every server the config enables
+    adds its toolset (``tools.mcp_tool_common.mcp_server_enabled``:
+    ``enabled``, true unless set), and so does a listed name that resolves to
+    a server's tools. The legacy ``disabled`` key, which ``profiles.configure``
+    wrote before v0.21.6 and Hermes's MCP runtime never reads, counts
+    differently on the two pins. On ``platform_toolsets.cli`` the ``mcp-``
+    toolset of such a server is taken out of the finished grant, whichever way
+    it got in; a built-in toolset of the same name stays. On the legacy pin it
+    only keeps the server from adding its toolset, so a listed name that
+    resolves to its tools still grants them.
 
     ``None`` means the profile pins no toolsets, so Hermes alone decides its
     tools and Ergates cannot tell a narrower grant; outside a Hermes runtime
@@ -509,14 +517,15 @@ def granted_toolsets(profile: str) -> frozenset[str] | None:
                       if isinstance(entry, dict) and is_truthy_value(entry.get("disabled", False))}
         if key == _APP_PIN:
             # Read-only: _get_platform_tools never writes to the config it is given.
-            selected = set(_get_platform_tools(config, _APP_PLATFORM, include_default_mcp_servers=True)) - legacy_off
+            selected = set(_get_platform_tools(config, _APP_PLATFORM, include_default_mcp_servers=True))
             granted = toolsets_granted_by(selected)
-            granted_servers = selected & enabled_mcp_server_names(config)
+            granted.update(f"mcp-{server}" for server in selected & enabled_mcp_server_names(config))
+            # Last, so it holds however the toolset got in: the server's name, `mcp-<server>` or `all`.
+            granted -= {f"mcp-{server}" for server in legacy_off}
         else:
             granted = toolsets_granted_by(pinned)
-            granted_servers = {str(server) for server, entry in servers.items()
-                               if isinstance(entry, dict) and mcp_server_enabled(entry)} - legacy_off
-        granted.update(f"mcp-{server}" for server in granted_servers)
+            granted.update(f"mcp-{server}" for server, entry in servers.items()
+                           if isinstance(entry, dict) and mcp_server_enabled(entry) and str(server) not in legacy_off)
     return frozenset(granted)
 
 

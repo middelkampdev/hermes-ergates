@@ -840,13 +840,26 @@ MCP_SERVERS = {"notes": {}, "calendar": {}, "off": {"enabled": False}, "legacy":
 
 def test_on_the_app_pin_only_the_mcp_servers_hermes_selects_add_their_toolsets(monkeypatch):
     """Hermes's ``_get_platform_tools`` applies ``no_mcp`` and an MCP allowlist in the list; here
-    it selects ``notes`` and ``legacy``. ``calendar`` is enabled but not selected, and ``legacy``
-    is selected but turned off with the key Hermes no longer reads, so neither its name nor its
-    ``mcp-`` toolset is granted."""
-    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": ["web", "notes", "legacy"]},
+    it selects ``notes`` and ``legacy``. ``calendar`` is enabled but not selected. ``legacy`` is
+    selected, and the list even names its toolset, but it is turned off with the key Hermes no
+    longer reads, so ``mcp-legacy`` is taken out of the grant."""
+    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": ["web", "notes", "legacy", "mcp-legacy"]},
                                              "mcp_servers": MCP_SERVERS})
 
-    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "notes", "mcp-notes"})
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "notes", "legacy", "mcp-notes"})
+
+
+def test_a_server_off_by_the_legacy_key_leaves_a_built_in_toolset_of_its_name_granted(provisioned_thijs, monkeypatch):
+    """Only the server's own toolset ``mcp-browser`` leaves the grant, never the built-in ``browser``."""
+    _stub_hermes_grant_modules(monkeypatch, {"platform_toolsets": {"cli": ["web", "browser"]},
+                                             "mcp_servers": {"browser": {"disabled": True}}})
+    monkeypatch.setattr(hermes_adapter, "toolset_for_tool",
+                        {"browser_navigate": "browser", "mcp_browser_open": "mcp-browser"}.get)
+    gate = _gate(_RecordingCtx())
+
+    assert hermes_adapter.granted_toolsets("thijs") == frozenset({"web", "browser"})
+    assert gate(tool_name="browser_navigate", args={}) is None
+    assert gate(tool_name="mcp_browser_open", args={}) == {"action": "block", "message": BLOCK_REVOKED}
 
 
 def test_on_the_legacy_pin_every_mcp_server_the_profile_enables_adds_its_toolset(monkeypatch):

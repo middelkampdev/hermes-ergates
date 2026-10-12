@@ -499,7 +499,17 @@ def test_hermes_merges_mcp_servers_with_no_mcp_and_an_allowlist(hermes: PinnedSo
     ``no_mcp`` in the list selects none, server names in the list select only those, and a list
     that names no enabled server selects every enabled one. ``enabled_mcp_server_names`` says
     which servers are enabled: ``enabled`` not false, or added by a portable plugin. It never
-    reads the legacy ``disabled`` key, so the grant still leaves such a server out itself."""
+    reads the legacy ``disabled`` key, so the grant takes such a server's toolset out itself,
+    also when ``all`` in the list brings it in: ``all`` spans every toolset Hermes knows."""
+    # toolsets.py:392-397: `all` (or `*`) resolves to the tools of every toolset, MCP ones included.
+    assert hermes.lines(TOOLSETS, 392, 397) == (
+        '    if name in {"all", "*"}:\n'
+        "        all_tools: Set[str] = set()\n"
+        "        for toolset_name in get_toolset_names():\n"
+        "            if toolset_name not in TOOLSET_SESSION_PLATFORMS:\n"
+        "                all_tools.update(resolve_toolset(toolset_name, visited.copy(), include_registry=include_registry))\n"
+        "        return sorted(all_tools)"
+    )
     function = hermes.function(TOOLS_CONFIG, "enabled_mcp_server_names")
     assert function.lineno == 410
     assert _arguments(function) == ["config"]

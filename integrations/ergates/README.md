@@ -370,12 +370,18 @@ is slow, so `setup` and `push` are reused for 10 seconds (`POST /setup` and
   `profiles.configure` writes, `platform_toolsets.cli` in the profile's
   `config.yaml` (the app sets it from the template), resolved with Hermes's
   own `_get_platform_tools`. Hermes's answer also lists the MCP servers an
-  app session gets: none when the list holds `no_mcp`, only the named ones
-  when it names servers, and every enabled server otherwise. Each of those
-  servers adds its toolset `mcp-<server>`. The legacy `tools.enabled_toolsets`
-  counts only when `platform_toolsets.cli` is absent, and then every MCP
-  server the profile enables adds its toolset. A server switched off with the
-  legacy `disabled` key is never granted. The grant is read at every tool
+  app session gets: none when the list holds `no_mcp`, only the listed ones
+  when it names at least one enabled server, and every enabled server
+  otherwise. Each of those servers adds its toolset `mcp-<server>`. A name in
+  the list that resolves to a server's tools, such as `mcp-<server>` or `all`,
+  grants them too, as it does in Hermes. The legacy `tools.enabled_toolsets`
+  counts only when `platform_toolsets.cli` is absent: its names count as
+  listed, and every MCP server the profile enables adds its toolset. Hermes
+  never reads an MCP server's legacy `disabled` key. On
+  `platform_toolsets.cli` the gate takes such a server's `mcp-<server>` out of
+  the grant, whichever way it got in. On the legacy pin such a server adds no
+  toolset of its own, but a listed name that resolves to its tools still
+  grants them. The grant is read at every tool
   call, so a toolset or MCP server taken away is blocked at the next call, in
   a running session too. Hermes builds an app session's tools from the same
   list, but `profiles.configure` rebuilds no running session, and gateway
