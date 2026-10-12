@@ -20,15 +20,12 @@ import {
   runSetup,
   SETUP_TITLE,
   serverCheckKey,
-  setupView,
-  signedOutView,
+  setupScreenView,
   stepStatusWord,
   useServerCheck,
-  type BuildRecord,
   type SetupAction,
   type SetupRunState,
   type SetupStep,
-  type SetupView,
   type StepStatus
 } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
@@ -143,7 +140,7 @@ function ServerSetup({ connection }: { connection: Connection }) {
     return <Redirect href="/server/finish" />
   }
 
-  const view = viewOf(check, build, run)
+  const view = setupScreenView({ data: check.data, error: check.error }, build, run)
   if (view === null) {
     return (
       <Page title={SETUP_TITLE} onBack={goBack}>
@@ -191,21 +188,6 @@ function ServerSetup({ connection }: { connection: Connection }) {
       ) : null}
     </Page>
   )
-}
-
-/** The view to draw, or null while the first check is still on its way. */
-function viewOf(check: ReturnType<typeof useServerCheck>, build: BuildRecord | null, run: SetupRunState | null): SetupView | null {
-  if (run !== null) {
-    return setupView(check.data ?? { kind: 'unknown' }, build, run)
-  }
-  if (check.data) {
-    return setupView(check.data, build, null)
-  }
-  if (check.isError) {
-    // `checkServer` rejects only with the 401; every other failure is a check that ended `unknown`.
-    return signedOutView()
-  }
-  return null
 }
 
 const styles = StyleSheet.create({

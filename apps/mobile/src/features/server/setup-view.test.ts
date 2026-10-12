@@ -6,9 +6,11 @@ import { describe, expect, it } from 'vitest'
 
 import { FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-gateway/fake-ergates'
 
+import { GatewayError, mapHttpError } from '@/gateway/errors'
+
 import type { BuildRecord } from './build-record'
 import type { ServerCheck } from './server-check'
-import { opensFinish, setupView, signedOutView, stepStatusWord, type SetupRunState } from './setup-view'
+import { opensFinish, setupScreenView, setupView, signedOutView, stepStatusWord, type SetupRunState } from './setup-view'
 import type { SetupOutcome, SetupStep, StepStatus } from './setup-run'
 
 const COMMIT = 'abcdef0123456789abcdef0123456789abcdef01'
@@ -275,6 +277,42 @@ describe('signedOutView', () => {
       secondary: NOT_NOW,
       steps: null
     })
+  })
+})
+
+describe('setupScreenView: the check as the screen holds it', () => {
+  const signedOut = mapHttpError(401, { detail: 'Unauthorized' })
+  const unknown: ServerCheck = { kind: 'unknown' }
+
+  it('waits for the first answer', () => {
+    expect(setupScreenView({ data: undefined, error: null }, buildRecord(), null)).toBeNull()
+  })
+
+  it('shows the view for the check once it answered', () => {
+    expect(setupScreenView({ data: oneTap, error: null }, buildRecord(), null)).toEqual(setupView(oneTap, buildRecord(), null))
+  })
+
+  it('asks to sign in again when the first check was refused', () => {
+    expect(setupScreenView({ data: undefined, error: signedOut }, buildRecord(), null)).toEqual(signedOutView())
+  })
+
+  it('lets a refused check win over the older answer it still holds, so Try again after an unreachable server asks to sign in', () => {
+    expect(setupScreenView({ data: unknown, error: signedOut }, buildRecord(), null)).toEqual(signedOutView())
+    expect(setupScreenView({ data: oneTap, error: signedOut }, buildRecord(), null)).toEqual(signedOutView())
+  })
+
+  it('reads any other failed check as a server it could not reach', () => {
+    const lost = new GatewayError('network', 'No connection to the gateway.')
+
+    expect(setupScreenView({ data: undefined, error: lost }, buildRecord(), null)).toEqual(setupView(unknown, buildRecord(), null))
+    expect(setupScreenView({ data: oneTap, error: lost }, buildRecord(), null)).toEqual(setupView(oneTap, buildRecord(), null))
+  })
+
+  it('lets a run decide, whatever the check says', () => {
+    const run = runWith(null, { install: 'active' })
+
+    expect(setupScreenView({ data: oneTap, error: signedOut }, buildRecord(), run)).toEqual(setupView(unknown, buildRecord(), run))
+    expect(setupScreenView({ data: undefined, error: null }, buildRecord(), run)).toEqual(setupView(unknown, buildRecord(), run))
   })
 })
 

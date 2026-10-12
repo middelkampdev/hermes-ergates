@@ -71,7 +71,7 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
   const gateway = useGateway(connection)
   const home = useHome(gateway, connectionId)
   const queryClient = useQueryClient()
-  // What the server says about the plugin. A refused session is Home's sign-in line below, so the check's own error is not shown.
+  // What the server says about the plugin. A refused check is Home's sign-in line below.
   const build = useMemo(() => buildRecord(), [])
   const check = useServerCheck(connection, build)
   const serverNotice = pluginNotice(check.data)
@@ -279,7 +279,8 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
   }
 
   const empty = !home.loading && !home.error && home.bots.length === 0
-  const errorLine = home.error ? homeErrorLine(home.error) : null
+  // A 401 from either read asks for a new sign-in: after a Hermes restart only the check's HTTP read gets one.
+  const errorLine = homeErrorLine(home.error, check.error)
   const errorStyle = [styles.line, { color: theme.colors.destructive, paddingHorizontal: gutter }]
 
   return (

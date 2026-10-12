@@ -21,5 +21,5 @@ export { clearPendingSetup, finishPendingSetup, markPendingSetup } from './pendi
 export { MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, type NoticeRoute, type PluginNotice } from './plugin-notice'
 export { checkServer, isSignedOut, pluginFits, type InstallKind, type PluginFit, type ServerCheck } from './server-check'
 export { isSetupRunning, lastManualOutcome, runSetup, type ManualFailure, type ManualOutcome, type SetupDeps, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
-export { SETUP_TITLE, opensFinish, setupView, signedOutView, stepStatusWord, type SetupAction, type SetupRunState, type SetupView } from './setup-view'
+export { SETUP_TITLE, opensFinish, setupScreenView, setupView, stepStatusWord, type HeldCheck, type SetupAction, type SetupRunState, type SetupView } from './setup-view'
 export { serverCheckKey, useServerCheck } from './use-server-check'

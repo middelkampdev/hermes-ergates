@@ -8,7 +8,7 @@
 
 import type { BuildRecord } from './build-record'
 import { parseHermesVersion } from './hermes-version'
-import type { ServerCheck } from './server-check'
+import { isSignedOut, type ServerCheck } from './server-check'
 import type { SetupOutcome, SetupStep, StepStatus } from './setup-run'
 
 /** `retry` runs the setup again after a failed run; `check_again` asks the server again after a check that could not tell. */
@@ -182,6 +182,33 @@ export function setupView(check: ServerCheck, build: BuildRecord | null, run: Se
     case 'unknown':
       return view({ body: [UNREACHABLE], primary: { label: 'Try again', action: 'check_again' }, secondary: NOT_NOW })
   }
+}
+
+/** The server check as the screen holds it: the last answer, and the error of the last read (null when it went through). */
+export interface HeldCheck {
+  data: ServerCheck | undefined
+  error: unknown
+}
+
+/**
+ * The view for the screen, or null while the first check is still on its
+ * way. A run decides everything. Without one, a refused session wins over
+ * the older answer the check still holds: after Try again on a server that
+ * could not be reached, a 401 asks for a new sign-in instead of keeping
+ * "Could not reach your server." Any other failed read is a server the
+ * check could not reach.
+ */
+export function setupScreenView(check: HeldCheck, build: BuildRecord | null, run: SetupRunState | null): SetupView | null {
+  if (run !== null) {
+    return setupView(check.data ?? { kind: 'unknown' }, build, run)
+  }
+  if (isSignedOut(check.error)) {
+    return signedOutView()
+  }
+  if (check.data) {
+    return setupView(check.data, build, null)
+  }
+  return check.error ? setupView({ kind: 'unknown' }, build, null) : null
 }
 
 /** Whether the end of a run sends the user to the Finish screen: an install by hand, or a restart of Hermes. The screen reads the rest from the server and from `lastManualOutcome`, not from the route. */
