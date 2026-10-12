@@ -207,10 +207,13 @@ docker compose exec -T -u hermes -e PYTHONPATH=/opt/data/plugins/ergates hermes-
 
 Expected: the same `templates=installed` line, the same `plugin=enabled` line
 per profile and `exit 0` as `hermes-serve` printed. After a `git pull` of this
-repository, restart `hermes-serve` or run `python -m ergates.install` (without
-`--check`, on `hermes-serve`): either installs the plugin's current templates.
-Plugin enablement in a profile made by hand only changes on a re-run of the
-installer; the app enables the plugin in the profiles it creates.
+repository, the plugin's current templates are installed in one of two ways.
+Restart `hermes-serve` and then send it one request (open the app, or call
+`/api/plugins/ergates/health`): the restart alone installs nothing, and the
+first request after it does. Or run `python -m ergates.install` (without
+`--check`, on `hermes-serve`), which installs them at once. Plugin enablement
+in a profile made by hand only changes on a re-run of the installer; the app
+enables the plugin in the profiles it creates.
 
 Result:
 
