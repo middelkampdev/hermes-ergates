@@ -43,9 +43,10 @@ job_mobile() {
 # The plugin's tests are their own project, integrations/ergates-tests, so the
 # plugin folder users install holds only runtime code. Its pyproject.toml
 # installs the plugin as an editable dependency, with pytest, pytest-cov and
-# pyyaml.
+# pyyaml. --locked makes uv fail instead of rewriting the committed uv.lock
+# that pins them.
 TESTS_DIR="$ROOT/integrations/ergates-tests"
-UV_TEST=(uv run --python 3.11)
+UV_TEST=(uv run --locked --python 3.11)
 
 # The test suite, plus the coverage gate.
 job_integration() {

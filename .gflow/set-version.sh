@@ -50,6 +50,7 @@ const FILES = [
   ['integrations/ergates/ergates/__init__.py', [/^(__version__ = ")[^"]*(?="$)/gm]],
   ['integrations/ergates/dashboard/manifest.json', [/^(  "version": ")[^"]*(?=",?$)/gm]],
   ['integrations/ergates/uv.lock', [/^(\[\[package\]\]\nname = "ergates"\nversion = ")[^"]*(?="$)/gm]],
+  ['integrations/ergates-tests/uv.lock', [/^(\[\[package\]\]\nname = "ergates"\nversion = ")[^"]*(?="$)/gm]],
 ]
 
 const updates = FILES.map(([file, patterns]) => {

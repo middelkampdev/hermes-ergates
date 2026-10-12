@@ -25,6 +25,7 @@ const EXPECTED: Record<string, string[]> = {
   'integrations/ergates/ergates/__init__.py': ['__version__ = "9.8.7"'],
   'integrations/ergates/dashboard/manifest.json': ['  "version": "9.8.7",'],
   'integrations/ergates/uv.lock': ['version = "9.8.7"'],
+  'integrations/ergates-tests/uv.lock': ['version = "9.8.7"'],
 }
 const FILES = Object.keys(EXPECTED)
 
