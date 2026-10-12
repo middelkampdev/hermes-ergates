@@ -37,6 +37,7 @@ from . import __version__
 from .attention import AttentionError, AttentionService
 from .proposals import ProposalError, ProposalService
 from .reminders import CronPort, ReminderError, ReminderService, _REQUEST_ID_RE
+from .setup import enable_everywhere, ensure_templates, setup_report
 from .store import ControlStore, StoreError, StoreReadOnly
 from .templates import load_template
 
@@ -152,18 +153,21 @@ class Operations:
     def __init__(
         self, store: ControlStore, *, cron: CronPort,
         profile_exists: Callable[[str], bool], plugin_enabled: Callable[[str], bool],
-        enable_plugin: Callable[[str], None], check_schedule: Callable[[str, str], None],
-        check_prompt: Callable[[str], None], check_gateway_lifecycle: Callable[[str, str], None],
-        templates: Path, clock: Callable[[], float] = time.time,
+        enable_plugin: Callable[[str], None], profile_names: Callable[[], list[str]],
+        check_schedule: Callable[[str, str], None], check_prompt: Callable[[str], None],
+        check_gateway_lifecycle: Callable[[str, str], None], templates: Path, bundled_templates: Path,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self._store = store
         self._profile_exists = profile_exists
         self._plugin_enabled = plugin_enabled
         self._enable_plugin = enable_plugin
+        self._profile_names = profile_names
         self._check_schedule = check_schedule
         self._check_prompt = check_prompt
         self._check_gateway_lifecycle = check_gateway_lifecycle
         self._templates = Path(templates)
+        self._bundled_templates = Path(bundled_templates)
         self._reminders = ReminderService(store, cron, clock=clock)
         self._proposals = ProposalService(store, clock=clock)
         self._attention = AttentionService(store, clock=clock)
@@ -242,6 +246,23 @@ class Operations:
             return error_reply(404, "unknown_profile", f"profile {profile!r} does not exist")
         self._enable_plugin(profile)
         return Reply(200, {"profile": profile, "enabled": True})
+
+    # POST /setup
+    def setup(self, body: Any) -> Reply:
+        """Install the templates the plugin ships, then enable it in every profile; one report for both.
+
+        The body must be a JSON object (``{}``), so that a request the router
+        could not read as JSON is refused before anything is touched.
+        Profiles that fail are named in the report and do not make the reply
+        an error. It touches no store table, but the router builds an
+        ``Operations`` only once the store opens, so as root on a Hermes root
+        another user owns it writes nothing (``store.root_run_would_break``).
+        """
+        if not isinstance(body, dict):
+            return error_reply(400, "invalid", _NOT_AN_OBJECT)
+        templates = ensure_templates(self._bundled_templates, self._templates)
+        profiles = enable_everywhere(self._profile_names(), self._enable_plugin, self._plugin_enabled)
+        return Reply(200, {"setup": setup_report(templates, profiles)})
 
     # GET /attention/prefs?scope=<name or *>, or ?profile=<name>
     @_guard_store

@@ -35,7 +35,7 @@ integrations/ergates/
     reminders.py       # ReminderService: idempotent reminders on top of Hermes cron
     proposals.py       # ergates.agent-proposal.v1 validation, hash, ProposalService
     templates.py       # proposal templates under <root>/ergates/templates/
-    setup.py           # installs the shipped templates there (first use, install.py)
+    setup.py           # installs the shipped templates there, enables the plugin in every profile
     attention.py       # AttentionService: events, outbox rows, prefs, expiry, retention
     delivery.py        # DeliveryWorker: leased outbox delivery to ntfy, deep link
     settings.py        # the install-wide push settings in the root's config.yaml
@@ -85,7 +85,10 @@ so the plugin is installed once at the root and linked into each profile:
    links `<root>/profiles/<name>/plugins/ergates` to the root's copy and adds
    `ergates` to that profile's `plugins.enabled`. The app calls it as the
    `plugin_enabled` provisioning step. It takes effect on the profile's next
-   session.
+   session. `POST /api/plugins/ergates/setup` with the body `{}` does this for
+   the default profile and every named one at once, after it installs the
+   templates, and reports each profile (see "HTTP API"). The app calls it when
+   it connects to a server.
 
 The proposal templates need no step of their own. They ship in this folder
 (`templates/`), so a git install and a read-only mount both carry them, and
@@ -187,8 +190,25 @@ refuses in its own shape (400, or 404 `Profile '<name>' does not exist.`, as
 | `POST /proposals/{id}/reject` | 200 `{"proposal"}` | 409 `not_acceptable` |
 | `POST /proposals/{id}/steps` `{step, status}` | 200 `{"proposal"}`; `briefing` `done` completes it | 409 `out_of_order` / `not_ready` |
 | `POST /profiles/{profile}/plugin` | 200 `{"profile", "enabled": true}` | 404 `unknown_profile` |
+| `POST /setup` `{}` | 200 `{"setup": {"finished", "templates", "profiles"}}` | 400 `invalid` |
 | `GET /attention/prefs?scope=<name or *>` (`?profile=<name>` still names one profile) | 200 `{"prefs"}` | 400 `invalid` |
 | `PUT /attention/prefs` `{profile, muted, quiet_start, quiet_end}` | 200 `{"prefs"}` | 400 `invalid` |
+
+`POST /setup` installs the templates the way the first request does, then
+enables the plugin in the default profile and every named one, and reports
+both. `setup.templates` is the state the template install ended in:
+`installed`, `invalid`, `missing` or `failed`. `setup.profiles` has one
+`{"name", "enabled"}` per profile, in Hermes's order, plus `"error"` with the
+exception class when enabling or checking that profile raised; a
+`plugins/ergates` folder that is not a link gives `FileExistsError`. A profile
+that fails does not stop the others and does not make the reply an error.
+`setup.finished` is true only when the templates are `installed`, there is at
+least one profile and every profile is enabled. Calling it again is safe. Send
+`{}` with `Content-Type: application/json`: any other body, a request not sent
+as JSON included, is a 400 and touches nothing, so a page on the same site
+cannot trigger a setup without a CORS preflight. Like every route, it runs
+only on a store that opens, so as root on a Hermes root another user owns it
+writes nothing and answers 503 `store_unavailable`.
 
 Also on every route: 400 `invalid` for a body that is not a JSON object or a
 field that fails validation, 404 `not_found` for an unknown proposal,

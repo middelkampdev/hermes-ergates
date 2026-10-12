@@ -299,6 +299,10 @@ already done above, before first start.
    again after every update of this repository and after making a profile by
    hand; the app enables the plugin in the profiles it creates.
 
+   The app runs the same setup when it connects, through the plugin's
+   `POST /setup`. `python -m ergates.install` does it by hand, for a server
+   the app has not reached yet.
+
 5. **Schedule the plugin's retry/retention sweep** (below). A failed push is
    scheduled for a retry that nothing in Hermes runs, so without this step
    the retry machinery and every retention rule are dead code.

@@ -1,10 +1,13 @@
-"""The plugin sets itself up: the proposal templates it ships.
+"""The plugin sets itself up: the proposal templates it ships, and its own enablement in every profile.
 
 The templates live in the plugin folder (``paths.bundled_templates_dir``),
 so a git install and a read-only mount of that folder both carry them.
 :func:`ensure_templates` copies them into ``<hermes root>/ergates/templates/``,
 where the accept route reads them. ``hermes serve`` runs it once, when it
 builds its operations, and ``python -m ergates.install`` runs the same code.
+``POST /setup`` and ``python -m ergates.install`` then enable the plugin in
+every profile with :func:`enable_everywhere` and report it with
+:func:`setup_report`.
 
 Every ``<template_id>.json`` in the source folder must be a template the
 accept route would serve (:func:`ergates.templates.load_template`). The
@@ -28,7 +31,7 @@ import stat
 from contextlib import ExitStack, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from .proposals import ProposalError
 from .store import ROOT_REFUSAL, root_run_would_break
@@ -314,3 +317,37 @@ def templates_state(source: Path, target: Path) -> str:
     if installed is None:
         return INVALID
     return INSTALLED if installed == templates else DIFFER
+
+
+def enable_everywhere(
+    profiles: list[str], enable: Callable[[str], None], enabled: Callable[[str], bool],
+) -> list[dict]:
+    """Enable the plugin in each of ``profiles`` and say, per profile, whether it is.
+
+    ``{"name": ..., "enabled": ...}`` for each, in order, plus ``"error"``
+    (the exception class only: its message can carry a path) when ``enable``
+    or ``enabled`` raised for that profile. A profile that fails never stops
+    the others, so one hand-copied ``plugins/ergates`` folder leaves the rest
+    set up and shows in the report. ``enabled`` is asked after ``enable``, so
+    the report shows what Hermes would load.
+    """
+    report = []
+    for name in profiles:
+        item = {"name": name, "enabled": False}
+        try:
+            enable(name)
+            item["enabled"] = bool(enabled(name))
+        except Exception as exc:  # one broken profile must not stop the others
+            item["error"] = type(exc).__name__
+        report.append(item)
+    return report
+
+
+def setup_report(templates: str, profiles: list[dict]) -> dict:
+    """The body of ``POST /setup``: ``templates`` is the state :func:`ensure_templates` ended in.
+
+    ``finished`` is true only when the templates are ``INSTALLED``, there is
+    at least one profile, and every profile is enabled.
+    """
+    finished = templates == INSTALLED and bool(profiles) and all(item["enabled"] for item in profiles)
+    return {"finished": finished, "templates": templates, "profiles": profiles}

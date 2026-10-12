@@ -68,17 +68,20 @@ def operations() -> Operations:
     with _lock:
         if _operations is None:
             root = hermes_root()
-            setup.ensure_templates(bundled_templates_dir(), templates_dir(root))
+            bundled = bundled_templates_dir()
+            setup.ensure_templates(bundled, templates_dir(root))
             _operations = Operations(
                 ControlStore(store_path(root)),
                 cron=hermes_adapter.HermesCron(),
                 profile_exists=hermes_adapter.profile_exists,
                 plugin_enabled=hermes_adapter.plugin_enabled,
                 enable_plugin=hermes_adapter.enable_plugin,
+                profile_names=hermes_adapter.profile_names,
                 check_schedule=hermes_adapter.check_schedule,
                 check_prompt=hermes_adapter.check_prompt,
                 check_gateway_lifecycle=hermes_adapter.check_gateway_lifecycle,
                 templates=templates_dir(root),
+                bundled_templates=bundled,
             )
         return _operations
 
@@ -187,6 +190,15 @@ async def record_step(proposal_id: str, request: Request) -> JSONResponse:
 @router.post("/profiles/{name}/plugin")
 async def enable_plugin(name: str) -> JSONResponse:
     return await _answer(lambda ops: ops.enable_plugin(name))
+
+
+# The body goes through ``_body`` like every other JSON route: a request that is
+# not sent as JSON reaches ``setup`` as ``None`` and is a 400 before any profile
+# is touched. Named ``run_setup`` because ``setup`` is the module imported above.
+@router.post("/setup")
+async def run_setup(request: Request) -> JSONResponse:
+    body = await _body(request)
+    return await _answer(lambda ops: ops.setup(body))
 
 
 # ``?scope=<name or *>``. Hermes refuses ``?profile=*`` before this route runs

@@ -23,6 +23,8 @@ from ergates.store import MIN_SCHEMA_KEY, ControlStore
 PLUGIN_DIR = Path(__file__).resolve().parents[2] / "ergates"
 TEMPLATE = {"template_id": "bookkeeper", "soul": "You keep the books.",
             "enabled_toolsets": ["file"], "enabled_mcp_servers": []}
+RESEARCHER = {"template_id": "researcher", "soul": "You look things up.",
+              "enabled_toolsets": ["web"], "enabled_mcp_servers": []}
 RECEIPT_KEYS = {"id", "request_id", "profile", "state", "job_id", "timezone_advisory", "payload_hash"}
 PROPOSAL_RECEIPT_KEYS = {"proposal_id", "state", "reserved_profile_name", "expires_at", "completed_steps",
                          "step_status", "next_step", "template"}
@@ -34,6 +36,7 @@ class FakeHermes:
     def __init__(self):
         self.profiles = {"default", "concierge", "thijs"}
         self.enabled = set()
+        self.broken = set()
         self.enable_calls = []
         self.schedule_calls = []
         self.prompt_calls = []
@@ -45,8 +48,14 @@ class FakeHermes:
     def plugin_enabled(self, profile):
         return profile in self.enabled
 
+    def profile_names(self):
+        """Hermes's order: ``default`` first, then the others by name."""
+        return sorted(self.profiles, key=lambda name: (name != "default", name))
+
     def enable_plugin(self, profile):
         self.enable_calls.append(profile)
+        if profile in self.broken:
+            raise FileExistsError("plugins/ergates exists and is not a link")
         self.enabled.add(profile)
 
     def check_schedule(self, profile, schedule):
@@ -103,10 +112,15 @@ def _operations(store, cron, clock, hermes, tmp_path):
     directory = templates_dir(tmp_path)
     directory.mkdir(parents=True)
     (directory / "bookkeeper.json").write_text(json.dumps(TEMPLATE), encoding="utf-8")
+    bundled = tmp_path / "bundled"  # what the plugin ships: the installed template and one more
+    bundled.mkdir()
+    for template in (TEMPLATE, RESEARCHER):
+        (bundled / f"{template['template_id']}.json").write_text(json.dumps(template), encoding="utf-8")
     return Operations(
         store, cron=cron, profile_exists=hermes.profile_exists, plugin_enabled=hermes.plugin_enabled,
-        enable_plugin=hermes.enable_plugin, check_schedule=hermes.check_schedule, check_prompt=hermes.check_prompt,
-        check_gateway_lifecycle=hermes.check_gateway_lifecycle, templates=directory, clock=clock,
+        enable_plugin=hermes.enable_plugin, profile_names=hermes.profile_names, check_schedule=hermes.check_schedule,
+        check_prompt=hermes.check_prompt, check_gateway_lifecycle=hermes.check_gateway_lifecycle,
+        templates=directory, bundled_templates=bundled, clock=clock,
     )
 
 
@@ -568,6 +582,87 @@ def test_enable_plugin_does_not_need_the_control_store(ops, store, hermes):
     reply = ops.enable_plugin("thijs")
 
     assert (reply.status, reply.body) == (200, {"profile": "thijs", "enabled": True})
+
+
+# --- POST /setup ------------------------------------------------------------------------
+
+
+def _installed_template_ids(tmp_path):
+    return sorted(path.stem for path in templates_dir(tmp_path).glob("*.json"))
+
+
+def test_setup_enables_every_profile_and_reports_each(ops, hermes, tmp_path):
+    hermes.profiles = {"default", "mira"}
+
+    reply = ops.setup({})
+
+    assert (reply.status, reply.body) == (200, {"setup": {
+        "finished": True, "templates": "installed",
+        "profiles": [{"name": "default", "enabled": True}, {"name": "mira", "enabled": True}]}})
+    assert hermes.enable_calls == ["default", "mira"]
+    assert _installed_template_ids(tmp_path) == ["bookkeeper", "researcher"]
+
+
+def test_setup_reports_a_profile_that_fails_by_error_class_and_goes_on(ops, hermes):
+    hermes.profiles = {"default", "mira", "zoe"}
+    hermes.broken = {"mira"}
+
+    reply = ops.setup({})
+
+    assert (reply.status, reply.body) == (200, {"setup": {
+        "finished": False, "templates": "installed",
+        "profiles": [{"name": "default", "enabled": True},
+                     {"name": "mira", "enabled": False, "error": "FileExistsError"},
+                     {"name": "zoe", "enabled": True}]}})
+    assert hermes.enable_calls == ["default", "mira", "zoe"]
+
+
+def test_setup_installs_the_templates_before_it_enables_any_profile(store, cron, clock, tmp_path):
+    seen = []
+
+    class Watching(FakeHermes):
+        def enable_plugin(self, profile):
+            seen.append(_installed_template_ids(tmp_path))
+            super().enable_plugin(profile)
+
+    watching = Watching()
+    watching.profiles = {"default", "mira"}
+
+    _operations(store, cron, clock, watching, tmp_path).setup({})
+
+    assert seen == [["bookkeeper", "researcher"]] * 2
+
+
+def test_setup_is_not_finished_while_the_templates_are_not_installed(ops, hermes, tmp_path):
+    for path in (tmp_path / "bundled").glob("*.json"):
+        path.write_text("{not json", encoding="utf-8")
+    hermes.profiles = {"default"}
+
+    reply = ops.setup({})
+
+    assert (reply.status, reply.body["setup"]) == (200, {
+        "finished": False, "templates": "invalid", "profiles": [{"name": "default", "enabled": True}]})
+    assert _installed_template_ids(tmp_path) == ["bookkeeper"]
+
+
+@pytest.mark.parametrize("body", [None, [], "{}", 0], ids=["no-body", "list", "string", "number"])
+def test_setup_needs_a_json_object_body(ops, hermes, tmp_path, body):
+    reply = ops.setup(body)
+
+    assert _error(reply) == (400, "invalid")
+    assert reply.body["error"]["message"] == "the request body must be a JSON object"
+    assert hermes.enable_calls == []
+    assert _installed_template_ids(tmp_path) == ["bookkeeper"]
+
+
+def test_setup_does_not_need_the_control_store(ops, store, hermes):
+    """Like enable_plugin, it only reaches the templates folder and Hermes."""
+    store.close()
+    hermes.profiles = {"default"}
+
+    reply = ops.setup({})
+
+    assert (reply.status, reply.body["setup"]["finished"]) == (200, True)
 
 
 # --- attention prefs ------------------------------------------------------------------

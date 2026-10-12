@@ -14,8 +14,9 @@ Two things a new deployment and every update need, both safe to repeat:
 2. **The plugin in every profile.** Hermes loads a user plugin only from the
    active home's ``plugins/`` folder, and only when that home's
    ``config.yaml`` enables it, so :func:`~ergates.hermes_adapter.enable_plugin`
-   runs for the default profile and every named one. The app's provisioning
-   does the same for a profile it creates.
+   runs for the default profile and every named one
+   (:func:`ergates.setup.enable_everywhere`, the code behind ``POST /setup``).
+   The app's provisioning does the same for a profile it creates.
 
 ``--check`` changes no template or plugin setting and reports the same facts. The exit code is 0
 when every profile would load the plugin and the installed templates equal
@@ -35,6 +36,7 @@ from .paths import bundled_templates_dir, hermes_root, templates_dir
 from .setup import (
     INSTALLED,
     TemplateSourceError,
+    enable_everywhere,
     ensure_templates,
     source_templates,
     templates_state,
@@ -80,15 +82,15 @@ def main(argv: Optional[list] = None) -> int:
     state = templates_state(source, target) if args.check else ensure_templates(source, target)
     ok = state == INSTALLED
     print(f"ergates.install: templates={state} ({', '.join(sorted(templates)) or 'none'})")
-    for profile in profiles:
-        try:
-            if not args.check:
-                hermes_adapter.enable_plugin(profile)
-            plugin = "enabled" if hermes_adapter.plugin_enabled(profile) else "not enabled"
-        except Exception as exc:  # one broken profile must not stop the others
-            plugin = f"failed ({type(exc).__name__})"
-        ok = ok and plugin == "enabled"
-        print(f"ergates.install: profile={profile} plugin={plugin}")
+    # --check only asks: enabling is a no-op there, so the same loop reports both.
+    enable = (lambda profile: None) if args.check else hermes_adapter.enable_plugin
+    for item in enable_everywhere(profiles, enable, hermes_adapter.plugin_enabled):
+        if "error" in item:
+            plugin = f"failed ({item['error']})"
+        else:
+            plugin = "enabled" if item["enabled"] else "not enabled"
+        ok = ok and item["enabled"]
+        print(f"ergates.install: profile={item['name']} plugin={plugin}")
     return 0 if ok else 1
 
 

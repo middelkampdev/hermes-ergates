@@ -33,6 +33,7 @@ ROUTES = [
     ("POST", "/proposals/p-1/reject"),
     ("POST", "/proposals/p-1/steps"),
     ("POST", "/profiles/thijs/plugin"),
+    ("POST", "/setup"),
     ("GET", "/attention/prefs?scope=*"),
     ("PUT", "/attention/prefs"),
 ]
@@ -222,6 +223,55 @@ def test_provisioning_through_hermes_serve_ends_complete(web, token_headers, roo
     assert (root / "profiles" / "ruben" / "plugins" / "ergates").is_symlink()
 
 
+def test_setup_through_hermes_serve_enables_the_plugin_in_every_profile(web, token_headers, make_profile):
+    """Other tests of this session share the root and leave profiles behind, one with a
+    ``plugins/ergates`` folder on purpose, so the report is checked for the profile made here only."""
+    home = make_profile("ines")
+    assert not hermes_adapter.plugin_enabled("ines")
+
+    reply = web.post(f"{API}/setup", json={}, headers=token_headers)
+
+    assert reply.status_code == 200
+    report = reply.json()["setup"]
+    assert set(report) == {"finished", "templates", "profiles"}
+    assert report["templates"] == "installed"
+    assert {"name": "default", "enabled": True} in report["profiles"]
+    assert {"name": "ines", "enabled": True} in report["profiles"]
+    assert hermes_adapter.plugin_enabled("ines")
+    assert (home / "plugins" / "ergates").is_symlink()
+
+
+def test_setup_reports_a_profile_with_a_hand_copied_plugin_folder_and_enables_the_rest(
+        web, token_headers, make_profile):
+    """Hermes's ``enable_plugin`` refuses to replace a folder where the plugin link belongs; the
+    other profiles are still enabled."""
+    copied = make_profile("quirijn")
+    (copied / "plugins" / "ergates").mkdir(parents=True)
+    make_profile("sanne")
+
+    reply = web.post(f"{API}/setup", json={}, headers=token_headers)
+
+    assert reply.status_code == 200
+    report = reply.json()["setup"]
+    assert report["finished"] is False
+    assert {"name": "quirijn", "enabled": False, "error": "FileExistsError"} in report["profiles"]
+    assert {"name": "sanne", "enabled": True} in report["profiles"]
+    assert not (copied / "plugins" / "ergates").is_symlink()
+
+
+def test_setup_without_a_json_body_is_400_and_enables_nothing(web, token_headers, make_profile):
+    """A same-site page can post ``text/plain`` without a preflight; ``_body`` reads that as no body."""
+    home = make_profile("jens")
+
+    plain = web.post(f"{API}/setup", content="{}", headers={**token_headers, "Content-Type": "text/plain"})
+    empty = web.post(f"{API}/setup", headers=token_headers)
+
+    for reply in (plain, empty):
+        assert (reply.status_code, reply.json()["error"]["code"]) == (400, "invalid")
+    assert not hermes_adapter.plugin_enabled("jens")
+    assert not (home / "plugins" / "ergates").exists()
+
+
 def test_attention_prefs_round_trip(web, token_headers):
     """The read names its scope with ``?scope=``. Since v0.21.6 Hermes runs every plugin route in the
     profile scope of a ``profile`` parameter, so it answers a ``?profile=`` that is no profile name itself,
@@ -287,20 +337,24 @@ def test_root_on_a_hermes_root_another_user_owns_is_503_and_writes_nothing(web, 
     def refuse(name):
         return lambda *args, **kwargs: owner_changes.append(name)
 
+    enable_calls = []
     monkeypatch.setattr(module, "_operations", None)
     monkeypatch.setattr(module, "hermes_root", lambda: tmp_path)
+    monkeypatch.setattr(hermes_adapter, "enable_plugin", enable_calls.append)
     monkeypatch.setattr(os, "geteuid", lambda: 0)
     monkeypatch.setattr(os, "stat", stat_owned_by_1000)
     for name in ("chown", "fchown", "lchown"):
         monkeypatch.setattr(os, name, refuse(name))
 
     replies = [web.get(f"{API}/health", headers=token_headers),
-               web.get(f"{API}/attention/prefs", params={"scope": "*"}, headers=token_headers)]
+               web.get(f"{API}/attention/prefs", params={"scope": "*"}, headers=token_headers),
+               web.post(f"{API}/setup", json={}, headers=token_headers)]
 
     assert [(reply.status_code, reply.json()["error"]["code"]) for reply in replies] == [
-        (503, "store_unavailable"), (503, "store_unavailable")]
+        (503, "store_unavailable")] * 3
     assert list(tmp_path.iterdir()) == []
     assert owner_changes == []
+    assert enable_calls == []  # POST /setup runs only on an Operations, which needs the store
 
 
 def test_the_bundled_templates_are_installed_before_the_store_opens(web, token_headers, monkeypatch, tmp_path):
@@ -347,10 +401,10 @@ INTERNAL = {"error": {"code": "internal", "message": "The request could not be c
 def _operations_with(root, **adapter):
     """An ``Operations`` on the real store and Hermes, with some adapter functions replaced."""
     functions = {name: getattr(hermes_adapter, name) for name in (
-        "profile_exists", "plugin_enabled", "enable_plugin", "check_schedule", "check_prompt",
+        "profile_exists", "plugin_enabled", "enable_plugin", "profile_names", "check_schedule", "check_prompt",
         "check_gateway_lifecycle")}
     return Operations(ControlStore(store_path(root)), cron=hermes_adapter.HermesCron(), templates=templates_dir(root),
-                      **{**functions, **adapter})
+                      bundled_templates=bundled_templates_dir(), **{**functions, **adapter})
 
 
 def test_a_failure_the_route_cannot_name_is_500_internal_and_logs_the_class_only(web, token_headers, monkeypatch,

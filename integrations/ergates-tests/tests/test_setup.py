@@ -1,4 +1,5 @@
-"""Tests for ergates.setup: the proposal templates the plugin ships install themselves.
+"""Tests for ergates.setup: the proposal templates the plugin ships install themselves, and the plugin is
+enabled in every profile.
 
 ``contract/live/test_dashboard_api.py`` proves the same install when
 ``hermes serve`` builds the routes' operations; this file needs no Hermes.
@@ -25,8 +26,10 @@ from ergates.setup import (
     INVALID,
     MISSING,
     TemplateSourceError,
+    enable_everywhere,
     ensure_templates,
     install_templates,
+    setup_report,
     source_templates,
     templates_match,
     templates_state,
@@ -668,3 +671,62 @@ def test_templates_match_compares_byte_for_byte(source, target):
 
     (target / "bookkeeper.json").write_bytes(templates["bookkeeper"] + b" ")
     assert not templates_match(templates, target)
+
+
+# --- enable_everywhere and setup_report ---------------------------------------
+
+
+def test_enable_everywhere_enables_each_profile_in_order_and_reports_each():
+    enabled = set()
+
+    result = enable_everywhere(["default", "mira"], enabled.add, enabled.__contains__)
+
+    assert result == [{"name": "default", "enabled": True}, {"name": "mira", "enabled": True}]
+
+
+def test_enable_everywhere_reports_a_profile_that_cannot_be_enabled_by_class_and_goes_on():
+    enabled = set()
+
+    def enable(profile):
+        if profile == "mira":
+            raise FileExistsError("/secret/path/plugins/ergates exists and is not a link")
+        enabled.add(profile)
+
+    result = enable_everywhere(["default", "mira", "zoe"], enable, enabled.__contains__)
+
+    assert result == [{"name": "default", "enabled": True},
+                      {"name": "mira", "enabled": False, "error": "FileExistsError"},
+                      {"name": "zoe", "enabled": True}]
+    assert "secret" not in json.dumps(result)
+
+
+def test_enable_everywhere_reports_a_profile_whose_check_raises_as_not_enabled_and_goes_on():
+    def enabled(profile):
+        if profile == "mira":
+            raise RuntimeError("Hermes could not be asked")
+        return True
+
+    result = enable_everywhere(["mira", "zoe"], lambda profile: None, enabled)
+
+    assert result == [{"name": "mira", "enabled": False, "error": "RuntimeError"}, {"name": "zoe", "enabled": True}]
+
+
+def test_enable_everywhere_reports_a_profile_that_stays_off_without_an_error():
+    assert enable_everywhere(["mira"], lambda profile: None, lambda profile: False) == [
+        {"name": "mira", "enabled": False}]
+
+
+def test_enable_everywhere_with_no_profile_enables_nothing():
+    assert enable_everywhere([], lambda profile: pytest.fail("no profile to enable"), lambda profile: True) == []
+
+
+def test_setup_report_is_finished_only_with_installed_templates_and_every_profile_enabled():
+    on = {"name": "default", "enabled": True}
+    off = {"name": "mira", "enabled": False, "error": "FileExistsError"}
+
+    assert setup_report(INSTALLED, [on]) == {"finished": True, "templates": "installed", "profiles": [on]}
+    assert setup_report(INSTALLED, [on, off])["finished"] is False
+    assert setup_report(INSTALLED, [])["finished"] is False
+    for state in (DIFFER, INVALID, MISSING, FAILED):
+        report = setup_report(state, [on])
+        assert (report["finished"], report["templates"]) == (False, state)
