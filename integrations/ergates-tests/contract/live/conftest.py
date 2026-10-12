@@ -16,7 +16,8 @@ writes the real `~/.hermes`.
 Hermes mounts plugin routes per process, so a test that needs a dashboard on
 another Hermes root (one without the plugin, or one an old version left)
 starts its own server in a child process with ``serve_hermes``
-(``hermes_serve.py``).
+(``hermes_serve.py``), and ``run_hermes`` runs the ``hermes`` command line
+on such a root the way a user runs it on a server.
 """
 
 from __future__ import annotations
@@ -214,19 +215,11 @@ def serve_hermes():
     import httpx
 
     started: list[tuple[Path, subprocess.Popen, threading.Thread, httpx.Client]] = []
-    store, uv_cache = _child_runtime[0] / "store", _child_runtime[0] / "uv-cache"
 
     def start(root: Path) -> httpx.Client:
-        home = root.parent / "home"
-        home.mkdir(exist_ok=True)
-        uv_cache.mkdir(parents=True, exist_ok=True)
-        (root / "cache").mkdir(exist_ok=True)
-        if not (root / "cache" / "uv").exists():
-            (root / "cache" / "uv").symlink_to(uv_cache, target_is_directory=True)  # rmtree removes the link only
+        env = _child_env(root)
         log = root.parent / "hermes-serve.log"
         log.write_text("", encoding="utf-8")
-        env = {**os.environ, "HOME": str(home), "HERMES_HOME": str(root), "HERMES_RUNTIME_DIR": str(store),
-               "HERMES_DASHBOARD_SESSION_TOKEN": SESSION_TOKEN, "PYTHONDONTWRITEBYTECODE": "1"}
         # Append mode for the child and the drain thread alike, so neither overwrites the other.
         with log.open("a", encoding="utf-8") as stderr:
             process = subprocess.Popen([sys.executable, "-I", "-B", str(SERVE_SCRIPT)], cwd=root.parent, env=env,
@@ -247,6 +240,61 @@ def serve_hermes():
         client.close()
         _stop(process, drain)
         shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.fixture
+def root_without_plugin(tmp_path) -> Path:
+    """A new Hermes root with no plugin in it, and the install scan on (Hermes's default)."""
+    root = tmp_path / "hermes"
+    root.mkdir()
+    # Same reason as pytest_configure: no lazy `uv pip install` of optional provider stacks.
+    (root / "config.yaml").write_text(yaml.safe_dump({"security": {"allow_lazy_installs": False}}),
+                                      encoding="utf-8")
+    return root
+
+
+@pytest.fixture
+def web_without_plugin(serve_hermes, root_without_plugin):
+    """A dashboard started on ``root_without_plugin``, before any plugin is installed."""
+    return serve_hermes(root_without_plugin)
+
+
+@pytest.fixture
+def run_hermes():
+    """``run_hermes(root, args)`` runs the pinned Hermes's ``hermes`` command line with ``args`` on Hermes
+    root ``root`` and returns the finished process (output captured as text).
+
+    It runs the way an SSH command or a script runs it on a server: no
+    terminal, stdin is ``/dev/null`` and stdout a pipe, so every question
+    Hermes asks only in a terminal gets its non-interactive answer. The
+    environment is the one ``serve_hermes`` gives a server on the same root
+    (HOME, the session token and the shared runtime store), so a command and a
+    server started there share the root and the dependency runtime.
+    """
+
+    def run(root: Path, args: list[str]) -> subprocess.CompletedProcess:
+        env = {**_child_env(root), "PYTHONPATH": os.environ["HERMES_SOURCE"]}
+        completed = subprocess.run([sys.executable, "-B", "-m", "hermes_cli.main", *args], cwd=root.parent, env=env,
+                                   stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False,
+                                   timeout=SERVER_TIMEOUT_SECONDS)
+        print(f"hermes {' '.join(args)} -> {completed.returncode}\n{completed.stdout}\n{completed.stderr}")
+        return completed
+
+    return run
+
+
+def _child_env(root: Path) -> dict[str, str]:
+    """The environment of a child process on Hermes root ``root``: its own HOME next to ``root``, the
+    session token, and the session's one runtime store and uv cache (see ``serve_hermes``)."""
+    store, uv_cache = _child_runtime[0] / "store", _child_runtime[0] / "uv-cache"
+    home = root.parent / "home"
+    home.mkdir(exist_ok=True)
+    uv_cache.mkdir(parents=True, exist_ok=True)
+    (root / "cache").mkdir(exist_ok=True)
+    if not (root / "cache" / "uv").exists():
+        (root / "cache" / "uv").symlink_to(uv_cache, target_is_directory=True)  # rmtree removes the link only
+    return {**os.environ, "HOME": str(home), "HERMES_HOME": str(root), "HERMES_RUNTIME_DIR": str(store),
+            "HERMES_DASHBOARD_SESSION_TOKEN": SESSION_TOKEN, "PYTHONDONTWRITEBYTECODE": "1"}
 
 
 def _drain(stream, log: Path) -> None:

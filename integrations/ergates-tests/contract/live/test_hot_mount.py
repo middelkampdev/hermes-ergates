@@ -3,10 +3,10 @@
 Since v0.21.6 a plugin enabled after the server started gets its routes on the
 first request to ``/api/plugins/<name>/`` (``hermes_cli/web_server_dashboard.py``
 ``_PluginApiHotMount``), so the app needs no restart after the install. The
-hot-mount test starts its own server (``serve_hermes``) on a Hermes root
-without the plugin, and installs ``plugin_git_repo``: one commit holding the
-files git tracks in ``integrations/ergates``, the way a user's server would
-clone it.
+hot-mount test starts its own server (``web_without_plugin`` in
+``conftest.py``) on a Hermes root without the plugin, and installs
+``plugin_git_repo``: one commit holding the files git tracks in
+``integrations/ergates``, the way a user's server would clone it.
 
 Hermes scans every install (``tools/plugin_guard.py``): ``safe`` installs,
 ``caution`` needs confirmation, and ``dangerous`` is blocked even with
@@ -25,9 +25,6 @@ import json
 import time
 from pathlib import Path
 
-import pytest
-import yaml
-
 from app_messages import hermes_plugin_messages
 
 API = "/api/plugins/ergates"
@@ -35,23 +32,6 @@ HUB = "/api/dashboard/plugins/hub"
 AGENT_PLUGINS = "/api/dashboard/agent-plugins"
 INSTALL = f"{AGENT_PLUGINS}/install"
 SWEEP_WAIT_SECONDS = 60
-
-
-@pytest.fixture
-def root_without_plugin(tmp_path) -> Path:
-    """A new Hermes root with no plugin in it, and the install scan on (Hermes's default)."""
-    root = tmp_path / "hermes"
-    root.mkdir()
-    # Same reason as conftest.py: no lazy `uv pip install` of optional provider stacks.
-    (root / "config.yaml").write_text(yaml.safe_dump({"security": {"allow_lazy_installs": False}}),
-                                      encoding="utf-8")
-    return root
-
-
-@pytest.fixture
-def web_without_plugin(serve_hermes, root_without_plugin):
-    """A dashboard started on ``root_without_plugin``, before any plugin is installed."""
-    return serve_hermes(root_without_plugin)
 
 
 def request_install(web, headers: dict, *, identifier: str, ref: str, enable: bool):
