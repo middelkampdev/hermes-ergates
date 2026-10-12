@@ -770,10 +770,10 @@ against the code here.
 
 ```bash
 cd integrations/ergates-tests
-uv run --python 3.11 pytest
+uv run --locked --python 3.11 pytest
 
 # the CI gate: the same run with branch coverage of ergates/, at least 90%
-uv run --python 3.11 pytest --cov --cov-fail-under=90
+uv run --locked --python 3.11 pytest --cov --cov-fail-under=90
 ```
 
 The contract tests need a checkout of the Hermes source at the pin. From the
