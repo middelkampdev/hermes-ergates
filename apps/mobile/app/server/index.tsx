@@ -14,8 +14,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
 import {
-  finishParams,
   isSetupRunning,
+  opensFinish,
   routeAfterCheck,
   runSetup,
   SETUP_TITLE,
@@ -25,7 +25,6 @@ import {
   stepStatusWord,
   useServerCheck,
   type BuildRecord,
-  type FinishParams,
   type SetupAction,
   type SetupRunState,
   type SetupStep,
@@ -82,7 +81,7 @@ function ServerSetup({ connection }: { connection: Connection }) {
     }
   }, [])
 
-  const openFinish = useCallback((params: FinishParams) => router.push({ pathname: '/server/finish', params }), [router])
+  const openFinish = useCallback(() => router.push('/server/finish'), [router])
 
   const start = useCallback(async () => {
     if (build === null) {
@@ -102,9 +101,8 @@ function ServerSetup({ connection }: { connection: Connection }) {
       return
     }
     setRun(current => ({ steps: current?.steps ?? PENDING_STEPS, outcome }))
-    const params = finishParams(outcome)
-    if (params) {
-      openFinish(params)
+    if (opensFinish(outcome)) {
+      openFinish()
     }
   }, [build, gateway, connection.id, queryClient, openFinish])
 
@@ -126,7 +124,7 @@ function ServerSetup({ connection }: { connection: Connection }) {
         void check.refetch()
         return
       case 'finish':
-        openFinish(finishParams(run?.outcome ?? null) ?? {})
+        openFinish()
         return
       case 'sign_in':
         router.push({ pathname: '/sign-in', params: { connection: connection.id } })

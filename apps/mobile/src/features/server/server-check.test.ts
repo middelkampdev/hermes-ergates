@@ -5,7 +5,7 @@ import type { ErgatesHealth, HermesPluginRow, PluginProbe } from '@/gateway/type
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
 import type { BuildRecord } from './build-record'
-import { checkServer, pluginFits } from './server-check'
+import { checkServer, isSignedOut, pluginFits, pollInterval } from './server-check'
 
 const COMMIT = 'b'.repeat(40)
 const APP_LEVEL = 1
@@ -307,5 +307,35 @@ describe('pluginFits', () => {
 
   it('judges a plugin with no minimum by its level alone', () => {
     expect(pluginFits({ ...OLDER_HEALTH, api_level: 1 }, 1)).toBe('fits')
+  })
+})
+
+describe('isSignedOut', () => {
+  it('knows the 401 of the gateway', () => {
+    expect(isSignedOut(new GatewayError('unauthorized', 'Sign-in required.', { status: 401 }))).toBe(true)
+  })
+
+  it.each<[string, unknown]>([
+    ['another gateway error', new GatewayError('network', 'Could not reach the gateway.')],
+    ['an error from elsewhere', new Error('boom')],
+    ['something that is not an error', 'unauthorized'],
+    ['no error', null]
+  ])('does not take %s for a sign-out', (_title, error) => {
+    expect(isSignedOut(error)).toBe(false)
+  })
+})
+
+describe('pollInterval', () => {
+  it('asks again every 5 seconds for a screen that waits for the server', () => {
+    expect(pollInterval(true, null)).toBe(5_000)
+    expect(pollInterval(true, new GatewayError('network', 'Could not reach the gateway.'))).toBe(5_000)
+  })
+
+  it('does not ask for a screen that does not wait', () => {
+    expect(pollInterval(false, null)).toBe(false)
+  })
+
+  it('stops asking once the server refused the session, because every call fails until the user signs in again', () => {
+    expect(pollInterval(true, new GatewayError('unauthorized', 'Sign-in required.', { status: 401 }))).toBe(false)
   })
 })

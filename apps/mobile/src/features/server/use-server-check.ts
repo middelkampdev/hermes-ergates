@@ -11,14 +11,15 @@ import { useGatewayRegistry } from '@/gateway/registry'
 import type { Connection } from '@/state/device-store'
 
 import type { BuildRecord } from './build-record'
-import { checkServer } from './server-check'
+import { checkServer, pollInterval } from './server-check'
 
 export const serverCheckKey = (connectionId: string) => ['server-check', connectionId] as const
 
 /**
  * The check of one connection's server; idle without a connection. `poll`
- * re-checks every 5 seconds, for a screen that waits for the server to change.
- * A rejected check is the `unauthorized` error: send the user to sign in.
+ * re-checks every 5 seconds, for a screen that waits for the server to change,
+ * until the server refuses the session. A rejected check is the `unauthorized`
+ * error: send the user to sign in.
  */
 export function useServerCheck(connection: Connection | null, build: BuildRecord | null, opts: { poll?: boolean } = {}) {
   // The registry hands out the same port `useGateway` does; it is read here because a hook cannot take a missing connection.
@@ -27,7 +28,7 @@ export function useServerCheck(connection: Connection | null, build: BuildRecord
     queryKey: connection ? serverCheckKey(connection.id) : ['server-check', null],
     queryFn: connection ? () => checkServer(registry.get(connection), build) : skipToken,
     staleTime: 60_000,
-    refetchInterval: opts.poll ? 5_000 : false,
+    refetchInterval: query => pollInterval(opts.poll === true, query.state.error),
     retry: false
   })
 }

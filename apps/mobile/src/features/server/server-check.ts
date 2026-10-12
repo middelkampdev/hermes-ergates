@@ -29,6 +29,23 @@ export type ServerCheck =
 
 export type PluginFit = 'fits' | 'plugin_too_old' | 'app_too_old'
 
+/** How often a screen that waits for the server asks again. */
+const POLL_MS = 5_000
+
+/** Whether a failed call was the server refusing the session: the user has to sign in again. */
+export function isSignedOut(error: unknown): boolean {
+  return isGatewayError(error) && error.kind === 'unauthorized'
+}
+
+/**
+ * The time to the next check of a screen that waits for the server, or false
+ * for none. A refused session stops it: every call fails until the user signs
+ * in again.
+ */
+export function pollInterval(poll: boolean, error: unknown): number | false {
+  return poll && !isSignedOut(error) ? POLL_MS : false
+}
+
 /**
  * Whether the plugin's health fits an app at `appLevel`. A plugin that reports
  * no `api_level` is older than the field and counts as level 0.

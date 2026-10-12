@@ -9,7 +9,7 @@
 import type { BuildRecord } from './build-record'
 import { parseHermesVersion } from './hermes-version'
 import type { ServerCheck } from './server-check'
-import type { ManualFailure, SetupOutcome, SetupStep, StepStatus } from './setup-run'
+import type { SetupOutcome, SetupStep, StepStatus } from './setup-run'
 
 /** `retry` runs the setup again after a failed run; `check_again` asks the server again after a check that could not tell. */
 export type SetupAction = 'run' | 'turn_on' | 'finish' | 'done' | 'retry' | 'check_again' | 'sign_in'
@@ -184,20 +184,7 @@ export function setupView(check: ServerCheck, build: BuildRecord | null, run: Se
   }
 }
 
-/** What the Finish screen takes in its route params: why the install is by hand, and Hermes's own text for it. A type alias, because route params must have an index signature. */
-export type FinishParams = { failure?: ManualFailure; detail?: string }
-
-/**
- * The route params the Finish screen takes from the end of a run: the failure
- * and Hermes's own text for the manual path, none for a restart (the screen
- * sees that from the server). Null for an outcome that does not lead there.
- */
-export function finishParams(outcome: SetupOutcome | null): FinishParams | null {
-  if (outcome?.kind === 'restart') {
-    return {}
-  }
-  if (outcome?.kind === 'manual') {
-    return outcome.detail === null ? { failure: outcome.failure } : { failure: outcome.failure, detail: outcome.detail }
-  }
-  return null
+/** Whether the end of a run sends the user to the Finish screen: an install by hand, or a restart of Hermes. The screen reads the rest from the server and from `lastManualOutcome`, not from the route. */
+export function opensFinish(outcome: SetupOutcome | null): boolean {
+  return outcome?.kind === 'manual' || outcome?.kind === 'restart'
 }

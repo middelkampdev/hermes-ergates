@@ -34,10 +34,12 @@ export type StepStatus = 'pending' | 'active' | 'done' | 'skipped' | 'failed'
 /** Why the user has to install by hand: Hermes refused it, or (`refused`) refused it in words the app does not know. */
 export type ManualFailure = Exclude<PluginInstallCode, 'already_installed'> | 'refused'
 
+/** `detail` is Hermes's own text for `refused` and for an enable that was refused; null for the install failures the app knows. */
+export type ManualOutcome = { kind: 'manual'; failure: ManualFailure; detail: string | null }
+
 export type SetupOutcome =
   | { kind: 'done'; setup: SetupState }
-  /** `detail` is Hermes's own text for `refused` and for an enable that was refused; null for the install failures the app knows. */
-  | { kind: 'manual'; failure: ManualFailure; detail: string | null }
+  | ManualOutcome
   /** The plugin is enabled but Hermes does not serve its routes: Hermes needs a restart. */
   | { kind: 'restart' }
   | { kind: 'sign_in' }
@@ -271,6 +273,26 @@ interface Flight {
 /** The run that is going for each connection. */
 const flights = new Map<string, Flight>()
 
+/** How the last run of each connection ended when it ended in the manual path. Kept in memory only. */
+const manualOutcomes = new Map<string, ManualOutcome>()
+
+/**
+ * The manual outcome of the connection's last run, or null: the run ended
+ * otherwise, no run has gone since the app started, or a new run has begun.
+ * The Finish screen reads it to say why the install is by hand. It is not in
+ * the route, because the text of a route is anyone's to write.
+ */
+export function lastManualOutcome(connectionId: string): ManualOutcome | null {
+  return manualOutcomes.get(connectionId) ?? null
+}
+
+function rememberManual(connectionId: string, outcome: SetupOutcome): SetupOutcome {
+  if (outcome.kind === 'manual') {
+    manualOutcomes.set(connectionId, outcome)
+  }
+  return outcome
+}
+
 /**
  * Brings the server to a plugin that is installed, enabled, served and set
  * up, and says how it went. `onStep` reports each step's transitions; a step
@@ -291,16 +313,20 @@ export async function runSetup(deps: SetupDeps, onStep: (step: SetupStep, status
     going.listeners.push(onStep)
     return going.promise
   }
+  manualOutcomes.delete(deps.connectionId)
   const { commit } = deps.build.requiredPlugin
   if (commit === null) {
-    return { kind: 'manual', failure: 'refused', detail: null }
+    return rememberManual(deps.connectionId, { kind: 'manual', failure: 'refused', detail: null })
   }
   const statuses = new Map<SetupStep, StepStatus>()
   const listeners = [onStep]
+  // Remembered before the outcome reaches anything that waits for it, so a screen opened by it finds it.
   const promise = new SetupRun(deps, commit, (step, status) => {
     statuses.set(step, status)
     listeners.forEach(listener => listener(step, status))
-  }).execute()
+  })
+    .execute()
+    .then(outcome => rememberManual(deps.connectionId, outcome))
   flights.set(deps.connectionId, { promise, statuses, listeners })
   trackSetupRun(deps.connectionId, promise)
   const forget = () => {

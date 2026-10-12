@@ -8,7 +8,7 @@ import { FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-gateway/fake-ergates'
 
 import type { BuildRecord } from './build-record'
 import type { ServerCheck } from './server-check'
-import { finishParams, setupView, signedOutView, stepStatusWord, type SetupRunState } from './setup-view'
+import { opensFinish, setupView, signedOutView, stepStatusWord, type SetupRunState } from './setup-view'
 import type { SetupOutcome, SetupStep, StepStatus } from './setup-run'
 
 const COMMIT = 'abcdef0123456789abcdef0123456789abcdef01'
@@ -278,20 +278,13 @@ describe('signedOutView', () => {
   })
 })
 
-describe('finishParams', () => {
-  it('hands the failure and Hermes\'s text to the Finish screen', () => {
-    expect(finishParams({ kind: 'manual', failure: 'refused', detail: 'Hermes said no.' })).toEqual({ failure: 'refused', detail: 'Hermes said no.' })
-  })
-
-  it('leaves the text out when the failure has none', () => {
-    const params = finishParams({ kind: 'manual', failure: 'no_git', detail: null })
-
-    expect(params).toEqual({ failure: 'no_git' })
-    expect(params).not.toHaveProperty('detail')
-  })
-
-  it('hands over nothing for a restart, which the Finish screen knows from the server', () => {
-    expect(finishParams({ kind: 'restart' })).toEqual({})
+describe('opensFinish', () => {
+  it.each<[string, SetupOutcome]>([
+    ['a manual install', { kind: 'manual', failure: 'refused', detail: 'Hermes said no.' }],
+    ['a manual install without Hermes text', { kind: 'manual', failure: 'no_git', detail: null }],
+    ['a restart', { kind: 'restart' }]
+  ])('says %s leads to the Finish screen', (_title, outcome) => {
+    expect(opensFinish(outcome)).toBe(true)
   })
 
   it.each<[string, SetupOutcome | null]>([
@@ -300,7 +293,7 @@ describe('finishParams', () => {
     ['a sign-in', { kind: 'sign_in' }],
     ['a failed step', { kind: 'failed', step: 'install', message: 'Something went wrong during setup.' }]
   ])('says %s does not lead to the Finish screen', (_title, outcome) => {
-    expect(finishParams(outcome)).toBeNull()
+    expect(opensFinish(outcome)).toBe(false)
   })
 })
 

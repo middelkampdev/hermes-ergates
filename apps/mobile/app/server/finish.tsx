@@ -11,7 +11,7 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import * as Clipboard from 'expo-clipboard'
-import { Redirect, useIsFocused, useLocalSearchParams, useRouter } from 'expo-router'
+import { Redirect, useIsFocused, useRouter } from 'expo-router'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Linking, Platform, StyleSheet, Text, View } from 'react-native'
 
@@ -20,7 +20,7 @@ import {
   finishVariant,
   finishView,
   isSignedOut,
-  manualFromParams,
+  lastManualOutcome,
   markPendingSetup,
   pendingCommit,
   RESTART_HEADING,
@@ -28,8 +28,8 @@ import {
   setupProblem,
   useServerCheck,
   type FinishAction,
-  type FinishParams,
-  type FinishVariant
+  type FinishVariant,
+  type SetupProgress
 } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
 import { useGateway } from '@/gateway/registry'
@@ -56,8 +56,8 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   const queryClient = useQueryClient()
   const gateway = useGateway(connection)
   const build = useMemo(() => buildRecord(), [])
-  const { failure, detail } = useLocalSearchParams<FinishParams>()
-  const manual = useMemo(() => manualFromParams({ failure, detail }), [failure, detail])
+  // Why the install is by hand comes from the run that ended that way, not from the route: the text of a route is anyone's to write.
+  const [manual] = useState(() => lastManualOutcome(connection.id))
   const focused = useIsFocused()
   // True once the plugin answered and its setup went through: nothing is left to wait for.
   const [finished, setFinished] = useState(false)
@@ -73,6 +73,7 @@ function FinishOnServer({ connection }: { connection: Connection }) {
     }
   }, [])
 
+  // Polls while this screen is in view and something is left to wait for; the check stops by itself once the server refuses the session.
   const check = useServerCheck(connection, build, { poll: focused && !finished })
   const data = check.data
   // A 401 wins over the old data the query still holds, or the page would keep asking for a restart that already happened.
@@ -86,8 +87,8 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   }
   const variant = live ?? held
 
-  // Once the plugin answers its setup runs. Record that now, so a closed app or a restart in between does not skip it.
-  const commit = pendingCommit(variant, build)
+  // Once the plugin answers its setup runs. Record that as soon as the server said it is missing, off or outdated, so a closed app or a restart in between does not skip it.
+  const commit = pendingCommit(data ?? null, build)
   useEffect(() => {
     if (commit !== null) {
       markPendingSetup(connection.id, commit)
@@ -100,9 +101,9 @@ function FinishOnServer({ connection }: { connection: Connection }) {
       return
     }
     finishPendingSetup(gateway, connection, data).then(
-      async () => {
+      () => {
         // Home and the other screens read the same check: make them see the finished setup.
-        await queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
+        void queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
         if (mounted.current) {
           setProblem(null)
           setFinished(true)
@@ -120,7 +121,8 @@ function FinishOnServer({ connection }: { connection: Connection }) {
     )
   }, [data, check.dataUpdatedAt, finished, signedOut, gateway, connection, queryClient])
 
-  const view = finishView(variant, build, signedOut ? 'sign_in' : (data ?? null), problem)
+  const setup: SetupProgress = finished ? { state: 'done' } : problem === null ? { state: 'pending' } : { state: 'failed', message: problem }
+  const view = finishView(variant, build, signedOut ? 'sign_in' : (data ?? null), setup)
 
   const recheck = async () => {
     setChecking(true)

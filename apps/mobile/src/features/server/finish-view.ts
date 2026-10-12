@@ -11,7 +11,7 @@
 
 import { isGatewayError } from '@/gateway/errors'
 
-import { PLUGIN_IDENTIFIER, type BuildRecord } from './build-record'
+import { PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
 import type { InstallKind, ServerCheck } from './server-check'
 import type { ManualFailure } from './setup-run'
 
@@ -37,25 +37,30 @@ export const RESTART_HEADING = 'Then restart Hermes:'
  * What the user has to do on the server. `install`: put the plugin on it by
  * hand, because one tap was not possible or Hermes refused (`failure` and
  * Hermes's own `detail`), and restart Hermes when it is too old to load the
- * plugin by itself. `update`: move a git install to this build's commit.
- * `update_copy`: update the folder a manual copy comes from. `restart`: the
- * plugin is enabled but Hermes has not loaded it. `deployment`: the Ergates
- * deployment brings its own plugin.
+ * plugin by itself. `enable`: the plugin is installed and Hermes refused to
+ * turn it on, so only the enable is left. `update`: move a git install to
+ * this build's commit. `update_copy`: update the folder a manual copy comes
+ * from. `restart`: the plugin is enabled but Hermes has not loaded it.
+ * `deployment`: the Ergates deployment brings its own plugin.
  */
 export type FinishVariant =
   | { kind: 'install'; restart: boolean; failure: ManualFailure | null; detail: string | null }
+  | { kind: 'enable'; detail: string | null }
   | { kind: 'update' }
   | { kind: 'update_copy' }
   | { kind: 'restart' }
   | { kind: 'deployment' }
 
-/** Why the install is by hand, as the setup screen passes it in the route. */
+/** Why the install is by hand: how the last setup run ended (`lastManualOutcome`). */
 export interface FinishManual {
   failure: ManualFailure
   detail: string | null
 }
 
 export type FinishAction = 'check' | 'done' | 'sign_in'
+
+/** How the plugin's setup stands once the server answers: not run yet, done, or failed with the message to show. */
+export type SetupProgress = { state: 'pending' } | { state: 'done' } | { state: 'failed'; message: string }
 
 export interface FinishView {
   title: string
@@ -67,7 +72,7 @@ export interface FinishView {
   restartLines: string[] | null
   guide: { label: string; url: string }
   status: string
-  /** True when the server is ready and nothing went wrong afterwards. */
+  /** True when the plugin's setup went through. */
   done: boolean
   primary: { label: string; action: FinishAction }
 }
@@ -94,9 +99,7 @@ const CHECK = { label: 'Check now', action: 'check' } as const
 const DONE = { label: 'Done', action: 'done' } as const
 const SIGN_IN = { label: 'Sign in again', action: 'sign_in' } as const
 
-const MANUAL_FAILURES: readonly ManualFailure[] = ['scan_blocked', 'no_git', 'download_failed', 'enable_refused', 'refused']
-
-/** Hermes's own text is cut here, as the gateway cuts it, so a link cannot fill the screen. */
+/** Hermes's own text is cut here, as the gateway cuts it, so it cannot fill the screen. */
 const MAX_DETAIL = 200
 
 function installVariant(manual: FinishManual | null, restart: boolean): FinishVariant {
@@ -118,21 +121,22 @@ function updateVariant(installKind: InstallKind): FinishVariant {
  * The variant a check leads to, or null when the check names none: the screen
  * then keeps the variant it had, so a server that answers `ready` (or that
  * could not be reached for one poll) does not change the page under the user.
- * A server that has moved on wins over the failure in the route: once the
- * plugin is installed, a stale "the install failed" is not shown. Before the
- * first check (`null`) the failure in the route is all there is to go on.
+ * `manual` is how the last setup run ended by hand, if it did. A server that
+ * has moved on wins over it: once the plugin is installed, a stale "the
+ * install failed" is not shown. Before the first check (`null`) it is all
+ * there is to go on.
  */
 export function finishVariant(check: ServerCheck | null, manual: FinishManual | null): FinishVariant | null {
   if (check === null) {
-    return manual === null ? null : installVariant(manual, false)
+    return manual === null ? null : manualVariant(manual)
   }
   switch (check.kind) {
     case 'missing':
       // An old Hermes, or one the app cannot read, does not load a plugin installed behind its back.
       return installVariant(manual, check.reason === 'too_old' || check.reason === 'unknown')
     case 'disabled':
-      // A refused enable leaves the plugin installed but off.
-      return manual === null ? null : installVariant(manual, false)
+      // The plugin is there and Hermes refused to turn it on; installing over it would be refused too.
+      return manual?.failure === 'enable_refused' ? manualVariant(manual) : null
     case 'not_loaded':
       return { kind: 'restart' }
     case 'outdated':
@@ -145,20 +149,9 @@ export function finishVariant(check: ServerCheck | null, manual: FinishManual | 
   }
 }
 
-function firstText(value: unknown): string | null {
-  const first: unknown = Array.isArray(value) ? value[0] : value
-  return typeof first === 'string' ? first : null
-}
-
-/** The failure in the Finish route's params, or null when there is none the app knows. Route params are text from outside, so nothing else is trusted. */
-export function manualFromParams(params: Record<string, unknown>): FinishManual | null {
-  const given = firstText(params.failure)
-  const failure = MANUAL_FAILURES.find(code => code === given)
-  if (failure === undefined) {
-    return null
-  }
-  const detail = firstText(params.detail)
-  return { failure, detail: detail ? detail.slice(0, MAX_DETAIL) : null }
+/** The variant for how a run ended by hand, when the server has not said yet what it has. A refused enable means the plugin is on the server. */
+function manualVariant(manual: FinishManual): FinishVariant {
+  return manual.failure === 'enable_refused' ? { kind: 'enable', detail: manual.detail } : installVariant(manual, false)
 }
 
 /** The commit this build installs, or null: the command needs it. */
@@ -167,20 +160,26 @@ function commitOf(build: BuildRecord | null): string | null {
 }
 
 /**
- * The commit to record as the pending setup while the variant is on screen,
- * or null: the variants that end with the user installing or updating the
- * plugin by hand record it, so the setup runs once the plugin answers. A
- * restart or a deployment installs nothing.
+ * The commit to record as the pending setup, or null. Only a server that has
+ * answered says the plugin is to be put on it, turned on or updated by hand:
+ * a missing plugin, one that is turned off, or an outdated git install or
+ * manual copy. The setup then runs once the plugin answers. Nothing else
+ * records it: not a link, not the failure of an earlier run, not a page that
+ * has no answer yet. A restart or a deployment installs nothing.
  */
-export function pendingCommit(variant: FinishVariant | null, build: BuildRecord | null): string | null {
-  if (variant === null || variant.kind === 'restart' || variant.kind === 'deployment') {
-    return null
-  }
-  return commitOf(build)
+export function pendingCommit(check: ServerCheck | null, build: BuildRecord | null): string | null {
+  const needsSetup = check?.kind === 'missing' || check?.kind === 'disabled' || (check?.kind === 'outdated' && check.installKind !== 'deployment')
+  return needsSetup ? commitOf(build) : null
 }
 
 function installCommand(commit: string, force: boolean): string {
   return ['hermes plugins install', PLUGIN_IDENTIFIER, ...(force ? ['--force'] : []), `--ref ${commit}`, '--enable'].join(' ')
+}
+
+/** Hermes's text on one line: a line break would let it put a line of its own beside the command. */
+function oneLine(text: string | null): string | null {
+  const line = text?.replace(/\s+/g, ' ').trim().slice(0, MAX_DETAIL).trim()
+  return line ? line : null
 }
 
 function failureLine(failure: ManualFailure, detail: string | null): string {
@@ -192,8 +191,10 @@ function failureLine(failure: ManualFailure, detail: string | null): string {
     case 'download_failed':
       return 'Your server could not download the plugin from GitHub.'
     case 'enable_refused':
-    case 'refused':
-      return detail === null ? 'Hermes refused the install.' : `Hermes refused the install: ${detail}`
+    case 'refused': {
+      const text = oneLine(detail)
+      return text === null ? 'Hermes refused the install.' : `Hermes refused the install: ${text}`
+    }
   }
 }
 
@@ -222,10 +223,13 @@ function instructionsFor(variant: FinishVariant, build: BuildRecord | null): Ins
   switch (variant.kind) {
     case 'install': {
       const reason = variant.failure === null ? [] : [failureLine(variant.failure, variant.detail)]
-      return { intro: [...reason, RUN_INTRO], command: commit === null ? null : installCommand(commit, false), restart: variant.restart }
+      // Without a command there is nothing to restart after.
+      return { intro: [...reason, RUN_INTRO], command: commit === null ? null : installCommand(commit, false), restart: commit !== null && variant.restart }
     }
+    case 'enable':
+      return { intro: [failureLine('enable_refused', variant.detail), RUN_INTRO], command: `hermes plugins enable ${PLUGIN_NAME}`, restart: false }
     case 'update':
-      return { intro: [RUN_INTRO], command: commit === null ? null : installCommand(commit, true), restart: true }
+      return { intro: [RUN_INTRO], command: commit === null ? null : installCommand(commit, true), restart: commit !== null }
     case 'update_copy': {
       const target = version === undefined ? 'the newest version' : `version ${version}`
       return { intro: [`Update the folder you copied or linked the plugin from to ${target}, then restart Hermes.`], command: null, restart: true }
@@ -239,28 +243,41 @@ function instructionsFor(variant: FinishVariant, build: BuildRecord | null): Ins
   }
 }
 
-function statusOf(check: ServerCheck | null, problem: string | null): { status: string; done: boolean } {
+function statusOf(check: ServerCheck | null, setup: SetupProgress): string {
   if (check === null) {
-    return { status: CHECKING, done: false }
+    return CHECKING
   }
   if (check.kind !== 'ready') {
-    return { status: WAITING, done: false }
+    return WAITING
   }
-  return problem === null ? { status: READY, done: true } : { status: problem, done: false }
+  // A ready server is not done until the plugin's setup went through: it is still being asked, or it said no.
+  return setup.state === 'failed' ? setup.message : CHECKING
 }
 
 /**
  * The page for a variant and the latest check. `variant` is null until the
  * screen knows one. `check` is `'sign_in'` when the server refused the
- * session, which shows only that and the way to stay signed in. `problem` is
- * what went wrong when the plugin's setup ran after a ready check; it counts
- * only while the server is ready, and the next ready check tries again.
+ * session, which shows only that and the way to stay signed in. `setup` says
+ * how the plugin's setup went after the server answered: the page is done
+ * only when it went through, and stays done whatever a later check says; a
+ * failure shows its message while the server is ready, and the next ready
+ * check tries again.
  *
- * Once the server answers (ready) or asks for a new sign-in, the intro, the
- * command and the restart lines are gone: the user did what they were asked.
+ * Once the server answers (ready), asks for a new sign-in, or the setup is
+ * done, the intro, the command and the restart lines are gone: the user did
+ * what they were asked.
  */
-export function finishView(variant: FinishVariant | null, build: BuildRecord | null, check: ServerCheck | 'sign_in' | null, problem: string | null = null): FinishView {
+export function finishView(
+  variant: FinishVariant | null,
+  build: BuildRecord | null,
+  check: ServerCheck | 'sign_in' | null,
+  setup: SetupProgress = { state: 'pending' }
+): FinishView {
   const title = variant?.kind === 'deployment' ? DEPLOYMENT_TITLE : TITLE
+  const guide = { label: GUIDE_LABEL, url: `${SERVER_GUIDE_URL}${anchorOf(variant)}` }
+  if (setup.state === 'done') {
+    return { title, intro: [], command: null, restartLines: null, guide, status: READY, done: true, primary: DONE }
+  }
   if (check === 'sign_in') {
     return {
       title,
@@ -273,19 +290,12 @@ export function finishView(variant: FinishVariant | null, build: BuildRecord | n
       primary: SIGN_IN
     }
   }
-  const { status, done } = statusOf(check, problem)
-  const guide = { label: GUIDE_LABEL, url: `${SERVER_GUIDE_URL}${anchorOf(variant)}` }
-  const primary = done ? DONE : CHECK
+  const status = statusOf(check, setup)
   if (variant === null || check?.kind === 'ready') {
-    return { title, intro: [], command: null, restartLines: null, guide, status, done, primary }
+    return { title, intro: [], command: null, restartLines: null, guide, status, done: false, primary: CHECK }
   }
   const { intro, command, restart } = instructionsFor(variant, build)
-  return { title, intro, command, restartLines: restart ? [...RESTART_LINES] : null, guide, status, done, primary }
-}
-
-/** Whether a failed call was the server refusing the session: the user has to sign in again. */
-export function isSignedOut(error: unknown): boolean {
-  return isGatewayError(error) && error.kind === 'unauthorized'
+  return { title, intro, command, restartLines: restart ? [...RESTART_LINES] : null, guide, status, done: false, primary: CHECK }
 }
 
 /** What a failed plugin setup shows in the status line: the gateway's own message, which carries no secrets. */

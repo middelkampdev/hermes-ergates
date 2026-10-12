@@ -16,7 +16,7 @@ import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
 import { PLUGIN_IDENTIFIER, type BuildRecord } from './build-record'
 import { finishPendingSetup } from './pending-setup'
-import { isSetupRunning, runSetup, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
+import { isSetupRunning, lastManualOutcome, runSetup, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
 
 const COMMIT = 'c'.repeat(40)
 const LOST = 'Lost the connection to your server during setup.'
@@ -640,5 +640,95 @@ describe('runSetup: sign-in and the build', () => {
     expect(gateway.ergates.calls).toEqual([])
     expect(gateway.plugins.installs).toEqual([])
     expect(flag()).toBeUndefined()
+  })
+})
+
+describe('lastManualOutcome: what the Finish screen shows of a run that ended by hand', () => {
+  const OTHER = 'c-2'
+
+  it('holds the failure and Hermes\'s text when a run ends in the manual path', async () => {
+    const gateway = freshServer()
+    gateway.plugins.nextInstall(mapPluginInstallError(400, { detail: 'Something Hermes says in its own words.' }))
+
+    await run(gateway)
+
+    expect(lastManualOutcome(connection.id)).toEqual({ kind: 'manual', failure: 'refused', detail: 'Something Hermes says in its own words.' })
+  })
+
+  it('holds a refused enable', async () => {
+    const gateway = serverListing('disabled')
+    gateway.plugins.fail('enable', mapHttpError(400, { detail: 'Not allowed.' }))
+
+    await run(gateway)
+
+    expect(lastManualOutcome(connection.id)).toEqual({ kind: 'manual', failure: 'enable_refused', detail: 'Not allowed.' })
+  })
+
+  it('holds the manual path of a build without a commit, which runs nothing', async () => {
+    await run(freshServer(), buildRecord(null))
+
+    expect(lastManualOutcome(connection.id)).toEqual({ kind: 'manual', failure: 'refused', detail: null })
+  })
+
+  it('is there when the run settles, before anything that waited on it continues', async () => {
+    const gateway = freshServer()
+    gateway.plugins.nextInstall(new GatewayError('unknown', 'Hermes words this its own way.', { code: 'no_git', status: 400 }))
+    let seen: unknown = 'not read'
+    const running = start(gateway)
+    void running.promise.then(() => {
+      seen = lastManualOutcome(connection.id)
+    })
+
+    await running.finish()
+
+    expect(seen).toEqual({ kind: 'manual', failure: 'no_git', detail: null })
+  })
+
+  it('is cleared when the next run starts, so a run that ends otherwise leaves nothing', async () => {
+    const failing = freshServer()
+    failing.plugins.nextInstall(new GatewayError('unknown', 'Hermes words this its own way.', { code: 'no_git', status: 400 }))
+    await run(failing)
+    expect(lastManualOutcome(connection.id)).not.toBeNull()
+
+    const running = start(freshServer())
+    expect(lastManualOutcome(connection.id)).toBeNull()
+    const result = await running.finish()
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(lastManualOutcome(connection.id)).toBeNull()
+  })
+
+  it.each<[string, (gateway: FakeGateway) => void]>([
+    ['a restart', gateway => gateway.ergates.setHealth(mountsWhenEnabled(gateway, { state: 'not_loaded' }))],
+    ['a failed step', gateway => gateway.plugins.nextInstall(mapHttpError(403, { detail: 'Not allowed.' }))],
+    ['a sign-in', gateway => gateway.plugins.nextInstall(new GatewayError('unauthorized', 'Sign-in required.', { status: 401 }))]
+  ])('holds nothing for %s', async (_title, scripted) => {
+    const gateway = freshServer()
+    scripted(gateway)
+
+    await run(gateway)
+
+    expect(lastManualOutcome(connection.id)).toBeNull()
+  })
+
+  it('is kept per connection', async () => {
+    const gateway = freshServer()
+    gateway.plugins.nextInstall(new GatewayError('unknown', 'Hermes words this its own way.', { code: 'no_git', status: 400 }))
+
+    await run(gateway)
+
+    expect(lastManualOutcome(OTHER)).toBeNull()
+  })
+
+  it('does not clear when a call only joins the run that is going', async () => {
+    const gateway = freshServer()
+    gateway.plugins.nextInstall(new GatewayError('unknown', 'Hermes words this its own way.', { code: 'no_git', status: 400 }))
+    const first = start(gateway)
+    const joiner = start(gateway)
+
+    await first.finish()
+    await joiner.finish()
+
+    expect(lastManualOutcome(connection.id)).toEqual({ kind: 'manual', failure: 'no_git', detail: null })
   })
 })
