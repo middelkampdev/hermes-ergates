@@ -179,7 +179,7 @@ def test_push_status_of_a_root_without_push_settings_or_config(tmp_path, monkeyp
 
 
 def test_push_is_configured_only_with_a_usable_server_and_topic(tmp_path, monkeypatch):
-    """The same rule as ``push_settings``: both set, and neither an unexpanded reference."""
+    """The same rule as ``push_settings``: both set, neither an unexpanded reference, and an http or https server."""
     _secret(monkeypatch, None)
     cases = [
         ({"server": "https://ntfy.example.internal"}, False),
@@ -187,6 +187,10 @@ def test_push_is_configured_only_with_a_usable_server_and_topic(tmp_path, monkey
         ({"server": '"  "', "topic": "ergates-alerts"}, False),
         ({"server": "${NTFY_SERVER}", "topic": "ergates-alerts"}, False),
         ({"server": "https://ntfy.example.internal", "topic": "${NTFY_TOPIC}"}, False),
+        ({"server": "file:///etc/hosts", "topic": "ergates-alerts"}, False),
+        ({"server": "ftp://ntfy.example.internal", "topic": "ergates-alerts"}, False),
+        ({"server": "ntfy.example.internal", "topic": "ergates-alerts"}, False),
+        ({"server": "http://ntfy", "topic": "ergates-alerts"}, True),
         ({"server": "https://ntfy.example.internal", "topic": "ergates-alerts"}, True),
         ({"server": "https://ntfy.example.internal", "topic": "ergates-alerts", "connection_id": "${C}"}, True),
     ]

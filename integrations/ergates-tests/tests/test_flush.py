@@ -9,13 +9,14 @@ import logging
 import os
 import sys
 import time
+import urllib.request
 
 import pytest
 
 from conftest import FakeCron, raw_bytes, rows
 from ergates import flush, hermes_adapter
 from ergates.attention import APPROVAL_TTL_SECONDS, RETENTION_SECONDS, AttentionService
-from ergates.delivery import LEASE_SECONDS
+from ergates.delivery import LEASE_SECONDS, send_ntfy
 from ergates.flush import flush_once, main
 from ergates.proposals import ProposalService, validate_proposal
 from ergates.reminders import REMINDER_MAX_IDLE_SECONDS, ReminderService
@@ -81,6 +82,26 @@ def test_flush_once_skips_the_delivery_pass_when_push_is_not_configured(tmp_path
     assert counts["retried"] == 0
     assert published == []
     assert rows(store, "attention_outbox")[0]["state"] == "due"   # still due for a later flush
+
+
+@pytest.mark.parametrize("server", ["file:///etc/hosts", "ftp://ntfy.example.internal"])
+def test_flush_once_turns_push_off_for_a_server_that_is_not_http_or_https(tmp_path, store, monkeypatch, caplog,
+                                                                          server):
+    """Nothing is opened, the push stays due for a pass with a usable server, and the log says why once."""
+    opened = []
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", lambda *args, **kwargs: opened.append(args))
+    now = time.time()
+    _approval(store, now)
+
+    with caplog.at_level(logging.DEBUG):
+        counts = flush_once(tmp_path, {**SETTINGS, "server": server}, now=now, publish=send_ntfy)
+
+    assert counts["retried"] == 0
+    assert opened == []
+    outbox = rows(store, "attention_outbox")[0]
+    assert (outbox["state"], outbox["attempts"]) == ("due", 0)
+    warnings = [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING]
+    assert len(warnings) == 1 and "push is off" in warnings[0]
 
 
 def test_flush_once_never_pushes_an_expired_approval(tmp_path, store):

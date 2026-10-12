@@ -23,11 +23,14 @@ contracts this package implements.
 
 The plugin makes one kind of network call: an HTTP POST to the ntfy server in
 `ntfy.server`, to the topic in `ntfy.topic`, once per push. With either
-setting unset it makes no call at all. It posts to whatever URL it is given,
-and the token travels in a request header, so set an `https://` URL. A push
-has a fixed body, a title, and a link that holds the session id, the profile
-name and the app's connection id. It never carries message text, a command or
-a tool argument. The plugin contacts no other host.
+setting unset it makes no call at all. It posts only to an `http://` or
+`https://` URL; any other `ntfy.server` turns push off, and the log says why.
+It follows no redirect, so a push and its token reach that server and no
+other host. The token travels in a request header, so use `https://` for a
+server outside your own network. The Compose deployment posts to its own
+`ntfy` service over plain `http://`. A push has a fixed body, a title, and a
+link that holds the session id, the profile name and the app's connection
+id. It never carries message text, a command or a tool argument.
 
 ### What it writes
 
@@ -243,7 +246,7 @@ raised it. The ntfy token is a Hermes plugin secret and lives in the root's
 
 | Key | Default | Purpose |
 |---|---|---|
-| `ntfy.server` | unset (push disabled) | ntfy server base URL |
+| `ntfy.server` | unset (push disabled) | ntfy server base URL, `http://` or `https://` |
 | `ntfy.topic` | unset (push disabled) | ntfy topic to publish attention events to |
 | `ntfy.token`: `ERGATES_NTFY_TOKEN` in `<hermes root>/.env` | unset | ntfy publish token (Bearer), or `user:pass` for Basic |
 | `ntfy.connection_id` | unset | app connection id used to build the `Click` deep link |
@@ -275,7 +278,8 @@ and the log names the key and `ERGATES_NTFY_TOKEN`, never the value.
 
 No credentials are ever read from, or written into, this repository or the
 store. Push is skipped (not an error) whenever `ntfy.server` or `ntfy.topic`
-is unset; the event and its outbox row are still recorded.
+is unset, or `ntfy.server` is not an `http://` or `https://` URL; the event
+and its outbox row are still recorded.
 
 ## Upgrading from 0.2
 
@@ -445,7 +449,8 @@ setup finished:
   profile raised. When Hermes cannot list the profiles, `profiles` is `[]`,
   `finished` is false and `setup.error` names the exception class.
 - `push` holds three booleans and never a value. `configured`: `ntfy.server`
-  and `ntfy.topic` are both set in the root's `config.yaml`. `token_set`:
+  and `ntfy.topic` are both set in the root's `config.yaml`, and the server
+  is an `http://` or `https://` URL. `token_set`:
   `ERGATES_NTFY_TOKEN` has a value in the root's `.env`.
   `legacy_config_token`: a `ntfy.token` key still sits in the root's
   `config.yaml`, where it is ignored. When reading them raises, the three
@@ -673,7 +678,8 @@ of that profile (ADR-032).
   your approval` or `A routine finished`; the `Click` link is
   `ergates://chat/<session>?connection=<id>&profile=<name>`. Errors are
   logged by class name only, so a token echoed in an HTTP error never
-  reaches a log.
+  reaches a log. A redirect is never followed: the attempt fails with
+  `HTTPError` and is retried like any other failure.
 
 ## Periodic sweep
 

@@ -61,8 +61,9 @@ def flush_once(
     ``root`` is the Hermes root; the store is ``paths.store_path(root)``.
     Expiry runs before delivery, so an approval that timed out is cancelled,
     never pushed. The delivery pass is skipped (not an error) when
-    ``ntfy.server`` or ``ntfy.topic`` is unset: a deployment without push
-    still gets its retention sweep.
+    ``ntfy.server`` or ``ntfy.topic`` is unset, or the server is not an
+    ``http://`` or ``https://`` URL (:func:`~ergates.delivery.ntfy_settings`
+    logs that one): a deployment without push still gets its retention sweep.
 
     ``cron`` is optional and, when given, lets the reminder sweep drop
     receipts whose cron job has been deleted natively; without it the sweep

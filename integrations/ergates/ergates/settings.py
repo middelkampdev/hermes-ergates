@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping
 
 from . import hermes_adapter
-from .delivery import NtfySettings, ntfy_settings
+from .delivery import NtfySettings, is_http_url, ntfy_settings
 from .sweep import SWEEP_INTERVAL_SECONDS
 
 logger = logging.getLogger(__name__)
@@ -115,8 +115,9 @@ def push_status(root: Path, plugin_id: str = PLUGIN_ID) -> Dict[str, bool]:
     """What the install has for push, as booleans for ``GET /health``; never a value.
 
     ``configured``: ``ntfy.server`` and ``ntfy.topic`` are both set in the
-    root's ``config.yaml``, the rule :func:`push_settings` applies, so push
-    is on. ``token_set``: the install secret :data:`TOKEN_ENV` has a value.
+    root's ``config.yaml`` and the server is an ``http://`` or ``https://``
+    URL, the rule :func:`push_settings` applies, so push is on.
+    ``token_set``: the install secret :data:`TOKEN_ENV` has a value.
     ``legacy_config_token``: a ``ntfy.token`` key still sits in
     ``config.yaml``, which is ignored (see :func:`settings_from_config`).
 
@@ -126,8 +127,9 @@ def push_status(root: Path, plugin_id: str = PLUGIN_ID) -> Dict[str, bool]:
     """
     node = _ntfy_node(_root_config(root), plugin_id) or {}
     usable = {key: _text(node.get(key)) for key in ("server", "topic")}
+    configured = all(value is not None and _UNEXPANDED_MARKER not in value for value in usable.values())
     return {
-        "configured": all(value is not None and _UNEXPANDED_MARKER not in value for value in usable.values()),
+        "configured": configured and is_http_url(usable["server"]),
         "token_set": hermes_adapter.install_secret(TOKEN_ENV) is not None,
         "legacy_config_token": "token" in node,
     }
