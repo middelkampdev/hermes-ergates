@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import HERMES_UID, OWNER_CHANGES
+from conftest import HERMES_UID, OWNER_CHANGES, returns_within
 from ergates import setup
 from ergates.paths import bundled_templates_dir, store_path, templates_dir
 from ergates.setup import (
@@ -480,7 +480,7 @@ def test_the_installed_files_are_0644_under_the_usual_umask(source, target):
 def test_without_dir_fd_the_install_works_by_path_and_still_refuses_a_symlinked_folder(tmp_path, source, outside,
                                                                                        monkeypatch):
     """Windows has no `dir_fd`, and no root to escalate from, so there the install resolves names by path."""
-    monkeypatch.setattr("ergates.setup._HAS_DIR_FD", False)
+    monkeypatch.setattr("ergates.templates.HAS_DIR_FD", False)
     target = templates_dir(tmp_path)
 
     assert ensure_templates(source, target) == INSTALLED
@@ -552,17 +552,6 @@ def test_a_target_that_cannot_be_read_has_the_state_differ(source, target):
         target.chmod(0o700)
 
 
-def _returns_within(seconds, call):
-    """What ``call()`` returns; fails the test when it has not returned after ``seconds``, as a blocked open never
-    does. The thread is a daemon, so a blocked one does not keep the test run alive."""
-    results = []
-    worker = threading.Thread(target=lambda: results.append(call()), daemon=True)
-    worker.start()
-    worker.join(seconds)
-    assert not worker.is_alive(), "the call blocked"
-    return results[0]
-
-
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no FIFOs on this platform")
 def test_a_fifo_in_the_templates_folder_never_blocks_and_is_never_read(source, target):
     """An open for reading waits for a writer on a FIFO nobody writes to, so a plain read stalls the process."""
@@ -571,9 +560,9 @@ def test_a_fifo_in_the_templates_folder_never_blocks_and_is_never_read(source, t
     os.mkfifo(target / "bookkeeper.json")
     os.mkfifo(target / "retired-role.json")
 
-    assert _returns_within(5, lambda: templates_state(source, target)) == INVALID
-    assert _returns_within(5, lambda: templates_match(source_templates(source), target)) is False
-    assert _returns_within(5, lambda: ensure_templates(source, target)) == INSTALLED
+    assert returns_within(5, lambda: templates_state(source, target)) == INVALID
+    assert returns_within(5, lambda: templates_match(source_templates(source), target)) is False
+    assert returns_within(5, lambda: ensure_templates(source, target)) == INSTALLED
 
     assert sorted(os.listdir(target)) == ["bookkeeper.json", "general-assistant.json"]
     assert _installed(target) == source_templates(source)
@@ -721,6 +710,20 @@ def test_source_templates_names_every_file_the_accept_route_would_refuse(source)
         source_templates(source)
 
     assert raised.value.names == ["a-broken.json", "general-assistant.json"]
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no FIFOs on this platform")
+def test_source_templates_names_a_fifo_or_a_symlink_without_blocking_or_following_it(source, outside):
+    os.mkfifo(source / "a-fifo.json")
+    (source / "general-assistant.json").unlink()
+    (source / "general-assistant.json").symlink_to(outside / "victim.json")
+
+    def refused():
+        with pytest.raises(TemplateSourceError) as raised:
+            source_templates(source)
+        return raised.value.names
+
+    assert returns_within(5, refused) == ["a-fifo.json", "general-assistant.json"]
 
 
 def test_source_templates_reads_the_files_as_they_are(source):

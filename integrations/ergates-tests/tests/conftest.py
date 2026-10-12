@@ -170,3 +170,14 @@ class FakeCron:
 @pytest.fixture
 def cron() -> FakeCron:
     return FakeCron()
+
+
+def returns_within(seconds, call):
+    """What ``call()`` returns; fails the test when it has not returned after ``seconds``, as a blocked open never
+    does. The thread is a daemon, so a blocked one does not keep the test run alive."""
+    results = []
+    worker = threading.Thread(target=lambda: results.append(call()), daemon=True)
+    worker.start()
+    worker.join(seconds)
+    assert not worker.is_alive(), "the call blocked"
+    return results[0]

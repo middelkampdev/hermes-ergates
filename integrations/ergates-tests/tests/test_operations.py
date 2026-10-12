@@ -5,6 +5,7 @@ Hermes's own web server; these tests pin each status code and body.
 """
 
 import json
+import os
 import re
 import threading
 import time
@@ -15,7 +16,7 @@ import pytest
 import yaml
 
 import ergates
-from conftest import FakeClock, raw_bytes, rows
+from conftest import FakeClock, raw_bytes, returns_within, rows
 from ergates.operations import HEALTH_CACHE_SECONDS, LABEL_MAX_LEN, Operations, internal_error
 from ergates.paths import templates_dir
 from ergates.proposals import PROPOSAL_EXPIRY, ProposalService, validate_proposal
@@ -751,6 +752,19 @@ def test_an_unknown_template_is_422_and_reserves_nothing(ops, proposals):
     assert _error(reply) == (422, "unknown_template")
     assert ops.get_proposal(proposal["proposal_id"]).body["proposal"]["state"] == "proposed"
     assert proposals.is_admitted("pim") is True
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no FIFOs on this platform")
+def test_accepting_a_template_that_is_a_fifo_is_422_without_blocking(ops, proposals, tmp_path):
+    template = templates_dir(tmp_path) / "bookkeeper.json"
+    template.unlink()
+    os.mkfifo(template)
+    proposal = _recorded(proposals)
+
+    reply = returns_within(5, lambda: _accept(ops, proposal))
+
+    assert _error(reply) == (422, "unknown_template")
+    assert ops.get_proposal(proposal["proposal_id"]).body["proposal"]["state"] == "proposed"
 
 
 @pytest.mark.parametrize("change", [

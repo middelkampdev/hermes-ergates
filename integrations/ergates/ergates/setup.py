@@ -23,19 +23,18 @@ missing template is a 422 on accept for that template, not a dead API.
 
 from __future__ import annotations
 
-import errno
 import logging
 import os
 import secrets
-import stat
 from contextlib import ExitStack, suppress
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
 from .proposals import ProposalError
 from .store import ROOT_REFUSAL, root_run_would_break
-from .templates import load_template
+from .templates import (
+    MAX_TEMPLATE_BYTES, Folder, open_folder, open_root_folder, read_regular_file, read_template,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +61,9 @@ def source_templates(source: Path) -> dict[str, bytes]:
     invalid: list[str] = []
     for path in sorted(Path(source).glob("*.json")):
         try:
-            load_template(path.parent, path.stem)
+            templates[path.stem] = read_template(path.parent, path.stem)[1]
         except ProposalError:
             invalid.append(path.name)
-            continue
-        templates[path.stem] = path.read_bytes()
     if invalid:
         raise TemplateSourceError(invalid)
     return templates
@@ -94,7 +91,7 @@ def install_templates(templates: dict[str, bytes], target: Path) -> None:
     hermes_root = target.parent.parent
     hermes_root.mkdir(parents=True, exist_ok=True)
     with ExitStack() as open_folders:
-        root_folder = _open_hermes_root(hermes_root, open_folders)
+        root_folder = open_root_folder(hermes_root, open_folders)
         store_folder = _make_folder(root_folder, target.parent.name, open_folders)
         templates_folder = _make_folder(store_folder, target.name, open_folders)
 
@@ -107,66 +104,18 @@ def install_templates(templates: dict[str, bytes], target: Path) -> None:
                 os.unlink(templates_folder.entry(name), dir_fd=templates_folder.fd)
 
 
-# Linux and macOS resolve a name against an open folder (``dir_fd``).
-# ``os.replace`` takes ``dir_fd`` wherever ``os.rename`` does, although only
-# ``os.rename`` is listed in ``os.supports_dir_fd``.
-_HAS_DIR_FD = {os.open, os.mkdir, os.rename, os.unlink} <= os.supports_dir_fd and os.listdir in os.supports_fd
-_FOLDER_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 # O_CREAT with O_EXCL fails on any name that exists, a symlink included, and never follows one.
 _STAGING_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
-# O_NOFOLLOW: a symlink fails with ELOOP. O_NONBLOCK: a FIFO opens at once instead of waiting for a writer.
-_READ_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
-# A bundled template is under 2 KB; 1 MiB leaves room and bounds what one planted file makes the plugin read.
-MAX_TEMPLATE_BYTES = 1024 * 1024
 
 
-@dataclass(frozen=True)
-class _Folder:
-    """A folder of the install: its path and, where the platform has ``dir_fd``, the descriptor it is open at."""
-
-    path: Path
-    fd: Optional[int]
-
-    def entry(self, name: str) -> str:
-        """``name`` in this folder, as an ``os`` call that also gets ``dir_fd=self.fd`` takes it."""
-        return name if self.fd is not None else str(self.path / name)
-
-    def names(self) -> list[str]:
-        return os.listdir(self.fd if self.fd is not None else self.path)
-
-
-def _open_hermes_root(hermes_root: Path, open_folders: ExitStack) -> _Folder:
-    """The Hermes root, opened following a symlink: the operator chooses the root, not an agent."""
-    if not _HAS_DIR_FD:
-        return _Folder(hermes_root, None)
-    fd = os.open(hermes_root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    open_folders.callback(os.close, fd)
-    return _Folder(hermes_root, fd)
-
-
-def _make_folder(parent: _Folder, name: str, open_folders: ExitStack) -> _Folder:
-    """The folder ``name`` in ``parent``, made 0700 when it does not exist; see :func:`_open_folder`."""
+def _make_folder(parent: Folder, name: str, open_folders: ExitStack) -> Folder:
+    """The folder ``name`` in ``parent``, made 0700 when it does not exist (``templates.open_folder``)."""
     with suppress(FileExistsError):
         os.mkdir(parent.entry(name), 0o700, dir_fd=parent.fd)
-    return _open_folder(parent, name, open_folders)
+    return open_folder(parent, name, open_folders)
 
 
-def _open_folder(parent: _Folder, name: str, open_folders: ExitStack) -> _Folder:
-    """The existing folder ``name`` in ``parent``.
-
-    Raises ``OSError`` when ``name`` is a symlink or, where the platform has
-    ``dir_fd``, a file or missing.
-    """
-    path = parent.path / name
-    if parent.fd is None:
-        _refuse_a_symlink(path)
-        return _Folder(path, None)
-    fd = os.open(name, _FOLDER_FLAGS, dir_fd=parent.fd)
-    open_folders.callback(os.close, fd)
-    return _Folder(path, fd)
-
-
-def _replace_file(folder: _Folder, name: str, content: bytes) -> None:
+def _replace_file(folder: Folder, name: str, content: bytes) -> None:
     """Make ``name`` in ``folder`` hold ``content``, swapped in whole by ``os.replace``.
 
     The staging file gets a random name and is created with ``O_EXCL``, so
@@ -188,11 +137,6 @@ def _replace_file(folder: _Folder, name: str, content: bytes) -> None:
         raise
 
 
-def _refuse_a_symlink(folder: Path) -> None:
-    if folder.is_symlink():
-        raise OSError(errno.ELOOP, "the install does not work through a symlink")
-
-
 def _installed_templates(target: Path) -> Optional[dict[str, bytes]]:
     """``{template_id: bytes}`` of every ``*.json`` in ``target``; ``{}`` when a folder on the way is missing.
 
@@ -206,9 +150,9 @@ def _installed_templates(target: Path) -> Optional[dict[str, bytes]]:
     target = Path(target)
     with ExitStack() as open_folders:
         try:
-            root_folder = _open_hermes_root(target.parent.parent, open_folders)
-            store_folder = _open_folder(root_folder, target.parent.name, open_folders)
-            templates_folder = _open_folder(store_folder, target.name, open_folders)
+            root_folder = open_root_folder(target.parent.parent, open_folders)
+            store_folder = open_folder(root_folder, target.parent.name, open_folders)
+            templates_folder = open_folder(store_folder, target.name, open_folders)
             names = templates_folder.names()
         except FileNotFoundError:
             return {}
@@ -216,34 +160,11 @@ def _installed_templates(target: Path) -> Optional[dict[str, bytes]]:
         for name in sorted(names):
             if not name.endswith(".json"):
                 continue
-            content = _read_template_file(templates_folder, name)
+            content = read_regular_file(templates_folder, name)
             if content is None:
                 return None
             installed[Path(name).stem] = content
         return installed
-
-
-def _read_template_file(folder: _Folder, name: str) -> Optional[bytes]:
-    """The bytes of ``name`` in ``folder``; ``None`` unless it is a regular file within :data:`MAX_TEMPLATE_BYTES`."""
-    try:
-        fd = os.open(folder.entry(name), _READ_FLAGS, dir_fd=folder.fd)
-    except OSError as exc:
-        if exc.errno == errno.ELOOP:  # a symlink
-            return None
-        raise
-    try:
-        opened = os.fstat(fd)
-        if not stat.S_ISREG(opened.st_mode) or opened.st_size > MAX_TEMPLATE_BYTES:
-            return None
-        content = b""
-        while len(content) <= MAX_TEMPLATE_BYTES:  # the file can grow after the fstat
-            chunk = os.read(fd, MAX_TEMPLATE_BYTES + 1 - len(content))
-            if not chunk:
-                break
-            content += chunk
-    finally:
-        os.close(fd)
-    return content if len(content) <= MAX_TEMPLATE_BYTES else None
 
 
 def templates_match(templates: dict[str, bytes], target: Path) -> bool:

@@ -642,7 +642,11 @@ Accepting answers the proposal's template, read from
 `<hermes root>/ergates/templates/<template_id>.json` (fields `template_id`,
 `soul`, `enabled_toolsets`, `enabled_mcp_servers`), where the plugin copied it
 from its own `templates/` folder; an unknown template is a 422 and reserves
-nothing. The app then performs the provisioning steps in
+nothing. The route reads the file only when it is a regular file of at most
+1 MiB, in a `templates` folder that is not a symlink. A symlink, a FIFO or a
+larger file at a template name counts as an unknown template. In the
+plugin's own `templates/` folder, such a file makes the template install
+`invalid`. The app then performs the provisioning steps in
 order and reports each one: `profile_created` (`profiles.create` with
 `mirror_credentials: false`), `plugin_enabled` (after
 `POST /profiles/{profile}/plugin`), `configured` (`profiles.configure` from
