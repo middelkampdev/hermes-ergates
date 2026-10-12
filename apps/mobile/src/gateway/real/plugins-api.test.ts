@@ -67,7 +67,7 @@ const SHA = 'a'.repeat(40)
 const request: PluginInstallRequest = { identifier: 'middelkampdev/hermes-ergates/integrations/ergates', ref: SHA, enable: true, force: false }
 const INSTALL_PATH = '/api/dashboard/agent-plugins/install'
 
-/** The Hermes texts of fact 2, as Hermes words them for the Ergates install. */
+/** The install failure texts as Hermes 0.21.6 words them for the Ergates install. */
 const FAILURES = {
   scan_blocked: [
     'Security scan blocked plugin install: dangerous verdict (1 critical)\n\nVerdict: DANGEROUS\nReview the findings above. Install only plugins from sources you trust. (Scanning can be configured via plugins.scan_on_install in config.yaml.)'
