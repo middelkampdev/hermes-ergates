@@ -21,8 +21,11 @@ import { PLUGIN_INSTALL_TIMEOUT_MS, type GatewayPort } from '@/gateway/port'
 import type { PluginInstallCode, PluginProbe, SetupState } from '@/gateway/types'
 
 import { PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
-import { clearPendingSetup, markPendingSetup } from './pending-setup'
+import { clearPendingSetup, isSetupRunning, markPendingSetup, trackSetupRun } from './pending-setup'
 import { hubRow } from './server-check'
+
+/** Whether a run is going for the connection; `pending-setup.ts` owns the answer so that it can check it without importing this module. */
+export { isSetupRunning }
 
 export type SetupStep = 'install' | 'enable' | 'start' | 'setup'
 /** `pending` is a screen's state before a step begins; the run itself reports the other four. */
@@ -299,6 +302,7 @@ export async function runSetup(deps: SetupDeps, onStep: (step: SetupStep, status
     listeners.forEach(listener => listener(step, status))
   }).execute()
   flights.set(deps.connectionId, { promise, statuses, listeners })
+  trackSetupRun(deps.connectionId, promise)
   const forget = () => {
     flights.delete(deps.connectionId)
   }

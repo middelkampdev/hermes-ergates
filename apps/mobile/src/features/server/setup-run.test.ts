@@ -16,7 +16,7 @@ import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
 import { PLUGIN_IDENTIFIER, type BuildRecord } from './build-record'
 import { finishPendingSetup } from './pending-setup'
-import { runSetup, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
+import { isSetupRunning, runSetup, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
 
 const COMMIT = 'c'.repeat(40)
 const LOST = 'Lost the connection to your server during setup.'
@@ -520,6 +520,62 @@ describe('runSetup: one run per connection', () => {
     expect(secondRun.last).toEqual({ install: 'skipped', enable: 'skipped', start: 'done', setup: 'done' })
     expect(gateway.ergates.setupCalls).toBe(2)
     expect(gateway.plugins.installs).toHaveLength(1)
+  })
+
+  it('says a run is going from the moment it starts until it ends, for its connection only', async () => {
+    const gateway = freshServer()
+    gateway.plugins.fail('install', networkError())
+    expect(isSetupRunning(connection.id)).toBe(false)
+
+    const running = start(gateway)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(isSetupRunning(connection.id)).toBe(true)
+    expect(isSetupRunning('c-2')).toBe(false)
+    gateway.plugins.rows = [row('enabled')]
+    await running.finish()
+    expect(isSetupRunning(connection.id)).toBe(false)
+  })
+
+  it('says no run is going after one that ended in a failure', async () => {
+    const gateway = freshServer()
+    gateway.ergates.setHealth({ state: 'absent' })
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toMatchObject({ kind: 'failed' })
+    expect(isSetupRunning(connection.id)).toBe(false)
+  })
+
+  it('does not start a second setup for a ready check while a run is going, and does again once it ended', async () => {
+    const gateway = freshServer()
+    gateway.plugins.fail('install', networkError())
+    const running = start(gateway)
+    await vi.advanceTimersByTimeAsync(1_000)
+    // The plugin showed up, but the run has not noticed yet.
+    gateway.plugins.rows = [row('enabled')]
+    const pending = useDeviceStore.getState().connections[0]
+
+    const during = await finishPendingSetup(gateway, pending, { kind: 'ready', health: FAKE_PLUGIN_HEALTH })
+
+    expect(during).toBeNull()
+    expect(gateway.ergates.setupCalls).toBe(0)
+    expect(flag()).toBe(COMMIT)
+
+    await running.finish()
+    expect(gateway.ergates.setupCalls).toBe(1)
+    expect(flag()).toBeUndefined()
+  })
+
+  it('lets a ready check finish a pending setup once the run that left it has ended', async () => {
+    const gateway = freshServer()
+    gateway.ergates.fail('setup', new GatewayError('unauthorized', 'Sign-in required.', { status: 401 }))
+    await run(gateway)
+    const pending = useDeviceStore.getState().connections[0]
+
+    const report = await finishPendingSetup(gateway, pending, { kind: 'ready', health: FAKE_PLUGIN_HEALTH })
+
+    expect(report).toEqual(FAKE_SETUP)
   })
 
   it('does not join the run of another connection', async () => {
