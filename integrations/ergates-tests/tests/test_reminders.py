@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -557,6 +558,19 @@ def test_prune_keeps_a_receipt_when_the_lookup_fails(service, cron, clock):
     cron.fail_lookup = True
 
     assert service.prune(clock()) == 0
+
+
+def test_a_pass_whose_lookups_fail_logs_one_line_with_the_count(service, cron, clock, caplog):
+    """The sweep runs every two minutes; one warning per receipt per pass would flood Hermes's log."""
+    for request_id in ("one", "two", "three"):
+        service.create(*ARGS, request_id=request_id)
+    cron.fail_lookup = True
+
+    with caplog.at_level(logging.DEBUG, logger="ergates.reminders"):
+        assert service.prune(clock()) == 0
+
+    assert [record.levelno for record in caplog.records] == [logging.WARNING]
+    assert "3 receipt(s)" in caplog.text and "ConnectionError" in caplog.text
 
 
 def test_prune_keeps_a_fresh_uncertain_receipt(service, cron, clock):

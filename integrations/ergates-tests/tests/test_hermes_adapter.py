@@ -323,6 +323,7 @@ def _hermes_install_metadata(monkeypatch, root, read) -> list:
     monkeypatch.setitem(sys.modules, "hermes_cli.profiles", profiles)
     monkeypatch.setitem(sys.modules, "hermes_cli.plugins_cmd", commands)
     monkeypatch.setitem(sys.modules, "hermes_constants", constants)
+    monkeypatch.setattr(hermes_adapter, "_install_record_error", None)  # no failure logged by an earlier test
     return events
 
 
@@ -353,6 +354,27 @@ def test_install_record_is_none_when_hermes_raises_and_the_log_names_the_class_o
 
     assert events[-1] == ("reset", "token")
     assert "RuntimeError" in caplog.text and "secret" not in caplog.text
+
+
+def test_install_record_logs_a_failure_once_until_its_class_changes_or_a_read_succeeds(tmp_path, monkeypatch, caplog):
+    """``GET /health`` reads the record at every call, and the app polls it every few seconds."""
+    answers = []
+
+    def read():
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    _hermes_install_metadata(monkeypatch, tmp_path, read)
+    answers.extend([RuntimeError("one"), RuntimeError("two"), OSError("three"), {}, RuntimeError("four")])
+
+    with caplog.at_level(logging.DEBUG, logger="ergates.hermes_adapter"):
+        for _ in range(5):
+            assert hermes_adapter.install_record() is None
+
+    assert [record.getMessage().rsplit("(", 1)[1] for record in caplog.records] == [
+        "RuntimeError)", "OSError)", "RuntimeError)"]
 
 
 def test_install_record_is_none_when_the_root_home_is_not_a_folder(tmp_path, monkeypatch):

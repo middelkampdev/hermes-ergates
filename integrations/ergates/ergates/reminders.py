@@ -266,18 +266,24 @@ class ReminderService:
 
         Each deletion names the version the sweep inspected, so a receipt that
         a request changed in the meantime survives. Returns how many were removed.
+        A pass whose cron lookups fail keeps those receipts and logs one line
+        with their count and error classes, not one line per receipt.
         """
         with self._store.read() as conn:
             snapshot = conn.execute("SELECT * FROM reminder_receipts").fetchall()
         removed = 0
+        failed: list[str] = []  # the error class of each lookup that failed
         for row in snapshot:
-            if now - row["updated_at"] <= REMINDER_MAX_IDLE_SECONDS and not self._job_is_gone(row):
+            if now - row["updated_at"] <= REMINDER_MAX_IDLE_SECONDS and not self._job_is_gone(row, failed):
                 continue
             with self._store.transaction() as conn:
                 cursor = conn.execute(
                     "DELETE FROM reminder_receipts WHERE id = ? AND version = ?", (row["id"], row["version"]),
                 )
             removed += cursor.rowcount
+        if failed:
+            logger.warning("reminders: the cron lookup failed for %d receipt(s) (%s); keeping them",
+                           len(failed), ", ".join(sorted(set(failed))))
         return removed
 
     def _decide(self, fresh: dict) -> tuple[str, sqlite3.Row]:
@@ -403,8 +409,11 @@ class ReminderService:
         current = self._read(row["id"])
         return dict(current) if current is not None else {**dict(row), "state": UNCERTAIN}
 
-    def _job_is_gone(self, row) -> bool:
-        """True only when cron positively reports the job of a ``created`` receipt as absent."""
+    def _job_is_gone(self, row, failed: list[str]) -> bool:
+        """True only when cron positively reports the job of a ``created`` receipt as absent.
+
+        A lookup that raises keeps the receipt; its error class goes into ``failed`` for :meth:`prune` to log.
+        """
         if row["state"] != CREATED:
             return False
         try:
@@ -412,5 +421,5 @@ class ReminderService:
         except CronUnavailable:
             return False
         except Exception as exc:
-            logger.warning("reminders: lookup of job %r failed (%s); keeping the receipt", row["job_id"], type(exc).__name__)
+            failed.append(type(exc).__name__)
             return False

@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from contextlib import contextmanager
 from datetime import tzinfo
 from pathlib import Path
@@ -127,9 +128,12 @@ def install_record() -> dict | None:
     ``None`` outside a Hermes runtime, when there is no record (a plugin
     copied or mounted by hand), and when Hermes raises (an unreadable file):
     the log then names the exception class only, because its message
-    carries a path. ``integrations/ergates-tests/contract/test_hermes_adapter.py``
+    carries a path. ``GET /health`` asks at every call, so a failure is
+    logged once, until a read fails with another class or succeeds.
+    ``integrations/ergates-tests/contract/test_hermes_adapter.py``
     pins the record's shape and where Hermes keeps it.
     """
+    global _install_record_error
     try:
         from hermes_cli.plugins_cmd import _read_install_metadata
     except ImportError:
@@ -138,9 +142,20 @@ def install_record() -> dict | None:
         with _profile_home("default"):
             record = _read_install_metadata().get(PLUGIN_NAME)
     except Exception as exc:  # health must answer whatever Hermes does here
-        logger.warning("ergates: Hermes's install record of the plugin could not be read (%s)", type(exc).__name__)
+        error = type(exc).__name__
+        with _install_record_lock:
+            if error != _install_record_error:
+                logger.warning("ergates: Hermes's install record of the plugin could not be read (%s)", error)
+            _install_record_error = error
         return None
+    with _install_record_lock:
+        _install_record_error = None
     return record if isinstance(record, dict) else None
+
+
+# The error class of the last install_record call that failed, or None after a read that succeeded.
+_install_record_error: str | None = None
+_install_record_lock = threading.Lock()
 
 
 def root_plugin_dir() -> Path | None:

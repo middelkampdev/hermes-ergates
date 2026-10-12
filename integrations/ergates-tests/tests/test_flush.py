@@ -84,6 +84,14 @@ def test_flush_once_skips_the_delivery_pass_when_push_is_not_configured(tmp_path
     assert rows(store, "attention_outbox")[0]["state"] == "due"   # still due for a later flush
 
 
+def test_a_pass_without_push_settings_logs_only_at_debug(tmp_path, store, caplog):
+    """A deployment without push runs a sweep every two minutes; each pass must not add a line to Hermes's log."""
+    with caplog.at_level(logging.DEBUG):
+        flush_once(tmp_path, {}, publish=lambda spec: None)
+
+    assert [record.levelno for record in caplog.records if record.name.startswith("ergates")] == [logging.DEBUG]
+
+
 @pytest.mark.parametrize("server", ["file:///etc/hosts", "ftp://ntfy.example.internal"])
 def test_flush_once_turns_push_off_for_a_server_that_is_not_http_or_https(tmp_path, store, monkeypatch, caplog,
                                                                           server):

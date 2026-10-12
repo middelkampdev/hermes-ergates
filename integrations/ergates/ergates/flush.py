@@ -93,7 +93,8 @@ def flush_once(
         if ntfy is not None:
             counts["retried"] = DeliveryWorker(store, publish, ntfy, clock=clock).run_due()
         else:
-            logger.info("ergates.flush: ntfy.server/ntfy.topic unset; delivery pass skipped")
+            # Debug only: without push this runs every pass, and a refused server was logged by ntfy_settings.
+            logger.debug("ergates.flush: push is off; delivery pass skipped")
     finally:
         store.close()
     return counts
