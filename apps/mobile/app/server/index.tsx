@@ -42,11 +42,12 @@ import { Page } from '@/ui/Page'
 
 const PENDING_STEPS: Record<SetupStep, StepStatus> = { install: 'pending', enable: 'pending', start: 'pending', setup: 'pending' }
 
+// The active step keeps the open circle: its row shows the one spinner on the right. A skipped step gets a bare check, set apart from a step that ran.
 const STEP_ICON: Record<StepStatus, IconName> = {
   pending: 'circle',
-  active: 'loader',
+  active: 'circle',
   done: 'check-circle',
-  skipped: 'check-circle',
+  skipped: 'check',
   failed: 'x-circle'
 }
 
