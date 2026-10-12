@@ -146,7 +146,14 @@ export interface FilesApi {
  * instead: each of those answers carries the receipt.
  */
 export interface ErgatesApi {
-  health(): Promise<T.ErgatesHealth>
+  /**
+   * Resolves for a 200 (`answered`) and for the two 404s the path can answer
+   * (`absent`, `not_loaded`). Any other answer rejects, with
+   * `code: 'store_unavailable'` when the plugin cannot open its store.
+   */
+  health(): Promise<T.PluginProbe>
+  /** `POST /setup`: installs the templates and enables the plugin in every profile. */
+  setup(): Promise<T.SetupState>
   createReminder(req: T.ReminderRequest): Promise<T.ReminderOutcome>
   getProposal(proposalId: string): Promise<T.ProposalReceipt>
   acceptProposal(proposalId: string, proposal: T.AgentProposal): Promise<T.ProposalReceipt>

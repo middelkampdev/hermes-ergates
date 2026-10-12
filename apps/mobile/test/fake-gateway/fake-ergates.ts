@@ -5,7 +5,8 @@
  * `ergates/operations.py`, built through the same `mapErgatesError`
  * the real adapter uses, so an app test meets what the real server answers.
  * Test hooks: `record` (what the propose tool does), `nextCreateUncertain`,
- * `fail`, `failInternal`; logs: `calls`, `jobs`, `enabledPlugins`.
+ * `fail`, `failInternal`, `setHealth` (what the health probe finds),
+ * `setSetupResult`; logs: `calls`, `setupCalls`, `jobs`, `enabledPlugins`.
  *
  * No React Native or Expo imports (ADR-029 rule 1).
  */
@@ -16,12 +17,15 @@ import {
   PROVISION_STEPS,
   type AgentProposal,
   type AttentionPrefs,
+  type ErgatesHealth,
+  type PluginProbe,
   type ProposalReceipt,
   type ProposalTemplate,
   type ProvisionStep,
   type ReminderOutcome,
   type ReminderReceipt,
   type ReminderRequest,
+  type SetupState,
   type StepStatus
 } from '@/gateway/types'
 
@@ -34,6 +38,26 @@ export const PROPOSAL_TEMPLATE: ProposalTemplate = {
   enabled_toolsets: ['file', 'ergates'],
   enabled_mcp_servers: []
 }
+
+/** A finished setup: the templates are in place and the plugin is enabled in the one profile. */
+export const FAKE_SETUP: SetupState = { finished: true, templates: 'installed', profiles: [{ name: 'default', enabled: true }] }
+
+/** The health body of a current plugin that is installed, set up and idle (`Operations.health`). */
+export const FAKE_PLUGIN_HEALTH: ErgatesHealth = {
+  ok: true,
+  plugin_version: '0.2.0',
+  api_level: 1,
+  min_api_level: 1,
+  schema_version: 1,
+  store: { plugin_schema_version: 1, min_schema_version: 1, writable: true },
+  install: { kind: 'git install', commit: 'a'.repeat(40), catalog_name: null },
+  setup: FAKE_SETUP,
+  push: { configured: false, token_set: false, legacy_config_token: false },
+  sweep: { interval_seconds: 120, last_run_at: null, last_error: null }
+}
+
+/** What `setHealth` takes: a probe, an error to reject with, or a function that returns either at every call. */
+export type HealthScript = PluginProbe | Error | (() => PluginProbe | Error)
 
 const PROFILE_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const REQUEST_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
@@ -137,6 +161,8 @@ export class FakeErgates implements ErgatesApi {
   private readonly prefs = new Map<string, Omit<AttentionPrefs, 'profile'>>()
   private readonly faults: Fault[] = []
   private readonly uncertain: { jobCreated: boolean }[] = []
+  private healthScript: HealthScript = { state: 'answered', health: FAKE_PLUGIN_HEALTH }
+  private setupResult: SetupState = FAKE_SETUP
 
   constructor(options: FakeErgatesOptions) {
     this.hasProfile = options.hasProfile
@@ -171,8 +197,33 @@ export class FakeErgates implements ErgatesApi {
     this.fail(op, internal(), when)
   }
 
-  health() {
-    return this.run('health', [], () => ({ ok: true, schema_version: 1, plugin_version: '0.2.0' }))
+  /** What every `health` call finds from now on: a probe, an error to reject with, or a function of either. */
+  setHealth(script: HealthScript): void {
+    this.healthScript = script
+  }
+
+  /** The report every `setup` call answers from now on. */
+  setSetupResult(state: SetupState): void {
+    this.setupResult = state
+  }
+
+  /** How many `POST /setup` calls there were, failed ones included. */
+  get setupCalls(): number {
+    return this.calls.filter(call => call.op === 'setup').length
+  }
+
+  health(): Promise<PluginProbe> {
+    return this.run('health', [], () => {
+      const found = typeof this.healthScript === 'function' ? this.healthScript() : this.healthScript
+      if (found instanceof Error) {
+        throw found
+      }
+      return found
+    })
+  }
+
+  setup(): Promise<SetupState> {
+    return this.run('setup', [], () => this.setupResult)
   }
 
   createReminder(req: ReminderRequest): Promise<ReminderOutcome> {

@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { AgentProposal, ReminderReceipt } from '../types'
+import type { AgentProposal, ErgatesHealth, ReminderReceipt, SetupState } from '../types'
 import { isGatewayError, type GatewayError } from '../errors'
 import { REMINDER_TIMEOUT_MS } from './ergates-api'
 import { RealGateway } from './real-gateway'
@@ -94,21 +94,111 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+/** What the plugin answers on `GET /health` (`operations.py`, `Operations.health`). */
+const health: ErgatesHealth = {
+  ok: true,
+  plugin_version: '0.2.0',
+  api_level: 1,
+  min_api_level: 1,
+  schema_version: 1,
+  store: { plugin_schema_version: 1, min_schema_version: 1, writable: true },
+  install: { kind: 'git install', commit: 'a'.repeat(40), catalog_name: null },
+  setup: { finished: true, templates: 'installed', profiles: [{ name: 'default', enabled: true }] },
+  push: { configured: false, token_set: false, legacy_config_token: false },
+  sweep: { interval_seconds: 120, last_run_at: 1790000000.5, last_error: null }
+}
+
+/** What an older plugin answers: only the first three fields. */
+const olderHealth: ErgatesHealth = { ok: true, schema_version: 1, plugin_version: '0.2.0' }
+
 describe('ErgatesApi over the real gateway', () => {
   it('calls the plugin routes with the connection token', async () => {
-    const { api, seen } = await connected(() => [200, { ok: true, schema_version: 1, plugin_version: '0.2.0' }])
+    const { api, seen } = await connected(() => [200, health])
 
-    await expect(api.health()).resolves.toEqual({ ok: true, schema_version: 1, plugin_version: '0.2.0' })
+    await expect(api.health()).resolves.toEqual({ state: 'answered', health })
     expect(seen[0]).toMatchObject({ method: 'GET', path: '/api/plugins/ergates/health' })
     expect(seen[0]!.headers['X-Hermes-Session-Token']).toBe('tok-1')
   })
 
   it('sends the cookie in gated mode', async () => {
-    const { api, seen } = await connected(() => [200, { ok: true, schema_version: 1, plugin_version: '0.2.0' }], 'password')
+    const { api, seen } = await connected(() => [200, health], 'password')
 
     await api.health()
     expect(seen[0]!.headers.Cookie).toBe('hermes_session_at=abc')
     expect(seen[0]!.headers['X-Hermes-Session-Token']).toBeUndefined()
+  })
+
+  it('loads the stored sign-in before the first health read of a cold start', async () => {
+    const secrets = new MemorySecretStore()
+    await secrets.set('ergates.c1.mode', 'token')
+    await secrets.set('ergates.c1.token', 'tok-1')
+    const { impl, seen } = server(() => [200, health])
+    const gateway = new RealGateway({ connectionId: 'c1', baseUrl: 'http://gw.local', secrets, fetchImpl: impl })
+
+    await gateway.ergates.health()
+    expect(seen[0]!.headers['X-Hermes-Session-Token']).toBe('tok-1')
+  })
+
+  it('answers with exactly the fields an older plugin sends, and invents none', async () => {
+    const { api } = await connected(() => [200, olderHealth])
+
+    await expect(api.health()).resolves.toEqual({ state: 'answered', health: olderHealth })
+  })
+
+  it('reads the 404 of a plugin Hermes does not serve as absent', async () => {
+    const { api } = await connected(() => [404, { detail: 'Plugin not found' }])
+
+    await expect(api.health()).resolves.toEqual({ state: 'absent' })
+  })
+
+  it.each([
+    ['an enabled plugin whose routes are not mounted', { detail: 'Not Found' }],
+    ['a detail that only resembles the not-installed one', { detail: 'Plugin not found.' }],
+    ['a body without a detail', { message: 'Plugin not found' }],
+    ['no body', undefined],
+    ['a body that is not JSON', '<html>Not Found</html>']
+  ] as const)('reads a 404 with %s as not loaded', async (_name, body) => {
+    const { api } = await connected(() => [404, body])
+
+    await expect(api.health()).resolves.toEqual({ state: 'not_loaded' })
+  })
+
+  it('rejects a health read the gateway refuses to authenticate', async () => {
+    const { api } = await connected(() => [401, { detail: 'Unauthorized' }])
+
+    const err = await rejection(api.health())
+    expect(err).toMatchObject({ kind: 'unauthorized', status: 401 })
+    expect(err.code).toBeUndefined()
+  })
+
+  it('rejects a health read the plugin cannot answer with its error code', async () => {
+    const { api } = await connected(() => [503, { error: { code: 'store_unavailable', message: 'the Ergates control store is unavailable' } }])
+
+    const err = await rejection(api.health())
+    expect(err).toMatchObject({ kind: 'unknown', status: 503, code: 'store_unavailable', message: 'the Ergates control store is unavailable' })
+  })
+
+  it('rejects a 200 health answer that is not a JSON object', async () => {
+    const { api } = await connected(() => [200, '<html>Ergates</html>'])
+
+    await expect(rejection(api.health())).resolves.toMatchObject({ status: 200 })
+  })
+
+  it('runs the plugin setup with an empty JSON object and resolves its report', async () => {
+    const setup: SetupState = { finished: false, templates: 'installed', profiles: [{ name: 'default', enabled: true }, { name: 'pim', enabled: false, error: 'PermissionError' }] }
+    const { api, seen } = await connected(() => [200, { setup }])
+
+    await expect(api.setup()).resolves.toEqual(setup)
+    expect(seen[0]).toMatchObject({ method: 'POST', path: '/api/plugins/ergates/setup', body: {} })
+    expect(seen[0]!.headers['X-Hermes-Session-Token']).toBe('tok-1')
+  })
+
+  it('rejects a setup the gateway cannot route as not found', async () => {
+    const { api } = await connected(() => [404, { detail: 'Plugin not found' }])
+
+    const err = await rejection(api.setup())
+    expect(err).toMatchObject({ kind: 'not_found', status: 404 })
+    expect(err.code).toBeUndefined()
   })
 
   it.each([

@@ -5,8 +5,8 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { GatewayError, isGatewayError } from '@/gateway/errors'
-import type { AgentProposal, ReminderRequest } from '@/gateway/types'
+import { GatewayError, isGatewayError, mapErgatesError } from '@/gateway/errors'
+import type { AgentProposal, ReminderRequest, SetupState } from '@/gateway/types'
 
 import { FakeErgates, PROPOSAL_TEMPLATE } from './fake-ergates'
 
@@ -228,5 +228,71 @@ describe('FakeErgates faults', () => {
     ergates.failInternal('getProposal')
 
     await expect(codeOf(ergates.getProposal('p-pim'))).resolves.toEqual([500, 'internal'])
+  })
+})
+
+describe('FakeErgates health and setup', () => {
+  const unfinished: SetupState = { finished: false, templates: 'installed', profiles: [{ name: 'default', enabled: false }] }
+
+  it('answers a healthy, fully set up plugin until told otherwise', async () => {
+    const { ergates } = setup()
+
+    const probe = await ergates.health()
+    expect(probe).toMatchObject({ state: 'answered', health: { ok: true, setup: { finished: true } } })
+    expect(await ergates.health()).toEqual(probe)
+  })
+
+  it.each([{ state: 'absent' }, { state: 'not_loaded' }] as const)('answers the probe it is set to: %j', async probe => {
+    const { ergates } = setup()
+    ergates.setHealth(probe)
+
+    await expect(ergates.health()).resolves.toEqual(probe)
+    await expect(ergates.health()).resolves.toEqual(probe)
+  })
+
+  it('rejects when set to an error, as a real 503 from the plugin does', async () => {
+    const { ergates } = setup()
+    ergates.setHealth(mapErgatesError(503, { error: { code: 'store_unavailable', message: 'the Ergates control store is unavailable' } }))
+
+    await expect(codeOf(ergates.health())).resolves.toEqual([503, 'store_unavailable'])
+  })
+
+  it('reads the probe from a function at every call, so a test can follow other state', async () => {
+    const { ergates } = setup()
+    let installed = false
+    ergates.setHealth(() => (installed ? { state: 'answered', health: { ok: true, plugin_version: '0.2.0', schema_version: 1 } } : { state: 'absent' }))
+
+    await expect(ergates.health()).resolves.toEqual({ state: 'absent' })
+    installed = true
+    await expect(ergates.health()).resolves.toMatchObject({ state: 'answered' })
+  })
+
+  it('hands out a copy of the probe, so a caller cannot change the fake', async () => {
+    const { ergates } = setup()
+    const probe = await ergates.health()
+    if (probe.state === 'answered') {
+      probe.health.ok = false
+    }
+
+    await expect(ergates.health()).resolves.toMatchObject({ health: { ok: true } })
+  })
+
+  it('counts every setup call and answers the result it is set to', async () => {
+    const { ergates } = setup()
+    expect(ergates.setupCalls).toBe(0)
+
+    await expect(ergates.setup()).resolves.toMatchObject({ finished: true, templates: 'installed' })
+    ergates.setSetupResult(unfinished)
+    await expect(ergates.setup()).resolves.toEqual(unfinished)
+    expect(ergates.setupCalls).toBe(2)
+  })
+
+  it('fails the next setup call like any other route', async () => {
+    const { ergates } = setup()
+    ergates.fail('setup', new GatewayError('network', 'No connection to the gateway.'))
+
+    await expect(ergates.setup()).rejects.toMatchObject({ kind: 'network' })
+    await expect(ergates.setup()).resolves.toMatchObject({ finished: true })
+    expect(ergates.setupCalls).toBe(2)
   })
 })
