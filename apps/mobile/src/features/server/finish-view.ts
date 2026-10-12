@@ -178,9 +178,9 @@ export function pendingCommit(check: ServerCheck | null, build: BuildRecord | nu
 /**
  * The install command, or with `force` the update, for this build's commit.
  * The templates live in `manual-commands.json`, which the live contract suite
- * runs against a running Hermes without a terminal: `--yes-deps` answers the
- * dependency question Hermes asks for any plugin with a pyproject, which it
- * refuses to ask without one.
+ * runs against a running Hermes without a terminal. `--yes-deps` answers the
+ * dependency question Hermes asks for any plugin with a pyproject: without a
+ * terminal, Hermes takes the missing answer as a no and leaves the plugin off.
  */
 function installCommand(commit: string, force: boolean): string {
   const template = force ? manualCommands.update : manualCommands.install

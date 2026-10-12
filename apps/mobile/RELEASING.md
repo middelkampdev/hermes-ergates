@@ -160,7 +160,7 @@ This cuts `release/0.3.0`, commits `chore: set version 0.3.0` there, and pushes 
 
 ## Tested Hermes range
 
-The app offers one-tap setup of its server plugin only on a Hermes inside the range CI has tested. The oldest version is the `requires_hermes` floor in `integrations/ergates/plugin.yaml`. The newest is the minor in `expo.extra.hermesTestedThrough` in `apps/mobile/app.json`. `app.config.ts` copies both into the build as `extra.ergates`, next to the plugin's version, its API level and the commit of the checkout the build was made from.
+The app offers one-tap setup of its server plugin only on a Hermes inside the range CI has tested. The oldest version is the `requires_hermes` floor in `integrations/ergates/plugin.yaml`. The newest is the minor in `expo.extra.hermesTestedThrough` in `apps/mobile/app.json`. `app.config.ts` copies both into the build as `extra.ergates`, next to the plugin's version, its API level and the commit to install. The release workflows pass the tag's commit as `ERGATES_PLUGIN_COMMIT`, and a value that is not a full commit of 40 lowercase hex characters stops the build.
 
 Every Monday the `contract-latest` workflow runs the live contract tests against the newest stable Hermes. When they pass on a newer minor than `hermesTestedThrough`, the run opens the issue "Hermes vX.Y.Z passes the live contract tests: raise the tested range", once per release. Raise `hermesTestedThrough` to that minor in `apps/mobile/app.json` and ship it with the next release. Until you do, the app offers the manual guide instead of one-tap setup on that Hermes.
 
