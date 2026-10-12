@@ -17,6 +17,7 @@ import subprocess
 import pytest
 import yaml
 
+from ergates.policy import BLOCK_UNVERIFIED
 from pinned import HERMES_PIN_VERSION, PinnedSource
 from plugin_tree import PLUGIN_DIR
 
@@ -76,6 +77,8 @@ def test_the_readme_discloses_what_the_plugin_does_on_a_server():
         "`ERGATES_INSTALL_KIND`",  # what it reads for `health`
         "install metadata",
         "never approves",  # the tool gate
+        "fails closed",  # what the gate does when the store or the profile cannot be read
+        BLOCK_UNVERIFIED,  # the message the agent sees then: "Ergates could not verify this tool call, ..."
         "telemetry",
         "updates itself",
         "Linux and macOS",  # profile links are symlinks

@@ -40,15 +40,15 @@ a tool argument. The plugin contacts no other host.
 - `<hermes root>/ergates/templates/`, the proposal templates the plugin
   ships. The plugin copies them there the first time its routes serve a
   request and keeps the folder equal to what it ships, so it removes any
-  other file in it.
-- A profile's `plugins/ergates` link and its `config.yaml`. When the app
-  calls `POST /setup` or `POST /profiles/{name}/plugin`, or you run
-  `python -m ergates.install`, the plugin links `<profile>/plugins/ergates`
-  to the root's copy and adds `ergates` to that profile's `plugins.enabled`
-  (and takes it out of `plugins.disabled`). It writes that `config.yaml`
-  with Hermes's own `save_config` and changes no setting besides those two
-  lists. A profile whose `plugins/ergates` is a real folder is reported, not
-  replaced.
+  other `.json` file in it.
+- Each profile's `plugins/ergates` link and `config.yaml`. `POST /setup`
+  (and `python -m ergates.install`) does this for every profile in one call,
+  and `POST /profiles/{name}/plugin` for one profile. For each profile, the
+  plugin links `<profile>/plugins/ergates` to the root's copy and adds
+  `ergates` to that profile's `plugins.enabled` (and takes it out of
+  `plugins.disabled`). It writes that `config.yaml` with Hermes's own
+  `save_config` and changes no setting besides those two lists. A profile
+  whose `plugins/ergates` is a real folder is reported, not replaced.
 - Hermes cron jobs. A reminder that the app or an agent creates (through the
   `ergates_create_reminder` tool) becomes a job in that profile's Hermes
   cron.
@@ -67,9 +67,9 @@ and start no such thread. The first pass runs 5 seconds after the thread
 starts, then one runs every `sweep.interval_seconds` (120 by default; 0 turns
 the thread off). A pass sends the pushes that are due, expires approvals past
 their timeout, applies the retention rules and asks Hermes cron whether each
-reminder's job still exists. Several sweeps on one store are safe: each due
-push goes out once. The approval hook also sends its push on a short-lived
-thread. Besides these threads the plugin starts no process and runs no shell
+reminder's job still exists. Several sweeps on one store are safe: a lease
+keeps two sweeps from sending the same push at the same moment. The approval
+hook also sends its push on a short-lived thread. Besides these threads the plugin starts no process and runs no shell
 command.
 
 ### What it reads outside its own data
@@ -107,7 +107,10 @@ request. It blocks `cronjob_manage` with `action: create` in every profile,
 because agents create reminders through `ergates_create_reminder`. In a
 profile the app provisioned from a role template, it also blocks every tool
 until setup is done and any tool outside the toolsets the profile's
-configuration grants.
+configuration grants. The gate fails closed. When the control store cannot be
+opened, or the gate cannot tell which profile a call belongs to, it blocks
+every tool call in that profile, the default profile included, and the agent
+sees "Ergates could not verify this tool call, so it was blocked."
 
 ### What it never does
 
@@ -288,8 +291,8 @@ An install that ran version 0.2.0 needs three changes by hand:
   ntfy server with a deny-by-default ACL refuses them.
 - **The host cron line can go.** `hermes serve` runs the sweep itself now
   (see "Periodic sweep"), so delete the crontab line that ran
-  `python -m ergates.flush`. A line that stays does no harm: two sweeps on
-  one store send each due push once.
+  `python -m ergates.flush`. A line that stays does no harm: a lease keeps
+  two sweeps from sending the same push at the same moment.
 - **Run the setup once.** `POST /api/plugins/ergates/setup` with the body
   `{}`, or `python -m ergates.install`, installs the templates and enables
   the plugin in every profile (see "Install"). The app calls the route when
@@ -708,7 +711,7 @@ More than one sweep can run on one store: a host cron line left from an
 older setup, Hermes Desktop and `hermes serve` on one Hermes root, or one
 plugin host per profile under `plugins.isolation: host`. Each write takes
 the store's write lock, and a worker leases a due push before it sends it,
-so every push still goes out once.
+so two sweeps do not send the same push at the same moment.
 
 `python -m ergates.flush` runs one pass by hand and prints its counts:
 
