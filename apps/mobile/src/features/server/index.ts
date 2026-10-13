@@ -9,19 +9,21 @@ export {
   goBackTarget,
   highestSchema,
   NO_UPDATE,
+  NOT_WATCHED,
   pendingCommit,
   RESTART_HEADING,
-  restartSeenAfter,
   runIsGoing,
   SERVER_GUIDE_URL,
   setupProblem,
   SIGNED_OUT_HINT,
   updateStillOpen,
+  watchRestart,
   type FinishAction,
   type FinishManual,
   type FinishUpdate,
   type FinishVariant,
   type FinishView,
+  type RestartWatch,
   type SetupProgress
 } from './finish-view'
 export { hermesFit, parseHermesVersion, type HermesFit } from './hermes-version'

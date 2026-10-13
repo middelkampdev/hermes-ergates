@@ -18,14 +18,15 @@ import {
   goBackTarget,
   highestSchema,
   NO_UPDATE,
+  NOT_WATCHED,
   pendingCommit,
   RESTART_HEADING,
-  restartSeenAfter,
   runIsGoing,
   SERVER_GUIDE_URL,
   setupProblem,
   SIGNED_OUT_HINT,
   updateStillOpen,
+  watchRestart,
   type FinishManual,
   type FinishUpdate,
   type FinishVariant,
@@ -578,16 +579,26 @@ describe('finishVariant: an update the app started', () => {
     expect(finishVariant(restartNeeded, null, updating({ wentBack: true }))).toEqual({ kind: 'restart', update: false })
   })
 
-  it('keeps asking for the restart while the update run waits for it, and only after the server went away reads a plugin that does not come up as a new version that did not start', () => {
-    const waitingForRestart = (restartSeen: boolean): FinishUpdate => finishUpdateOf({ started, schemaSeen: null, run: null, ended: { kind: 'restart' }, restartSeen })
-    let seen = false
-    const variants: (FinishVariant | null)[] = []
-    for (const poll of [waiting, { kind: 'unknown' } as ServerCheck, waiting]) {
-      seen = restartSeenAfter(seen, poll, false)
-      variants.push(finishVariant(poll, null, waitingForRestart(seen)))
-    }
+  /** The variant of each poll in turn, for an update run that ended asking for a restart. */
+  function variantsAfterRestartRun(polls: ServerCheck[]): (FinishVariant | null)[] {
+    let watch = NOT_WATCHED
+    return polls.map(poll => {
+      watch = watchRestart(watch, poll, false)
+      return finishVariant(poll, null, finishUpdateOf({ started, schemaSeen: null, run: null, ended: { kind: 'restart' }, restartSeen: watch.seen }))
+    })
+  }
 
-    expect(variants).toEqual([{ kind: 'restart', update: true }, null, { kind: 'not_started', previous: PREVIOUS, goBack: true }])
+  it('keeps asking for the restart while the update run waits for it, and after a poll that could not reach the server reads a plugin that does not come up as a new version that did not start', () => {
+    expect(variantsAfterRestartRun([waiting, { kind: 'unknown' }, waiting])).toEqual([{ kind: 'restart', update: true }, null, { kind: 'not_started', previous: PREVIOUS, goBack: true }])
+  })
+
+  it('reads the old code that stopped answering as a restart too, without any poll that could not reach the server', () => {
+    expect(variantsAfterRestartRun([restartNeeded, waiting])).toEqual([{ kind: 'restart', update: true }, { kind: 'not_started', previous: PREVIOUS, goBack: true }])
+    expect(variantsAfterRestartRun([restartNeeded, unavailable])).toEqual([{ kind: 'restart', update: true }, { kind: 'not_started', previous: PREVIOUS, goBack: true }])
+  })
+
+  it('keeps asking for the restart while the old code still answers', () => {
+    expect(variantsAfterRestartRun([restartNeeded, restartNeeded, restartNeeded])).toEqual(Array(3).fill({ kind: 'restart', update: true }))
   })
 
   it.each<[string, ServerCheck]>([
@@ -688,24 +699,53 @@ describe('finishUpdateOf: what the screen knows about the update', () => {
   })
 })
 
-describe('restartSeenAfter: the first sign that the server restarted', () => {
+describe('watchRestart: the first sign that the server restarted', () => {
+  const after = (checks: (ServerCheck | null)[], signedOut = false) => checks.reduce((watch, check) => watchRestart(watch, check, signedOut), NOT_WATCHED)
+
   it.each<[string, ServerCheck | null, boolean]>([
     ['a poll that could not reach the server', { kind: 'unknown' }, true],
     ['a poll that answered the old code', restartNeeded, false],
     ['a plugin Hermes has not loaded', waiting, false],
     ['an unavailable plugin', unavailable, false],
+    ['a working plugin', ready, false],
     ['no answer yet', null, false]
-  ])('reads %s', (_title, check, seen) => {
-    expect(restartSeenAfter(false, check, false)).toBe(seen)
+  ])('reads %s on its own', (_title, check, seen) => {
+    expect(after([check]).seen).toBe(seen)
   })
 
   it('reads a refused session as the server having restarted', () => {
-    expect(restartSeenAfter(false, restartNeeded, true)).toBe(true)
+    expect(after([restartNeeded], true).seen).toBe(true)
+  })
+
+  it.each<[string, ServerCheck]>([
+    ['Hermes has not loaded the plugin', waiting],
+    ['the plugin cannot open its data', unavailable]
+  ])('reads the old code answering and then %s as the server having restarted', (_title, check) => {
+    expect(after([restartNeeded, check]).seen).toBe(true)
+    expect(after([restartNeeded, restartNeeded, check]).seen).toBe(true)
+  })
+
+  it('does not read a plugin that never answered with the old code as a restart', () => {
+    expect(after([waiting, waiting, unavailable]).seen).toBe(false)
+  })
+
+  it('remembers that the old code answered across polls that say nothing', () => {
+    expect(after([restartNeeded, null, waiting]).seen).toBe(true)
   })
 
   it('keeps the sign once seen, whatever the next poll says', () => {
-    expect(restartSeenAfter(true, waiting, false)).toBe(true)
-    expect(restartSeenAfter(true, null, false)).toBe(true)
+    const seen = after([{ kind: 'unknown' }])
+
+    expect(watchRestart(seen, waiting, false).seen).toBe(true)
+    expect(watchRestart(seen, restartNeeded, false).seen).toBe(true)
+    expect(watchRestart(seen, null, false).seen).toBe(true)
+  })
+
+  it('answers the watch it was given when a poll changes nothing, so a screen can tell', () => {
+    const watching = after([restartNeeded])
+
+    expect(watchRestart(watching, restartNeeded, false)).toBe(watching)
+    expect(watchRestart(NOT_WATCHED, waiting, false)).toBe(NOT_WATCHED)
   })
 })
 

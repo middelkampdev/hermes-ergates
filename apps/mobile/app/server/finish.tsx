@@ -28,19 +28,21 @@ import {
   lastManualOutcome,
   lastUpdateOutcome,
   markPendingSetup,
+  NOT_WATCHED,
   pendingCommit,
   PENDING_UPDATE_RUN,
   RESTART_HEADING,
-  restartSeenAfter,
   runIsGoing,
   runUpdate,
   serverCheckKey,
   setupProblem,
   updateStillOpen,
   useServerCheck,
+  watchRestart,
   type FinishAction,
   type FinishUpdate,
   type FinishVariant,
+  type RestartWatch,
   type SetupProgress,
   type UpdateRunState
 } from '@/features/server'
@@ -83,8 +85,8 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   const [run, setRun] = useState<UpdateRunState | null>(null)
   // The highest store version any health read on this page asked for: going back is not offered past the one the previous version knows.
   const [schemaSeen, setSchemaSeen] = useState<number | null>(null)
-  // Whether a poll showed the server going away: only after that is a plugin that does not come up a new version that failed to start.
-  const [restartSeen, setRestartSeen] = useState(false)
+  // What the polls showed of the restart the update asked for: only after a sign of it is a plugin that does not come up a new version that failed to start.
+  const [restartWatch, setRestartWatch] = useState<RestartWatch>(NOT_WATCHED)
   // The setup call outlives this screen; only a mounted screen draws what it reports.
   const mounted = useRef(true)
 
@@ -105,13 +107,13 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   if (seen !== schemaSeen) {
     setSchemaSeen(seen)
   }
-  const sawRestart = restartSeenAfter(restartSeen, data ?? null, signedOut)
-  if (sawRestart !== restartSeen) {
-    setRestartSeen(sawRestart)
+  const watch = watchRestart(restartWatch, data ?? null, signedOut)
+  if (watch !== restartWatch) {
+    setRestartWatch(watch)
   }
   const update = useMemo<FinishUpdate>(
-    () => finishUpdateOf({ started: connection.pluginUpdate, schemaSeen: seen, run, ended, restartSeen: sawRestart }),
-    [connection.pluginUpdate, seen, run, ended, sawRestart]
+    () => finishUpdateOf({ started: connection.pluginUpdate, schemaSeen: seen, run, ended, restartSeen: watch.seen }),
+    [connection.pluginUpdate, seen, run, ended, watch.seen]
   )
   const goingBack = runIsGoing(run)
 
