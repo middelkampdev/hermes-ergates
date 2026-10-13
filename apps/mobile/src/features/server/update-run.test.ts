@@ -1751,6 +1751,6 @@ describe('the Finish page after it mounts again', () => {
     gateway.ergates.setHealth(() => ({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD, loaded_commit: OLD, catalog_name: null } } }))
     await run(gateway, { target: OLD, goingBack: true })
 
-    expect(freshPage(checkAt('restart_needed', 'e'.repeat(40), OLD)).intro).toEqual(['Hermes has not loaded the Ergates plugin yet.'])
+    expect(freshPage(checkAt('restart_needed', 'e'.repeat(40), OLD)).intro).toEqual(['The update is installed. Restart Hermes to start the new version.'])
   })
 })

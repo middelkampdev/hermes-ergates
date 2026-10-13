@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
 import React, { useMemo } from 'react'
 
-import { pluginRowSubtitle, usePluginNotice, type NoticeRoute } from '@/features/server'
+import { pluginRowRoute, pluginRowSubtitle, useServerCheck, type NoticeRoute } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
 import { useGateway } from '@/gateway/registry'
 import { buildRecord } from '@/lib/build-info'
@@ -35,19 +35,19 @@ function GatewaySettings({ connection, onBack, onOpenSetup }: GatewaySettingsPro
   const gateway = useGateway(connection)
   const status = useQuery({ queryKey: ['status', connection.id], queryFn: () => gateway.status(), staleTime: 60_000 })
   const build = useMemo(() => buildRecord(), [])
-  const { check: plugin, notice } = usePluginNotice(connection, build)
-  const pluginAction = notice?.action ?? null
+  const plugin = useServerCheck(connection, build)
+  const pluginRoute = pluginRowRoute(plugin.data)
   return (
     <Page title="Gateway" onBack={onBack}>
       <Group>
         <ListRow title="Sign-in" subtitle={connection.authMode === 'token' ? 'Session token (private loopback)' : 'Username and password'} icon="key" />
         <ListRow title="Backend" subtitle={status.data ? `Hermes ${status.data.version}` : status.isError ? 'Unreachable' : 'Checking…'} icon="cpu" />
-        {/* A plugin that cannot do its job says why here, and the row opens the screen that fixes it. */}
+        {/* A plugin that cannot do its job says why here, and the row opens the screen that fixes it, or Update ready when an update is ready. */}
         <ListRow
           title="Ergates plugin"
           subtitle={pluginRowSubtitle(plugin.data, plugin.isError)}
           icon="package"
-          onPress={pluginAction ? () => onOpenSetup(pluginAction.route) : undefined}
+          onPress={pluginRoute ? () => onOpenSetup(pluginRoute) : undefined}
         />
         {/* Whether the app keeps the plugin up to date by itself; the row above names an update that is ready. */}
         <AutoUpdateSwitch connection={connection} inGroup />

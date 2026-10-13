@@ -8,7 +8,7 @@ import { FAKE_PLUGIN_HEALTH } from '@test/fake-gateway/fake-ergates'
 
 import { GatewayError } from '@/gateway/errors'
 
-import { CHECKING_NOTICE, featureNotice, isBareNotFound, MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, recheckState, shouldReloadAfterNotice } from './plugin-notice'
+import { CHECKING_NOTICE, featureNotice, isBareNotFound, MISSING_NOTICE, noticeForError, pluginNotice, pluginRowRoute, pluginRowSubtitle, recheckState, shouldReloadAfterNotice } from './plugin-notice'
 import type { UpdateOffer } from './plugin-version'
 import type { ServerCheck } from './server-check'
 
@@ -106,6 +106,24 @@ describe('pluginRowSubtitle', () => {
 
   it('keeps the last answer when a later check fails', () => {
     expect(pluginRowSubtitle(ready, true)).toBe(health.plugin_version)
+  })
+})
+
+describe('pluginRowRoute: where the plugin row in Settings leads', () => {
+  it('opens Update ready for a working plugin with an update ready, as its subtitle says', () => {
+    expect(pluginRowRoute(readyWithUpdate)).toBe('/server/update')
+  })
+
+  it('leads nowhere for a working plugin without an update, or before any answer', () => {
+    expect(pluginRowRoute(ready)).toBeNull()
+    expect(pluginRowRoute(undefined)).toBeNull()
+    expect(pluginRowRoute({ kind: 'unknown' })).toBeNull()
+  })
+
+  it('opens the screen of the notice for every other kind', () => {
+    for (const check of [missing, disabled, notLoaded, restartNeeded, outdated, outdatedWithUpdate, appOutdated, unavailable]) {
+      expect(pluginRowRoute(check)).toBe(pluginNotice(check)?.action?.route ?? null)
+    }
   })
 })
 

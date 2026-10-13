@@ -25,7 +25,7 @@ export {
 } from './finish-view'
 export { hermesFit, parseHermesVersion, type HermesFit } from './hermes-version'
 export { clearPendingSetup, finishPendingSetup, markPendingSetup, runningKind, type PendingSetupResult, type RunKind } from './pending-setup'
-export { MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, shouldReloadAfterNotice, type NoticeRoute, type PluginNotice } from './plugin-notice'
+export { MISSING_NOTICE, noticeForError, pluginNotice, pluginRowRoute, pluginRowSubtitle, shouldReloadAfterNotice, type NoticeRoute, type PluginNotice } from './plugin-notice'
 export { AUTO_UPDATE_LABEL, autoUpdate, type UpdateOffer } from './plugin-version'
 export { checkServer, isSignedOut, pluginFits, type InstallKind, type PluginFit, type ServerCheck } from './server-check'
 export { isSetupRunning, joinSetup, lastManualOutcome, runSetup, type ManualFailure, type ManualOutcome, type SetupDeps, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'

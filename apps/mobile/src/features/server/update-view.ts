@@ -9,7 +9,7 @@
 import type { Connection } from '@/state/device-store'
 
 import { pluginNotice } from './plugin-notice'
-import { remountsWithoutRestart, type UpdateOffer } from './plugin-version'
+import { compareVersions, remountsWithoutRestart, type UpdateOffer } from './plugin-version'
 import { hermesVersionIn, isSignedOut, type ServerCheck } from './server-check'
 import type { StepStatus } from './setup-run'
 import { failedProfiles, SIGN_IN, UNREACHABLE, type HeldCheck } from './setup-view'
@@ -126,9 +126,16 @@ function needsNoRestart(check: ServerCheck, connection: Connection): boolean {
   return remountsWithoutRestart(connection, hermesVersionIn(check))
 }
 
+/** What the update brings: a new version, or a newer build of the version the server has, which a plugin behind this app's API level gets. */
+function offerLine(offer: UpdateOffer): string {
+  return compareVersions(offer.from, offer.to) === 0
+    ? `This app needs a newer build of Ergates server plugin ${offer.to}. Your server has an older build.`
+    : `Ergates server plugin ${offer.to} is ready for your server. You have ${offer.from}.`
+}
+
 function readyView(offer: UpdateOffer, check: ServerCheck, connection: Connection): UpdateView {
   return view({
-    body: [`Ergates server plugin ${offer.to} is ready for your server. You have ${offer.from}.`],
+    body: [offerLine(offer)],
     source: `From github.com/middelkampdev/hermes-ergates, commit ${offer.commit.slice(0, 7)}.`,
     note: needsNoRestart(check, connection) ? null : RESTART_NOTE,
     primary: { label: 'Update now', action: 'update' },

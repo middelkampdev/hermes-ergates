@@ -49,8 +49,9 @@ export const RESTART_HEADING = 'Then restart Hermes:'
  * during the last run (`detail` is its text). `update`: move a git install to
  * this build's commit. `update_copy`: update the folder a manual copy comes
  * from. `restart`: the plugin is enabled but Hermes has not loaded it
- * (`after` is null), or the app installed an update (`'update'`) or put the
- * previous version back (`'go_back'`) and Hermes has to restart to start it.
+ * (`after` is null), or an update is installed (`'update'`) or the app put
+ * the previous version back (`'go_back'`) and Hermes has to restart to start
+ * it.
  * `not_started`: an update the app installed did not come up after the
  * restart; `previous` is the commit the server had before it, and `goBack`
  * whether that version can still use the store (the app then puts it back).
@@ -284,9 +285,13 @@ export function finishVariant(check: ServerCheck | null, manual: FinishManual | 
   }
 }
 
-/** The restart that starts the code on the server, named for what put it there. */
+/**
+ * The restart that starts the code on the server: the previous version the
+ * app put back, or else an update, whoever installed it (the files on the
+ * server are newer than the code that answers).
+ */
 function restartVariant(update: FinishUpdate, check: ServerCheck): FinishVariant {
-  return { kind: 'restart', after: showsWentBack(check, update.wentBack) ? 'go_back' : update.started === undefined ? null : 'update' }
+  return { kind: 'restart', after: showsWentBack(check, update.wentBack) ? 'go_back' : 'update' }
 }
 
 /** The variant for a plugin that does not answer while an update the app started is under way, or null outside one. */

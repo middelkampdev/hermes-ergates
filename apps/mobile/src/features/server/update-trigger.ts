@@ -11,7 +11,7 @@ import type { Connection } from '@/state/device-store'
 
 import type { RunKind } from './pending-setup'
 import type { PluginNotice } from './plugin-notice'
-import { autoUpdate, remountsWithoutRestart, type UpdateOffer } from './plugin-version'
+import { autoUpdate, compareVersions, remountsWithoutRestart, type UpdateOffer } from './plugin-version'
 import { hermesVersionIn, type ServerCheck } from './server-check'
 import type { UpdateOutcome } from './update-run'
 import { offerOf } from './update-view'
@@ -89,7 +89,7 @@ export function actionToTake({ check, connection, key, doneKey, fresh, running }
 export function silentRunPatch(outcome: UpdateOutcome, offer: UpdateOffer): Partial<Pick<Connection, 'pluginUpdatedNotice' | 'pluginRemountsFrom'>> {
   switch (outcome.kind) {
     case 'done':
-      return { pluginUpdatedNotice: offer.to }
+      return { pluginUpdatedNotice: { from: offer.from, to: offer.to } }
     case 'restart':
       return { pluginRemountsFrom: undefined }
     case 'manual':
@@ -100,7 +100,7 @@ export function silentRunPatch(outcome: UpdateOutcome, offer: UpdateOffer): Part
   }
 }
 
-/** The muted line on Home after the app updated the plugin without asking. */
-export function updatedNoticeLine(version: string): string {
-  return `Ergates updated the plugin on your server to ${version}.`
+/** The muted line on Home after the app updated the plugin without asking; an update within one version is a newer build of it. */
+export function updatedNoticeLine({ from, to }: NonNullable<Connection['pluginUpdatedNotice']>): string {
+  return compareVersions(from, to) === 0 ? `Ergates updated the plugin on your server to a newer build of ${to}.` : `Ergates updated the plugin on your server to ${to}.`
 }

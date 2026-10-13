@@ -95,7 +95,7 @@ describe('updateSilently', () => {
     const outcome = await update(gateway)
 
     expect(outcome).toEqual({ kind: 'done', setup: FAKE_SETUP })
-    expect(stored()).toMatchObject({ askedUpdateFor: TARGET, pluginUpdatedNotice: '0.3.0', pluginRemountsFrom: '0.21.6' })
+    expect(stored()).toMatchObject({ askedUpdateFor: TARGET, pluginUpdatedNotice: { from: '0.2.0', to: '0.3.0' }, pluginRemountsFrom: '0.21.6' })
   })
 
   it('forgets that this Hermes needs no restart when the update did need one, and says nothing was updated', async () => {
@@ -139,7 +139,7 @@ describe('updateSilently', () => {
     await update(gateway)
 
     expect(recheck).toHaveBeenCalledTimes(1)
-    expect(rechecked[0]).toMatchObject({ askedUpdateFor: TARGET, pluginUpdatedNotice: '0.3.0' })
+    expect(rechecked[0]).toMatchObject({ askedUpdateFor: TARGET, pluginUpdatedNotice: { from: '0.2.0', to: '0.3.0' } })
   })
 
   it('asks again after a run that needed a restart, so the restart line takes over', async () => {
@@ -179,7 +179,7 @@ describe('updateSilently', () => {
 
 describe('clearUpdatedNotice', () => {
   it('clears the notice once Home has shown it', () => {
-    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdatedNotice: '0.3.0' })
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdatedNotice: { from: '0.2.0', to: '0.3.0' } })
 
     clearUpdatedNotice(connection.id)
 

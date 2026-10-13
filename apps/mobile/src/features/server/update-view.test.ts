@@ -55,6 +55,17 @@ describe('updateView: an update that is ready', () => {
     })
   })
 
+  it('says the server has an older build of the same version when the versions are equal, and keeps the source line', () => {
+    const sameVersion: UpdateOffer = { ...offer, from: '0.2.0', to: '0.2.0' }
+    const check: ServerCheck = { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'git install', update: sameVersion, hermesVersion: '0.21.6' }
+
+    expect(updateView(sameVersion, check, connection, null)).toMatchObject({
+      body: ['This app needs a newer build of Ergates server plugin 0.2.0. Your server has an older build.'],
+      source: 'From github.com/middelkampdev/hermes-ergates, commit abcdef0.',
+      primary: { label: 'Update now', action: 'update' }
+    })
+  })
+
   it('names only the first 7 characters of the commit', () => {
     expect(updateView({ ...offer, commit: '1234567890abcdef1234567890abcdef12345678' }, ready(), connection, null).source).toBe('From github.com/middelkampdev/hermes-ergates, commit 1234567.')
   })

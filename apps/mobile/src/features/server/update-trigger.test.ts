@@ -218,7 +218,7 @@ describe('silentRunPatch', () => {
   const done: UpdateOutcome = { kind: 'done', setup: FAKE_SETUP }
 
   it('notes the version the server was updated to, so Home says so once', () => {
-    expect(silentRunPatch(done, offer)).toEqual({ pluginUpdatedNotice: '0.3.0' })
+    expect(silentRunPatch(done, offer)).toEqual({ pluginUpdatedNotice: { from: '0.2.0', to: '0.3.0' } })
   })
 
   it('forgets that this Hermes needs no restart when the update did need one', () => {
@@ -240,6 +240,10 @@ describe('silentRunPatch', () => {
 
 describe('updatedNoticeLine', () => {
   it('names the version the server was updated to', () => {
-    expect(updatedNoticeLine('0.3.0')).toBe('Ergates updated the plugin on your server to 0.3.0.')
+    expect(updatedNoticeLine({ from: '0.2.0', to: '0.3.0' })).toBe('Ergates updated the plugin on your server to 0.3.0.')
+  })
+
+  it('says it was a newer build of the same version when the versions are equal', () => {
+    expect(updatedNoticeLine({ from: '0.3.0', to: '0.3.0' })).toBe('Ergates updated the plugin on your server to a newer build of 0.3.0.')
   })
 })

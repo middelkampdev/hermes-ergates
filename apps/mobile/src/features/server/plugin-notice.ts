@@ -74,6 +74,18 @@ export function pluginRowSubtitle(check: ServerCheck | undefined, failed: boolea
 }
 
 /**
+ * Where the plugin row in Settings leads, or null when it leads nowhere: the
+ * screen of the notice, and for a working plugin with an update ready, the
+ * Update ready screen its subtitle names.
+ */
+export function pluginRowRoute(check: ServerCheck | undefined): NoticeRoute | null {
+  if (check?.kind === 'ready') {
+    return check.update === null ? null : '/server/update'
+  }
+  return pluginNotice(check)?.action?.route ?? null
+}
+
+/**
  * The notice to show in place of a failed read's own message, or null to keep
  * that message. A lost connection, a timeout and a refused session say
  * something the notice does not (it may be out of date), so they keep theirs.

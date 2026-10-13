@@ -140,8 +140,8 @@ describe('finishVariant: what the check says the user has to do', () => {
   it('asks for a restart when the update is installed and Hermes still runs the old code', () => {
     const restartNeeded: ServerCheck = { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }
 
-    expect(finishVariant(restartNeeded, null)).toEqual({ kind: 'restart', after: null })
-    expect(finishVariant(restartNeeded, { failure: 'scan_blocked', detail: null })).toEqual({ kind: 'restart', after: null })
+    expect(finishVariant(restartNeeded, null)).toEqual({ kind: 'restart', after: 'update' })
+    expect(finishVariant(restartNeeded, { failure: 'scan_blocked', detail: null })).toEqual({ kind: 'restart', after: 'update' })
   })
 
   it('lets the server win over an old failure once the plugin is installed', () => {
@@ -493,7 +493,7 @@ describe('finishVariant and finishView: a ready server whose pending setup waits
   const waits: SetupProgress = { state: 'waiting' }
 
   it('keeps asking for the restart that starts the code the setup waits for, instead of reading the ready server as done', () => {
-    expect(finishVariant(ready, null, NO_UPDATE, true)).toEqual({ kind: 'restart', after: null })
+    expect(finishVariant(ready, null, NO_UPDATE, true)).toEqual({ kind: 'restart', after: 'update' })
   })
 
   it('names the update the app started in that restart', () => {
@@ -588,8 +588,11 @@ describe('finishVariant: an update the app started', () => {
     expect(finishVariant(restartNeeded, null, updating())).toEqual({ kind: 'restart', after: 'update' })
   })
 
-  it('asks for a plain restart when nothing started the update', () => {
-    expect(finishVariant(restartNeeded, null, NO_UPDATE)).toEqual({ kind: 'restart', after: null })
+  it('asks for the restart that starts the new version when nothing the app recorded started the update, whoever installed it', () => {
+    const variant = finishVariant(restartNeeded, null, NO_UPDATE)
+
+    expect(variant).toEqual({ kind: 'restart', after: 'update' })
+    expect(finishView(variant, buildRecord(), restartNeeded).intro).toEqual(['The update is installed. Restart Hermes to start the new version.'])
   })
 
   it.each<[string, ServerCheck]>([
@@ -661,7 +664,7 @@ describe('finishVariant: an update the app started', () => {
   it('does not say the previous version is back for a server that has another commit installed now', () => {
     const over = finishUpdateOf({ started: undefined, schemaSeen: null, last: { outcome: { kind: 'restart' }, goingBack: true }, restartSeen: false, wentBack: { to: PREVIOUS, from: COMMIT } })
 
-    expect(finishVariant(restartNeeded, null, over)).toEqual({ kind: 'restart', after: null })
+    expect(finishVariant(restartNeeded, null, over)).toEqual({ kind: 'restart', after: 'update' })
   })
 
   it('updates by hand when the app could not and the plugin still works', () => {

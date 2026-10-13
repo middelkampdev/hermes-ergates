@@ -57,8 +57,8 @@ export interface Connection {
   pluginWentBack?: { to: string; from: string }
   /** The oldest Hermes version seen to start a new plugin without a restart. Later updates on that version or newer run without asking. */
   pluginRemountsFrom?: string
-  /** The plugin version the app updated the server to without asking, until Home has told the user once. */
-  pluginUpdatedNotice?: string
+  /** The plugin versions the app updated the server from and to without asking, until Home has told the user once. */
+  pluginUpdatedNotice?: { from: string; to: string }
 }
 
 export interface Prefs {
