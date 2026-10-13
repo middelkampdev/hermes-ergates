@@ -16,11 +16,11 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import {
   joinSetup,
   opensFinish,
-  routeAfterCheck,
   runningKind,
   runSetup,
   SETUP_TITLE,
   serverCheckKey,
+  setupRedirect,
   setupScreenView,
   useServerCheck,
   type SetupAction,
@@ -144,8 +144,9 @@ function ServerSetup({ connection }: { connection: Connection }) {
 
   const goBack = () => (router.canGoBack() ? router.back() : router.replace('/'))
 
-  if (run === null && check.data && routeAfterCheck(check.data) === '/server/finish') {
-    return <Redirect href="/server/finish" />
+  const handOver = run === null && check.data ? setupRedirect(check.data) : null
+  if (handOver !== null) {
+    return <Redirect href={handOver} />
   }
 
   const view = setupScreenView({ data: check.data, error: check.error }, build, run)

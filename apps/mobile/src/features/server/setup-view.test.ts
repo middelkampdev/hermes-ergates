@@ -10,7 +10,8 @@ import { GatewayError, mapHttpError } from '@/gateway/errors'
 
 import type { BuildRecord } from './build-record'
 import type { ServerCheck } from './server-check'
-import { opensFinish, setupScreenView, setupView, signedOutView, stepStatusWord, type SetupRunState } from './setup-view'
+import type { UpdateOffer } from './plugin-version'
+import { opensFinish, setupRedirect, setupScreenView, setupView, signedOutView, stepStatusWord, type SetupRunState } from './setup-view'
 import type { SetupOutcome, SetupStep, StepStatus } from './setup-run'
 
 const COMMIT = 'abcdef0123456789abcdef0123456789abcdef01'
@@ -358,5 +359,25 @@ describe('stepStatusWord', () => {
     const words = (['pending', 'active', 'done', 'skipped', 'failed'] as const).map(stepStatusWord)
 
     expect(words).toEqual(['waiting', 'in progress', 'done', 'not needed', 'failed'])
+  })
+})
+
+describe('setupRedirect', () => {
+  const offer: UpdateOffer = { from: '0.1.0', to: '0.2.0', commit: COMMIT, previous: 'a'.repeat(40), previousSchema: 1 }
+
+  it.each<{ title: string; check: ServerCheck; route: string | null }>([
+    { title: 'a plugin Hermes has not loaded', check: { kind: 'not_loaded', hermesVersion: '0.21.6' }, route: '/server/finish' },
+    { title: 'a plugin that waits for a restart', check: { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }, route: '/server/finish' },
+    { title: 'an outdated plugin the app cannot update', check: { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'deployment', update: null, hermesVersion: '0.21.6' }, route: '/server/finish' },
+    { title: 'an outdated plugin the app can update', check: { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'git install', update: offer, hermesVersion: '0.21.6' }, route: '/server/update' },
+    { title: 'a missing plugin, which this screen sets up', check: oneTap, route: null },
+    { title: 'a plugin that is turned off, which this screen turns on', check: { kind: 'disabled', hermesVersion: '0.21.6' }, route: null },
+    { title: 'a working plugin', check: ready, route: null },
+    { title: 'a working plugin with an update, which has its own line', check: { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: offer, hermesVersion: '0.21.6' }, route: null },
+    { title: 'a plugin newer than the app', check: { kind: 'app_outdated', health: FAKE_PLUGIN_HEALTH }, route: null },
+    { title: 'a plugin that cannot open its data', check: { kind: 'unavailable', message: 'The store is locked.' }, route: null },
+    { title: 'a server that could not be read', check: { kind: 'unknown' }, route: null }
+  ])('for $title it goes to $route', ({ check, route }) => {
+    expect(setupRedirect(check)).toBe(route)
   })
 })

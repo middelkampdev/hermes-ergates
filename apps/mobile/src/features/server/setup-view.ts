@@ -222,3 +222,21 @@ export function setupScreenView(check: HeldCheck, build: BuildRecord | null, run
 export function opensFinish(outcome: SetupOutcome | null): boolean {
   return outcome?.kind === 'manual' || outcome?.kind === 'restart'
 }
+
+/**
+ * The screen the setup screen hands over to for a check, or null to stay. A
+ * plugin that Hermes has not loaded, that waits for a restart, or that is
+ * older than this app needs and cannot be updated from here can only be
+ * finished on the server. One the app can update goes to the update screen.
+ */
+export function setupRedirect(check: ServerCheck): '/server/finish' | '/server/update' | null {
+  switch (check.kind) {
+    case 'not_loaded':
+    case 'restart_needed':
+      return '/server/finish'
+    case 'outdated':
+      return check.update === null ? '/server/finish' : '/server/update'
+    default:
+      return null
+  }
+}

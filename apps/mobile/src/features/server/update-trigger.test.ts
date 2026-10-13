@@ -157,6 +157,18 @@ describe('updateLineFor', () => {
     expect(updateLineFor(ready(null), asked)).toBeNull()
     expect(updateLineFor(undefined, asked)).toBeNull()
   })
+
+  it.each<[string, ServerCheck]>([
+    ['a restart that is due', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }],
+    ['a missing plugin', { kind: 'missing', hermesVersion: '0.21.6', oneTap: true, reason: null }],
+    ['a plugin that is turned off', { kind: 'disabled', hermesVersion: '0.21.6' }],
+    ['a plugin Hermes has not loaded', { kind: 'not_loaded', hermesVersion: '0.21.6' }],
+    ['a plugin newer than the app', { kind: 'app_outdated', health: FAKE_PLUGIN_HEALTH }],
+    ['a plugin that cannot open its data', { kind: 'unavailable', message: 'The store is locked.' }],
+    ['a server that could not be read', { kind: 'unknown' }]
+  ])('says nothing for %s', (_title, check) => {
+    expect(updateLineFor(check, asked)).toBeNull()
+  })
 })
 
 describe('actionToTake', () => {

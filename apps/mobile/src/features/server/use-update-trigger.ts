@@ -65,11 +65,7 @@ export function useUpdateTrigger({ gateway, connection, build, check, focused, o
     setRunning(true)
     void (async () => {
       try {
-        const outcome = await updateSilently(gateway, build, connectionId, offer)
-        // A refused session is Home's sign-in line to show; asking again would only repeat it.
-        if (outcome.kind !== 'sign_in') {
-          await queryClient.invalidateQueries({ queryKey: serverCheckKey(connectionId) })
-        }
+        await updateSilently(gateway, build, connectionId, offer, () => queryClient.invalidateQueries({ queryKey: serverCheckKey(connectionId) }))
       } catch {
         // The run records its own end; whatever went wrong shows in the next check.
       } finally {

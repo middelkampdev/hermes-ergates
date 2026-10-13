@@ -47,15 +47,23 @@ function stored(): Connection {
   return found
 }
 
+/** What the connection held each time the check was asked again. */
+const rechecked: Connection[] = []
+const recheck = vi.fn(async () => {
+  rechecked.push(stored())
+})
+
 /** Runs the update and lets every wait elapse. */
 async function update(gateway: FakeGateway) {
-  const outcome = updateSilently(gateway, build, connection.id, offer)
+  const outcome = updateSilently(gateway, build, connection.id, offer, recheck)
   await vi.runAllTimersAsync()
   return outcome
 }
 
 beforeEach(() => {
   vi.useFakeTimers()
+  recheck.mockClear()
+  rechecked.length = 0
   useDeviceStore.setState({ connections: [{ ...connection }] })
 })
 
@@ -124,9 +132,44 @@ describe('updateSilently', () => {
     expect(stored().pluginUpdatedNotice).toBeUndefined()
   })
 
+  it('asks the server check again once the run ended, with what the run left already on the connection', async () => {
+    const gateway = runningServer()
+    remounting(gateway)
+
+    await update(gateway)
+
+    expect(recheck).toHaveBeenCalledTimes(1)
+    expect(rechecked[0]).toMatchObject({ askedUpdateFor: TARGET, pluginUpdatedNotice: '0.3.0' })
+  })
+
+  it('asks again after a run that needed a restart, so the restart line takes over', async () => {
+    await update(runningServer())
+
+    expect(recheck).toHaveBeenCalledTimes(1)
+    expect(rechecked[0].pluginRemountsFrom).toBeUndefined()
+  })
+
+  it('asks again after Hermes refused the install, so the line shows what the server says now', async () => {
+    const gateway = runningServer()
+    gateway.plugins.nextInstall(new GatewayError('unknown', 'Hermes words this its own way.', { code: 'scan_blocked', status: 400 }))
+
+    await update(gateway)
+
+    expect(recheck).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks again after the session ended, so Home reads the 401 and shows its sign-in line instead of an update on a dead session', async () => {
+    const gateway = runningServer()
+    gateway.plugins.disable = () => Promise.reject(new GatewayError('unauthorized', 'Sign-in required.', { status: 401 }))
+
+    await update(gateway)
+
+    expect(recheck).toHaveBeenCalledTimes(1)
+  })
+
   it('does not run the update for a commit this build does not carry', async () => {
     const gateway = runningServer()
-    const outcome = updateSilently(gateway, build, connection.id, { ...offer, commit: 'c'.repeat(40) })
+    const outcome = updateSilently(gateway, build, connection.id, { ...offer, commit: 'c'.repeat(40) }, recheck)
     await vi.runAllTimersAsync()
 
     await expect(outcome).resolves.toEqual({ kind: 'manual', failure: 'refused', detail: null })

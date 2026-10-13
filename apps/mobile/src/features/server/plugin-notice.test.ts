@@ -8,7 +8,7 @@ import { FAKE_PLUGIN_HEALTH } from '@test/fake-gateway/fake-ergates'
 
 import { GatewayError } from '@/gateway/errors'
 
-import { CHECKING_NOTICE, featureNotice, isBareNotFound, MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, recheckState, shouldReloadAfterNotice, updateLine } from './plugin-notice'
+import { CHECKING_NOTICE, featureNotice, isBareNotFound, MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, recheckState, shouldReloadAfterNotice } from './plugin-notice'
 import type { UpdateOffer } from './plugin-version'
 import type { ServerCheck } from './server-check'
 
@@ -106,34 +106,6 @@ describe('pluginRowSubtitle', () => {
 
   it('keeps the last answer when a later check fails', () => {
     expect(pluginRowSubtitle(ready, true)).toBe(health.plugin_version)
-  })
-})
-
-describe('updateLine', () => {
-  it('offers the update of a plugin that works', () => {
-    expect(updateLine(readyWithUpdate)).toEqual({ text: 'An update for the Ergates plugin is ready.', action: { label: 'Update', route: '/server/update' } })
-  })
-
-  it('says nothing for a working plugin without an update', () => {
-    expect(updateLine(ready)).toBeNull()
-  })
-
-  it('leaves a plugin that needs an update to its notice, which has the same button', () => {
-    expect(updateLine(outdatedWithUpdate)).toBeNull()
-  })
-
-  it.each([
-    ['restart_needed', restartNeeded],
-    ['missing', missing],
-    ['disabled', disabled],
-    ['not_loaded', notLoaded],
-    ['outdated', outdated],
-    ['app_outdated', appOutdated],
-    ['unavailable', unavailable],
-    ['unknown', { kind: 'unknown' }],
-    ['no check yet', undefined]
-  ] as [string, ServerCheck | undefined][])('says nothing for a check that is %s', (_title, check) => {
-    expect(updateLine(check)).toBeNull()
   })
 })
 

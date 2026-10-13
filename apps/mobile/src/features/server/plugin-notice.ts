@@ -56,15 +56,6 @@ export function pluginNotice(check: ServerCheck | undefined): PluginNotice | nul
 }
 
 /**
- * The line that offers an update for a plugin that works, or null. A plugin
- * that cannot serve this app has a notice of its own (`pluginNotice`) with the
- * same button.
- */
-export function updateLine(check: ServerCheck | undefined): PluginNotice | null {
-  return check?.kind === 'ready' && check.update !== null ? { text: 'An update for the Ergates plugin is ready.', action: { label: 'Update', route: '/server/update' } } : null
-}
-
-/**
  * The value line of the plugin row in Settings: the plugin's version when it
  * works (with the update that is ready for it, if any), else the notice.
  * `failed` is true when the check itself failed; an earlier answer still wins

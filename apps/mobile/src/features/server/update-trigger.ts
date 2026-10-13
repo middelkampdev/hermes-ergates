@@ -10,7 +10,7 @@
 import type { Connection } from '@/state/device-store'
 
 import type { RunKind } from './pending-setup'
-import { updateLine, type PluginNotice } from './plugin-notice'
+import type { PluginNotice } from './plugin-notice'
 import { autoUpdate, remountsWithoutRestart, type UpdateOffer } from './plugin-version'
 import { hermesVersionIn, type ServerCheck } from './server-check'
 import type { UpdateOutcome } from './update-run'
@@ -33,9 +33,18 @@ export function updateAction(check: ServerCheck | undefined, connection: Connect
   return remountsWithoutRestart(connection, hermesVersion) ? 'run_silently' : 'open_screen'
 }
 
-/** The line that offers the update, or null: it shows only where the update neither opens nor runs by itself. */
+const UPDATE_LINE: PluginNotice = { text: 'An update for the Ergates plugin is ready.', action: { label: 'Update', route: '/server/update' } }
+
+/**
+ * The line that offers the update of a plugin that works, or null: it shows
+ * only where the update neither opens nor runs by itself. A plugin that cannot
+ * serve this app has a notice of its own (`pluginNotice`) with the same button.
+ */
 export function updateLineFor(check: ServerCheck | undefined, connection: Connection): PluginNotice | null {
-  return check !== undefined && updateAction(check, connection, hermesVersionIn(check)) === 'show_line' ? updateLine(check) : null
+  if (check?.kind !== 'ready' || updateAction(check, connection, hermesVersionIn(check)) !== 'show_line') {
+    return null
+  }
+  return UPDATE_LINE
 }
 
 /** The check answer a screen holds, and what it already did about the answers before. */
