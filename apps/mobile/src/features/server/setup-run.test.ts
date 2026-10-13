@@ -16,7 +16,7 @@ import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
 import { PLUGIN_IDENTIFIER, type BuildRecord } from './build-record'
 import { finishPendingSetup } from './pending-setup'
-import { isSetupRunning, lastManualOutcome, runSetup, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
+import { INSTALL_RACE_AFTER_MS, isSetupRunning, lastManualOutcome, runSetup, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
 
 const COMMIT = 'c'.repeat(40)
 const LOST = 'Lost the connection to your server during setup.'
@@ -434,6 +434,135 @@ describe('runSetup: the install request is lost', () => {
     expect(result.outcome).toEqual({ kind: 'sign_in' })
     expect(result.last).toEqual({ install: 'failed' })
     expect(flag()).toBe(COMMIT)
+  })
+})
+
+describe('runSetup: the install request does not answer', () => {
+  function hungInstall(): FakeGateway {
+    const gateway = freshServer()
+    gateway.plugins.fail('install', 'hang')
+    return gateway
+  }
+
+  it('looks again only after a minute, and then every 5 seconds', async () => {
+    const gateway = hungInstall()
+    const hub = vi.spyOn(gateway.plugins, 'hub')
+    const running = start(gateway)
+
+    // The first look at the plugin is the check before the install.
+    await vi.advanceTimersByTimeAsync(INSTALL_RACE_AFTER_MS - 1)
+    expect([healthCalls(gateway), hub.mock.calls.length]).toEqual([1, 1])
+    await vi.advanceTimersByTimeAsync(1)
+    expect([healthCalls(gateway), hub.mock.calls.length]).toEqual([2, 2])
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(healthCalls(gateway)).toBe(2)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(healthCalls(gateway)).toBe(3)
+    expect(running.settled).toBeNull()
+    gateway.plugins.rows = [row('enabled')]
+    await running.finish()
+  })
+
+  it('goes on as soon as the plugin shows up, and sends no second install', async () => {
+    const gateway = hungInstall()
+    const running = start(gateway)
+    await vi.advanceTimersByTimeAsync(66_000)
+    gateway.plugins.rows = [row('enabled')]
+
+    await vi.advanceTimersByTimeAsync(3_999)
+    expect(running.settled).toBeNull()
+    expect(running.transitions).toEqual([['install', 'active']])
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(running.settled).toMatchObject({ kind: 'done' })
+    expect(running.transitions).toEqual([
+      ['install', 'active'],
+      ['install', 'done'],
+      ['enable', 'skipped'],
+      ['start', 'active'],
+      ['start', 'done'],
+      ['setup', 'active'],
+      ['setup', 'done']
+    ])
+    expect(gateway.plugins.installs).toHaveLength(1)
+    expect(gateway.ergates.setupCalls).toBe(1)
+    expect(flag()).toBeUndefined()
+  })
+
+  it('enables a plugin that showed up without being enabled', async () => {
+    const gateway = hungInstall()
+    const running = start(gateway)
+    await vi.advanceTimersByTimeAsync(61_000)
+    gateway.plugins.rows = [row('inactive')]
+
+    const result = await running.finish()
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(result.last).toEqual({ install: 'done', enable: 'done', start: 'done', setup: 'done' })
+    expect(gateway.plugins.enabled).toEqual(['ergates'])
+  })
+
+  it('carries on with the answer when the install answers while the run looks', async () => {
+    const gateway = freshServer()
+    const install = gateway.plugins.install.bind(gateway.plugins)
+    gateway.plugins.install = async req => {
+      await new Promise(resolve => setTimeout(resolve, 100_000))
+      return install(req)
+    }
+    const running = start(gateway)
+    await vi.advanceTimersByTimeAsync(99_999)
+    expect(running.settled).toBeNull()
+
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(running.settled).toMatchObject({ kind: 'done' })
+    expect(gateway.plugins.installs).toHaveLength(1)
+  })
+
+  it('ignores what the abandoned request says when it answers later', async () => {
+    const gateway = freshServer()
+    gateway.plugins.install = async () => {
+      await new Promise(resolve => setTimeout(resolve, 120_000))
+      throw new GatewayError('unknown', 'Hermes words this its own way.', { code: 'scan_blocked', status: 400 })
+    }
+    const running = start(gateway)
+    await vi.advanceTimersByTimeAsync(61_000)
+    gateway.plugins.rows = [row('enabled')]
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(running.settled).toMatchObject({ kind: 'done' })
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(lastManualOutcome(connection.id)).toBeNull()
+    expect(flag()).toBeUndefined()
+  })
+
+  it('fails with the lost connection when the install time has passed and nothing showed up', async () => {
+    const gateway = hungInstall()
+    const running = start(gateway)
+
+    await vi.advanceTimersByTimeAsync(PLUGIN_INSTALL_TIMEOUT_MS - 1)
+    expect(running.settled).toBeNull()
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(running.settled).toEqual({ kind: 'failed', step: 'install', message: LOST })
+    const result = await running.finish()
+    expect(result.last).toEqual({ install: 'failed' })
+    expect(flag()).toBe(COMMIT)
+  })
+
+  it('asks to sign in again when the server stops accepting the sign-in while the run looks', async () => {
+    const gateway = hungInstall()
+    let reads = 0
+    gateway.ergates.setHealth(() => {
+      reads += 1
+      return reads === 1 ? { state: 'absent' } : new GatewayError('unauthorized', 'Sign-in required.')
+    })
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'sign_in' })
+    expect(result.last).toEqual({ install: 'failed' })
   })
 })
 
