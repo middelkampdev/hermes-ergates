@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { GatewayError } from '@/gateway/errors'
 import type { AgentProposal, ProposalReceipt } from '@/gateway/types'
 
-import { collectProposals, proposalView, shouldForgetRun, PROPOSE_TOOL, type ProposalViewInput } from './proposal'
+import { collectProposals, proposalView, shouldForgetRun, shouldReloadReceipt, PROPOSE_TOOL, type ProposalViewInput } from './proposal'
 
 const proposal = (id: string, name = 'pim'): AgentProposal => ({
   kind: 'ergates.agent-proposal.v1',
@@ -37,6 +37,8 @@ const input = (over: Partial<ProposalViewInput>): ProposalViewInput => ({
   step: null,
   outcome: null,
   busy: false,
+  notice: null,
+  checking: false,
   ...over
 })
 
@@ -76,9 +78,38 @@ describe('proposalView', () => {
     expect(proposalView(input({ receiptError: pruned })).hidden).toBe(true)
   })
 
-  it('says so when the gateway has no Ergates plugin', () => {
+  describe('when the gateway has no Ergates route', () => {
     const missing = new GatewayError('not_found', 'Not Found', { status: 404 })
-    expect(proposalView(input({ receiptError: missing }))).toMatchObject({ status: 'closed', actions: [] })
+
+    it('says what the server check found and offers its action', () => {
+      const notice = { text: 'The Ergates plugin is turned off on this server.', action: { label: 'Turn on', route: '/server' } } as const
+      expect(proposalView(input({ receiptError: missing, notice }))).toEqual({ hidden: false, status: 'closed', text: notice.text, actions: ['server_setup'] })
+    })
+
+    it('offers nothing to tap for a notice without an action', () => {
+      const notice = { text: "This server's Ergates plugin needs a newer version of this app. Update Ergates.", action: null }
+      expect(proposalView(input({ receiptError: missing, notice }))).toEqual({ hidden: false, status: 'closed', text: notice.text, actions: [] })
+    })
+
+    it('says it is checking the server, with nothing to tap, while the server check is asked again', () => {
+      const notice = { text: 'Checking your server…', action: null }
+      expect(proposalView(input({ receiptError: missing, notice, checking: true }))).toEqual({ hidden: false, status: 'loading', text: notice.text, actions: [] })
+    })
+
+    it('does not claim the plugin is missing when the server check has no notice, and offers a reload', () => {
+      expect(proposalView(input({ receiptError: missing, notice: null }))).toEqual({
+        hidden: false,
+        status: 'failed',
+        text: 'This proposal could not be loaded.',
+        actions: ['reload']
+      })
+    })
+
+    it('keeps its Ergates not_found hidden, whatever the notice says', () => {
+      const pruned = new GatewayError('not_found', 'no proposal', { status: 404, code: 'not_found' })
+      const notice = { text: 'Ergates is not set up on this server.', action: { label: 'Set up', route: '/server' } } as const
+      expect(proposalView(input({ receiptError: pruned, notice })).hidden).toBe(true)
+    })
   })
 
   it('reports each outcome of a run with the action it allows', () => {
@@ -156,5 +187,24 @@ describe('shouldForgetRun', () => {
     expect(shouldForgetRun(undefined, missingPlugin)).toBe(false)
     expect(shouldForgetRun(undefined, offline)).toBe(false)
     expect(shouldForgetRun(undefined, null)).toBe(false)
+  })
+})
+
+describe('shouldReloadReceipt', () => {
+  const failed = new GatewayError('not_found', 'Not Found', { status: 404 })
+
+  it('reloads once the notice that closed the card is gone and the receipt read had failed', () => {
+    expect(shouldReloadReceipt(true, false, failed)).toBe(true)
+  })
+
+  it('does not reload while the notice stays, appears for the first time, or was never there', () => {
+    expect(shouldReloadReceipt(true, true, failed)).toBe(false)
+    expect(shouldReloadReceipt(false, true, failed)).toBe(false)
+    expect(shouldReloadReceipt(false, false, failed)).toBe(false)
+  })
+
+  it('does not reload a receipt that read fine', () => {
+    expect(shouldReloadReceipt(true, false, null)).toBe(false)
+    expect(shouldReloadReceipt(true, false, undefined)).toBe(false)
   })
 })

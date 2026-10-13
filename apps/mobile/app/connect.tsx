@@ -2,9 +2,11 @@ import { useRouter } from 'expo-router'
 import React, { useEffect, useState } from 'react'
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 
+import { afterSignIn } from '@/features/server'
 import { BLANK_CREDENTIALS, connectGateway, credentialsFrom, credentialsReady, firstProvider, probeGateway, type CredentialValues } from '@/features/settings'
 import { useGatewayRegistry } from '@/gateway/registry'
 import type { BackendStatus } from '@/gateway/types'
+import { buildRecord } from '@/lib/build-info'
 import { useTheme } from '@/theme/provider'
 import { LEADING, SPACE, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
@@ -51,8 +53,8 @@ export default function ConnectScreen() {
     setBusy('connect')
     setError(null)
     try {
-      await connectGateway(registry, { label, baseUrl, ...credentialsFrom(mode, credentials) })
-      router.replace('/')
+      const connection = await connectGateway(registry, { label, baseUrl, ...credentialsFrom(mode, credentials) })
+      router.replace(await afterSignIn(registry.get(connection), buildRecord()))
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -80,8 +82,8 @@ export default function ConnectScreen() {
           const s = await probeGateway(registry, devUrl)
           setStatus(s)
           if (!s.auth_required) {
-            await connectGateway(registry, { label: 'Local Hermes', baseUrl: devUrl, mode: 'token', token: devToken })
-            router.replace('/')
+            const connection = await connectGateway(registry, { label: 'Local Hermes', baseUrl: devUrl, mode: 'token', token: devToken })
+            router.replace(await afterSignIn(registry.get(connection), buildRecord()))
           }
         } catch (err) {
           setError((err as Error).message)

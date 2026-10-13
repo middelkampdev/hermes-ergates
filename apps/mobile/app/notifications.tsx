@@ -6,13 +6,15 @@
  */
 
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native'
 
 import { draftFromPrefs, prefsFromDraft, scopeLabel, useAttentionPrefs, type PrefsDraft } from '@/features/attention'
+import { noticeForError, usePluginNotice, type NoticeRoute } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
 import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
+import { buildRecord } from '@/lib/build-info'
 import { useTheme } from '@/theme/provider'
 import { LEADING, SPACE, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
@@ -28,13 +30,26 @@ export default function NotificationsScreen() {
   if (!connection || !profile) {
     return null
   }
-  return <Notifications connection={connection} profile={profile} onClose={() => router.back()} />
+  return <Notifications connection={connection} profile={profile} onClose={() => router.back()} onOpenSetup={route => router.push(route)} />
 }
 
-function Notifications({ connection, profile, onClose }: { connection: NonNullable<ReturnType<typeof usePrimaryConnection>>; profile: string; onClose: () => void }) {
+interface NotificationsProps {
+  connection: NonNullable<ReturnType<typeof usePrimaryConnection>>
+  profile: string
+  onClose: () => void
+  onOpenSetup: (route: NoticeRoute) => void
+}
+
+function Notifications({ connection, profile, onClose, onOpenSetup }: NotificationsProps) {
   const theme = useTheme()
   const gateway = useGateway(connection)
   const { prefs, save } = useAttentionPrefs(gateway, connection.id, profile)
+  // When the settings cannot be read, the server check says whether the plugin is the reason (a lost connection or a refused session keeps its own message).
+  // A missing route under a check that still says ready asks the check again, and the line says so meanwhile.
+  const build = useMemo(() => buildRecord(), [])
+  const plugin = usePluginNotice(connection, build, prefs.error)
+  const serverNotice = noticeForError(plugin.notice, prefs.error)
+  const setupAction = serverNotice?.action ?? null
   const [draft, setDraft] = useState<PrefsDraft | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -66,9 +81,12 @@ function Notifications({ connection, profile, onClose }: { connection: NonNullab
   return (
     <Sheet title={title} onClose={onClose}>
       {prefs.isError ? (
-        <Text style={[styles.line, { color: theme.colors.destructive }]} accessibilityRole="alert">
-          {userMessage(prefs.error)}
-        </Text>
+        <View style={styles.failure}>
+          <Text style={[styles.line, { color: plugin.checking ? theme.colors.mutedForeground : theme.colors.destructive }]} accessibilityRole="alert">
+            {serverNotice ? serverNotice.text : userMessage(prefs.error)}
+          </Text>
+          {setupAction ? <Button label={setupAction.label} variant="ghost" onPress={() => onOpenSetup(setupAction.route)} /> : null}
+        </View>
       ) : !draft ? (
         <ActivityIndicator style={styles.spinner} />
       ) : (
@@ -99,6 +117,7 @@ function Notifications({ connection, profile, onClose }: { connection: NonNullab
 }
 
 const styles = StyleSheet.create({
+  failure: { alignItems: 'center' },
   line: { ...TYPE.callout, lineHeight: LEADING.callout, paddingVertical: SPACE.large, textAlign: 'center' },
   spinner: { marginVertical: SPACE.huge },
   times: { marginTop: SPACE.large },

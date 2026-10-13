@@ -3,10 +3,10 @@
 Since v0.21.6 a plugin enabled after the server started gets its routes on the
 first request to ``/api/plugins/<name>/`` (``hermes_cli/web_server_dashboard.py``
 ``_PluginApiHotMount``), so the app needs no restart after the install. The
-hot-mount test starts its own server (``serve_hermes``) on a Hermes root
-without the plugin, and installs ``plugin_git_repo``: one commit holding the
-files git tracks in ``integrations/ergates``, the way a user's server would
-clone it.
+hot-mount test starts its own server (``web_without_plugin`` in
+``conftest.py``) on a Hermes root without the plugin, and installs
+``plugin_git_repo``: one commit holding the files git tracks in
+``integrations/ergates``, the way a user's server would clone it.
 
 Hermes scans every install (``tools/plugin_guard.py``): ``safe`` installs,
 ``caution`` needs confirmation, and ``dangerous`` is blocked even with
@@ -25,37 +25,33 @@ import json
 import time
 from pathlib import Path
 
-import pytest
-import yaml
+from app_messages import hermes_plugin_messages
 
 API = "/api/plugins/ergates"
-INSTALL = "/api/dashboard/agent-plugins/install"
+HUB = "/api/dashboard/plugins/hub"
+AGENT_PLUGINS = "/api/dashboard/agent-plugins"
+INSTALL = f"{AGENT_PLUGINS}/install"
 SWEEP_WAIT_SECONDS = 60
 
 
-@pytest.fixture
-def root_without_plugin(tmp_path) -> Path:
-    """A new Hermes root with no plugin in it, and the install scan on (Hermes's default)."""
-    root = tmp_path / "hermes"
-    root.mkdir()
-    # Same reason as conftest.py: no lazy `uv pip install` of optional provider stacks.
-    (root / "config.yaml").write_text(yaml.safe_dump({"security": {"allow_lazy_installs": False}}),
-                                      encoding="utf-8")
-    return root
-
-
-@pytest.fixture
-def web_without_plugin(serve_hermes, root_without_plugin):
-    """A dashboard started on ``root_without_plugin``, before any plugin is installed."""
-    return serve_hermes(root_without_plugin)
+def request_install(web, headers: dict, *, identifier: str, ref: str, enable: bool):
+    """What a dashboard client sends to install a plugin from a URL at one commit; the whole answer."""
+    reply = web.post(INSTALL, json={"identifier": identifier, "ref": ref, "enable": enable, "force": False},
+                     headers=headers)
+    print(f"POST {INSTALL} -> {reply.status_code}\n{json.dumps(reply.json(), indent=2)}")
+    return reply
 
 
 def install_through_dashboard(web, headers: dict, *, identifier: str, ref: str, enable: bool) -> dict:
     """What a dashboard client sends to install a plugin from a URL at one commit; the answer's JSON."""
-    reply = web.post(INSTALL, json={"identifier": identifier, "ref": ref, "enable": enable, "force": False},
-                     headers=headers)
-    print(f"POST {INSTALL} -> {reply.status_code}\n{json.dumps(reply.json(), indent=2)}")
-    return reply.json()
+    return request_install(web, headers, identifier=identifier, ref=ref, enable=enable).json()
+
+
+def hub_row(web, headers: dict, name: str = "ergates") -> dict | None:
+    """The plugin's row in the plugin list the app reads, or None when the list has none."""
+    reply = web.get(HUB, headers=headers)
+    assert reply.status_code == 200, reply.text
+    return next((row for row in reply.json()["plugins"] if row["name"] == name), None)
 
 
 def scan(tree: Path):
@@ -117,6 +113,62 @@ def test_a_subdirectory_install_keeps_no_git_folder_and_health_still_names_its_c
     assert not (installed / ".git").exists()
     health = web.get(f"{API}/health", headers=token_headers).json()
     assert health["install"] == {"kind": "git install", "commit": plugin_monorepo.sha, "catalog_name": None}
+
+
+def test_the_plugin_list_and_the_enable_routes_follow_the_plugin_the_app_installs(
+        web_without_plugin, token_headers, plugin_monorepo):
+    """The app reads the plugin list to tell a plugin that is not installed from one that is turned off, and
+    turns it on again with the enable route. Hermes answers 404 ``Plugin not found`` for a plugin it does not
+    serve, installed and disabled or not installed at all, and only the list tells those apart."""
+    web = web_without_plugin
+    not_served = {"detail": hermes_plugin_messages()["pluginNotFound"]}
+    assert hub_row(web, token_headers) is None
+    absent = web.get(f"{API}/health", headers=token_headers)
+    assert (absent.status_code, absent.json()) == (404, not_served)
+
+    result = install_through_dashboard(web, token_headers, identifier=plugin_monorepo.identifier,
+                                       ref=plugin_monorepo.sha, enable=True)
+    assert (result["ok"], result["plugin_name"], result["enabled"]) == (True, "ergates", True)
+    row = hub_row(web, token_headers)
+    assert (row["runtime_status"], row["version"]) == ("enabled", plugin_monorepo.version)
+    assert web.get(f"{API}/health", headers=token_headers).status_code == 200
+
+    disabled = web.post(f"{AGENT_PLUGINS}/ergates/disable", headers=token_headers)
+    assert (disabled.status_code, disabled.json()["ok"]) == (200, True)
+    gone = web.get(f"{API}/health", headers=token_headers)
+    assert (gone.status_code, gone.json()) == (404, not_served)
+    row = hub_row(web, token_headers)
+    assert (row["runtime_status"], row["version"]) == ("disabled", plugin_monorepo.version)
+
+    enabled = web.post(f"{AGENT_PLUGINS}/ergates/enable", headers=token_headers)
+    assert (enabled.status_code, enabled.json()["ok"]) == (200, True)
+    assert web.get(f"{API}/health", headers=token_headers).status_code == 200
+    assert hub_row(web, token_headers)["runtime_status"] == "enabled"
+
+
+def test_a_refused_install_answers_400_with_a_text_that_starts_as_the_app_expects(
+        web_without_plugin, token_headers, plugin_monorepo):
+    """The app maps a failed install by the start of the 400's ``detail``: a commit that cannot be fetched is a
+    failed download, and installing the plugin again finds it already there (the second phone, or a retry
+    after the phone lost the first answer). The refused install changes nothing."""
+    web = web_without_plugin
+    messages = hermes_plugin_messages()["install"]
+
+    unknown = request_install(web, token_headers, identifier=plugin_monorepo.identifier, ref="0" * 40, enable=True)
+    assert unknown.status_code == 400
+    assert any(unknown.json()["detail"].startswith(prefix) for prefix in messages["download_failed"]), unknown.text
+    assert hub_row(web, token_headers) is None
+
+    installed = request_install(web, token_headers, identifier=plugin_monorepo.identifier, ref=plugin_monorepo.sha,
+                                enable=True)
+    assert installed.status_code == 200
+
+    again = request_install(web, token_headers, identifier=plugin_monorepo.identifier, ref=plugin_monorepo.sha,
+                            enable=True)
+    assert again.status_code == 400
+    assert any(again.json()["detail"].startswith(prefix) for prefix in messages["already_installed"]), again.text
+    assert web.get(f"{API}/health", headers=token_headers).status_code == 200
+    assert hub_row(web, token_headers)["runtime_status"] == "enabled"
 
 
 def test_the_installed_plugin_sweeps_inside_hermes_serve(web_without_plugin, token_headers, plugin_git_repo):

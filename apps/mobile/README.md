@@ -26,6 +26,18 @@ React Native (Expo SDK 57) client for a team of Hermes Agent assistants. Design 
 
 For a gateway on the Tailscale VPS (password mode) enter its URL; the app reads `/api/status`, sees `auth_required: true`, and asks for provider, username and password.
 
+## The server plugin in development
+
+After Connect the app checks the Ergates plugin on the server and, when it is missing, offers to install it (ADR-043 in `../../docs/08-decision-log.md`). It installs `middelkampdev/hermes-ergates/integrations/ergates` at the commit in its build record. `app.config.ts` writes that record into the app's config: the plugin's version and API level from the plugin's files, the oldest tested Hermes from `requires_hermes` in `plugin.yaml`, the newest from `expo.extra.hermesTestedThrough` in `app.json`, and the commit.
+
+By default the commit is `git rev-parse HEAD` of the checkout. The server downloads it from GitHub, so a commit that is not pushed cannot be installed. To try the one-tap install from your branch, start Metro with a commit that is on GitHub and whose `integrations/ergates` passes Hermes's install scan:
+
+```bash
+ERGATES_PLUGIN_COMMIT=<40-hex commit> npx expo start
+```
+
+A build made without git and without `ERGATES_PLUGIN_COMMIT` has no commit. Its setup screen says that this build does not know which plugin version to install, and offers no install. An `ERGATES_PLUGIN_COMMIT` that is set but is not a full commit of 40 lowercase hex characters stops the build. The release workflows set it to the commit of the tag they build. The one tap also needs a Hermes between the oldest and the newest tested version. Hermes 0.21.6, the pin, is inside that range.
+
 ## Commands
 
 | Command | What it does |
@@ -68,7 +80,9 @@ src/gateway/    GatewayPort contract (port.ts: ConnectedGateway, BOT_CHAT_TITLE)
 src/features/   one folder per feature, each with a public index.ts: chat (reducer, session controller,
                 canonical chat, send queue), agents (roster, editor, agent proposals and their
                 provisioning), routines, files, voice, settings, attention (push deep link,
-                notification settings); `app/+native-intent.tsx` sends a push link to `app/open.tsx`
+                notification settings), server (the plugin check, the setup run, the pending setup and the
+                rules behind `app/server/`); `app/+native-intent.tsx` sends a push link to `app/open.tsx`
+                and lets only Home and push links in from outside the app
 src/state/      Zustand device store: connections, pins, sections, unread, drafts, outbox, prefs,
                 agent setups; persisted as one AES-GCM-sealed blob (sealed-storage.ts, persistence.ts)
 src/theme/      vendored Hermes palettes resolved for React Native; skin sync

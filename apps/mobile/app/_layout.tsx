@@ -154,6 +154,8 @@ function ThemedStack() {
         <Stack.Screen name="connect" />
         {/* Home replaces itself with this screen when the connection has no sign-in on this phone. */}
         <Stack.Screen name="sign-in" />
+        {/* `app/server/_layout.tsx` owns the nested stack for "Set up your server" and "Finish on your server"; both are pushed, not modals. */}
+        <Stack.Screen name="server" />
         {/* A push deep link lands here first (app/+native-intent.tsx), then replaces itself with the chat. */}
         <Stack.Screen name="open" options={{ animation: 'none' }} />
         <Stack.Screen name="search" options={{ presentation: 'modal' }} />

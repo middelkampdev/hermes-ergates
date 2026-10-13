@@ -9,9 +9,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { collectProposals, proposalView, provisionAgent, provisionDeps, provisionOnce, rosterKey, shouldForgetRun, type ProposalView, type ProvisionOutcome } from '@/features/agents'
+import { collectProposals, proposalView, provisionAgent, provisionDeps, provisionOnce, rosterKey, shouldForgetRun, shouldReloadReceipt, type ProposalView, type ProvisionOutcome } from '@/features/agents'
+import { usePluginNotice, type BuildRecord, type PluginNotice } from '@/features/server'
 import type { AgentProposal, ProvisionStep } from '@/gateway/types'
-import { useDeviceStore } from '@/state/device-store'
+import { useDeviceStore, type Connection } from '@/state/device-store'
 import { withStartedAt } from '@/state/provisioning'
 
 import { openCanonicalChat } from './canonical-chat'
@@ -21,6 +22,8 @@ export const proposalKey = (connectionId: string, proposalId: string) => ['propo
 
 export interface ProposalCardState {
   view: ProposalView
+  /** What the server check says about the plugin; its action is what the card's setup button opens. */
+  notice: PluginNotice | null
   accept(): Promise<void>
   /** Rejects when the server refuses; the card shows why. */
   reject(): Promise<void>
@@ -41,11 +44,24 @@ export function useProposals(): AgentProposal[] {
   }, [runs, connectionId, profile, items, rows])
 }
 
-export function useProposal(proposal: AgentProposal): ProposalCardState {
+/**
+ * The server whose check explains a missing proposal route: the connection the
+ * setup screens act on (the primary one), or null in any other chat, which
+ * then reads no check.
+ */
+export interface ProposalServer {
+  connection: Connection | null
+  build: BuildRecord | null
+}
+
+/** The card shows what the server check says about the plugin when the proposal route is missing. */
+export function useProposal(proposal: AgentProposal, server: ProposalServer): ProposalCardState {
   const { connectionId, profile, port } = useChatSession()
   const client = useQueryClient()
   const id = proposal.proposal_id
   const receipt = useQuery({ queryKey: proposalKey(connectionId, id), queryFn: () => port.ergates.getProposal(id), retry: false, staleTime: 5_000 })
+  // A missing route under a check that still says ready asks the check again, and the card says so meanwhile.
+  const { notice, checking } = usePluginNotice(server.connection, server.build, receipt.error)
   const saveRun = useDeviceStore(s => s.saveProvisioningRun)
   const removeRun = useDeviceStore(s => s.removeProvisioningRun)
   const [step, setStep] = useState<ProvisionStep | null>(null)
@@ -106,6 +122,19 @@ export function useProposal(proposal: AgentProposal): ProposalCardState {
     }
   }, [receiptData, receiptErr, busy, removeRun, id])
 
+  // The card closed on the server check's notice and its button sent the user to set the server up: read the receipt again once the notice is gone.
+  // The neutral line while the check is asked again is no such notice: reading again then would ask the check again, and again.
+  const hasNotice = notice !== null && !checking
+  const hadNotice = useRef(hasNotice)
+  const refetchReceipt = receipt.refetch
+  useEffect(() => {
+    const reload = shouldReloadReceipt(hadNotice.current, hasNotice, receiptErr)
+    hadNotice.current = hasNotice
+    if (reload) {
+      void refetchReceipt()
+    }
+  }, [hasNotice, receiptErr, refetchReceipt])
+
   const reject = useCallback(async () => {
     setBusy(true)
     try {
@@ -121,13 +150,13 @@ export function useProposal(proposal: AgentProposal): ProposalCardState {
     }
   }, [client, connectionId, id, port, removeRun])
 
-  const refetch = receipt.refetch
   return {
-    view: proposalView({ proposal, receipt: receipt.data, receiptError: receipt.error, step, outcome, busy }),
+    view: proposalView({ proposal, receipt: receipt.data, receiptError: receipt.error, step, outcome, busy, notice, checking }),
+    notice,
     accept: () => run(false),
     reject,
     retry: () => run(false),
     resendBriefing: () => run(true),
-    reload: () => void refetch()
+    reload: () => void refetchReceipt()
   }
 }

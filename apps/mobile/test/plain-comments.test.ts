@@ -1,8 +1,8 @@
 /// <reference types="node" />
 /**
  * Code comments and test titles give the reason, not a planning id: a reader
- * has no upgrade plan or review ledger at hand, so a bug, decision, ruling or
- * review finding number from one tells them nothing. ADR numbers (docs/08),
+ * has no upgrade plan or review ledger at hand, so a bug, decision, fact,
+ * ruling or review finding number from one tells them nothing. ADR numbers (docs/08),
  * docs section numbers, Hermes file:line references and upstream issue
  * numbers stay.
  *
@@ -22,6 +22,7 @@ const PLAN_ID = new RegExp(
   [
     String.raw`\broadmap\b|\breview focus\b|\.superpowers\b|\bimplementer-rules\b`,
     String.raw`\brulings? \d+(?:(?:,| and) \d+)*\b|\bruling,? (?:Critical|Important|Minor) \d+[a-z]?`,
+    String.raw`\bfacts? \d+(?:(?:,| and) \d+)*\b`,
     String.raw`\breview (?:issue|finding|point|comment)s? #?\d+`
   ].join('|'),
   'i'
@@ -209,7 +210,10 @@ describe('planning ids', () => {
     '(ruling, Critical 1a)',
     'Ruling, Critical 1b: the turn',
     '(spec 12.3 anchor, ruling Critical 1b)',
-    'Critical 1b).'
+    'Critical 1b).',
+    'The Hermes texts of fact 2',
+    'Fact 7 says',
+    'facts 3 and 4'
   ])('are found in %j', text => {
     expect(namesPlanningId(text)).toBe(true)
   })
@@ -233,7 +237,9 @@ describe('planning ids', () => {
     'the same-direction ruling',
     'Important 3 steps remain',
     'bump to Minor 12',
-    'Critical 5 users were affected'
+    'Critical 5 users were affected',
+    'a fact the code shows',
+    'in fact, 2 calls'
   ])(
     'leave %j alone',
     text => {

@@ -654,11 +654,65 @@ export interface MemoryFiles {
 
 // ── Ergates integration routes (/api/plugins/ergates) ──
 
+/**
+ * The body of `GET /health` (`Operations.health` in the plugin). The fields
+ * after `schema_version` are optional because an older plugin leaves them out.
+ */
 export interface ErgatesHealth {
   ok: boolean
-  schema_version: number
   plugin_version: string
+  api_level?: number
+  min_api_level?: number
+  schema_version: number
+  store?: { plugin_schema_version: number; min_schema_version: number; writable: boolean }
+  /** How the plugin got onto the server; `commit` is known for a `git install` only. */
+  install?: { kind: 'deployment' | 'git install' | 'manual copy'; commit: string | null; catalog_name: string | null }
+  setup?: SetupState
+  push?: { configured: boolean; token_set: boolean; legacy_config_token: boolean }
+  /** `last_run_at` is epoch seconds (the plugin's `time.time()`), null before the first pass. */
+  sweep?: { interval_seconds: number; last_run_at: number | null; last_error: string | null }
 }
+
+/** The state `POST /setup` makes, and the report it answers (`setup_report` in the plugin). */
+export interface SetupState {
+  finished: boolean
+  templates: 'installed' | 'differ' | 'invalid' | 'missing' | 'failed'
+  profiles: { name: string; enabled: boolean; error?: string }[]
+}
+
+/**
+ * What asking a server for the plugin's health found: the plugin answered;
+ * Hermes does not serve it (not installed, not enabled or disabled); or it is
+ * enabled but its routes are not mounted (its import failed, or Hermes cannot
+ * mount a plugin after it started).
+ */
+export type PluginProbe = { state: 'answered'; health: ErgatesHealth } | { state: 'absent' } | { state: 'not_loaded' }
+
+// ── Hermes plugin routes (/api/dashboard/plugins/hub, /api/dashboard/agent-plugins) ──
+
+export interface HermesPluginRow {
+  name: string
+  /** Null when the plugin's manifest names none. */
+  version: string | null
+  runtime_status: 'enabled' | 'disabled' | 'inactive'
+}
+
+/** `POST /api/dashboard/agent-plugins/install`. The app always sends `force: false`. */
+export interface PluginInstallRequest {
+  identifier: string
+  /** A full 40-character commit. */
+  ref: string
+  enable: true
+  force: false
+}
+
+export interface PluginInstallResult {
+  plugin_name: string
+  enabled: boolean
+}
+
+/** The `code` of the `GatewayError` an install refusal rejects with; a refusal Hermes words otherwise has none. */
+export type PluginInstallCode = 'scan_blocked' | 'no_git' | 'download_failed' | 'already_installed' | 'enable_refused'
 
 export interface ReminderRequest {
   profile: string

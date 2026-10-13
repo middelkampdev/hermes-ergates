@@ -9,7 +9,8 @@ import React from 'react'
 import { Alert, StyleSheet, Text, View } from 'react-native'
 
 import type { ProposalAction } from '@/features/agents'
-import { useProposal } from '@/features/chat'
+import { useProposal, type ProposalServer } from '@/features/chat'
+import type { NoticeRoute } from '@/features/server'
 import { userMessage } from '@/gateway/errors'
 import type { AgentProposal } from '@/gateway/types'
 import { useTheme } from '@/theme/provider'
@@ -22,15 +23,24 @@ const LABELS: Record<ProposalAction, string> = {
   retry: 'Try again',
   resend_briefing: 'Send the briefing again',
   open_chat: 'Open chat',
-  reload: 'Reload'
+  reload: 'Reload',
+  server_setup: 'Set up'
 }
 
 const VARIANTS: Partial<Record<ProposalAction, ButtonVariant>> = { reject: 'secondary', open_chat: 'secondary', reload: 'secondary' }
 
-export function ProposalCard({ proposal, onOpenChat }: { proposal: AgentProposal; onOpenChat: (profile: string) => void }) {
+interface ProposalCardProps {
+  proposal: AgentProposal
+  onOpenChat: (profile: string) => void
+  /** The server whose check the card reads when the proposal route is missing. */
+  server: ProposalServer
+  onOpenSetup: (route: NoticeRoute) => void
+}
+
+export function ProposalCard({ proposal, onOpenChat, server, onOpenSetup }: ProposalCardProps) {
   const theme = useTheme()
-  const card = useProposal(proposal)
-  const { view } = card
+  const card = useProposal(proposal, server)
+  const { view, notice } = card
   if (view.hidden) {
     return null
   }
@@ -58,9 +68,16 @@ export function ProposalCard({ proposal, onOpenChat }: { proposal: AgentProposal
         return
       case 'reload':
         card.reload()
+        return
+      case 'server_setup':
+        if (notice?.action) {
+          onOpenSetup(notice.action.route)
+        }
     }
   }
 
+  // The setup button names what the server check found (Set up, Turn on, Update, ...).
+  const labelOf = (action: ProposalAction) => (action === 'server_setup' ? (notice?.action?.label ?? LABELS[action]) : LABELS[action])
   const statusColor = view.status === 'failed' || view.status === 'closed' ? theme.colors.destructive : theme.colors.mutedForeground
   return (
     <View style={[styles.card, { backgroundColor: theme.colors.muted, borderRadius: RADIUS.extraLarge }]} accessibilityLabel={`Proposed agent ${agent.title}`}>
@@ -81,7 +98,7 @@ export function ProposalCard({ proposal, onOpenChat }: { proposal: AgentProposal
       {view.actions.length > 0 ? (
         <View style={styles.actions}>
           {view.actions.map(action => (
-            <Button key={action} label={LABELS[action]} variant={VARIANTS[action]} onPress={() => onAction(action)} />
+            <Button key={action} label={labelOf(action)} variant={VARIANTS[action]} onPress={() => onAction(action)} />
           ))}
         </View>
       ) : null}

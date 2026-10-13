@@ -158,6 +158,14 @@ This cuts `release/0.3.0`, commits `chore: set version 0.3.0` there, and pushes 
 - **The metadata job says `app.json` has another version than the tag:** the tag's commit lacks gflow's `chore: set version` commit. Check `.gflow/set-version.sh` ran (gflow prints it) and cut a new RC.
 - **Renaming `release.yml`** restarts the run numbers at 1. Raise the offset above the last build number first, for example `gh variable set BUILD_NUMBER_OFFSET --body 1000`.
 
+## Tested Hermes range
+
+The app offers one-tap setup of its server plugin only on a Hermes inside the range CI has tested. The oldest version is the `requires_hermes` floor in `integrations/ergates/plugin.yaml`. The newest is the minor in `expo.extra.hermesTestedThrough` in `apps/mobile/app.json`. `app.config.ts` copies both into the build as `extra.ergates`, next to the plugin's version, its API level and the commit to install. The release workflows pass the tag's commit as `ERGATES_PLUGIN_COMMIT`, and a value that is not a full commit of 40 lowercase hex characters stops the build.
+
+Every Monday the `contract-latest` workflow runs the live contract tests against the newest stable Hermes. When they pass on a newer minor than `hermesTestedThrough`, the run opens the issue "Hermes vX.Y.Z passes the live contract tests: raise the tested range", once per release. Raise `hermesTestedThrough` to that minor in `apps/mobile/app.json` and ship it with the next release. Until you do, the app offers the manual guide instead of one-tap setup on that Hermes.
+
+A Hermes pin bump that moves the `requires_hermes` floor past `hermesTestedThrough` needs the same change in the same pull request. The app config test fails there if it does not, and `app.config.ts` stops any build.
+
 ## Building on your Mac
 
 The workflow runs `scripts/release/build-android.sh` and `scripts/release/build-ios.sh`; both run on a Mac with the same variables. iOS needs Xcode 26.4 or later and CocoaPods; Android needs Java 17 and the Android SDK (`ANDROID_HOME`). Each script regenerates its native folder with `expo prebuild --clean`, puts `app.json` back, and writes to `build/release/`.

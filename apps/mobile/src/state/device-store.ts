@@ -31,6 +31,12 @@ export interface Connection {
   primary: boolean
   lastProfile?: string
   createdAt: number
+  /**
+   * The plugin commit the app put on this server and has not run the plugin's
+   * setup for yet. Set before an install, cleared once the setup ran. Not
+   * personal data: it is the commit of this app's own build.
+   */
+  pendingPluginSetup?: string
 }
 
 export interface Prefs {

@@ -9,7 +9,10 @@
 # the other CI jobs and its concurrency group does not collide with the push
 # runs on `develop`. It runs on a schedule (from the default branch) and on
 # manual dispatch, never on a pull request, so it blocks no merge; a break
-# turns the run red.
+# turns the run red. When the tests pass on a Hermes minor newer than the one
+# the app is tested through (`hermesTestedThrough` in apps/mobile/app.json),
+# the run opens an issue to raise it (apps/mobile/RELEASING.md, "Tested Hermes
+# range").
 # `releases/latest` skips pre-releases; Hermes also tags rc and canary builds.
 name: Live contract tests, newest Hermes
 
@@ -32,6 +35,9 @@ jobs:
     # The live tests download Hermes's dependency runtime (about 560 MB).
     timeout-minutes: 25
     continue-on-error: false
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -69,3 +75,34 @@ jobs:
         env:
           HERMES_SOURCE: ${{ github.workspace }}/.cache/hermes-latest
           HERMES_EXPECTED_REF: ${{ steps.commit.outputs.sha }}
+      # The app offers one-tap setup of its server plugin only on a Hermes
+      # inside the range CI has tested. A newer minor that passes the live
+      # tests is a reason to raise the range. The step opens an issue and
+      # leaves the change to a person, who first looks at the release.
+      - name: Open an issue when a newer Hermes minor passes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          tested="$(jq -r '.expo.extra.hermesTestedThrough' apps/mobile/app.json)"
+          if [[ ! "$tested" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::apps/mobile/app.json expo.extra.hermesTestedThrough must be a Hermes minor like 0.21, got '$tested'"
+            exit 1
+          fi
+          release_minor="${TAG#v}"
+          release_minor="${release_minor%.*}"
+          newest="$(printf '%s\n%s\n' "$tested" "$release_minor" | sort -V | tail -n 1)"
+          if [[ "$release_minor" == "$tested" || "$newest" != "$release_minor" ]]; then
+            echo "Hermes ${TAG} is inside the tested range (through ${tested}); nothing to raise."
+            exit 0
+          fi
+          title="Hermes ${TAG} passes the live contract tests: raise the tested range"
+          # A weekly run on the same release must not open a second issue.
+          if gh issue list --state all --search "in:title \"${title}\"" --json title --jq '.[].title' | grep -Fxq "${title}"; then
+            echo "Issue already exists: ${title}"
+            exit 0
+          fi
+          gh issue create --title "${title}" --body "The live contract tests pass on Hermes ${TAG}. The app is tested through Hermes ${tested}, so it does not offer one-tap server setup on Hermes ${release_minor}.
+
+          Raise hermesTestedThrough in apps/mobile/app.json from \"${tested}\" to \"${release_minor}\", so the app offers one-tap setup on that Hermes. See apps/mobile/RELEASING.md, section \"Tested Hermes range\"."

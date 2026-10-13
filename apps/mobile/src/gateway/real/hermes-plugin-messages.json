@@ -1,0 +1,10 @@
+{
+  "pluginNotFound": "Plugin not found",
+  "install": {
+    "scan_blocked": ["Security scan blocked plugin install"],
+    "no_git": ["git is not installed or not in PATH."],
+    "download_failed": ["Could not download the plugin from", "Git clone timed out after", "Git commit '", "Git checkout of commit '", "Git fetch of commit '"],
+    "already_installed": ["Plugin 'ergates' already exists."],
+    "enable_refused": ["enable refused:"]
+  }
+}

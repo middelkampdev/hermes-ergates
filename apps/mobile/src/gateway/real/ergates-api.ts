@@ -6,9 +6,10 @@
  * Never logs a body: a reminder carries its prompt and an accept the briefing.
  */
 
-import { mapErgatesError } from '../errors'
+import { GatewayError, mapErgatesError } from '../errors'
 import type { ErgatesApi } from '../port'
 import type * as T from '../types'
+import messages from './hermes-plugin-messages.json'
 import type { HttpClient } from './http'
 
 export const ERGATES_BASE = '/api/plugins/ergates'
@@ -22,25 +23,70 @@ export const REMINDER_TIMEOUT_MS = 60_000
 
 const REMINDER_STATUS: Partial<Record<number, T.ReminderOutcome['status']>> = { 201: 'created', 200: 'existing', 202: 'uncertain' }
 
+const INSTALL_KINDS: readonly unknown[] = ['deployment', 'git install', 'manual copy'] satisfies NonNullable<T.ErgatesHealth['install']>['kind'][]
+
+const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object'
+
+/**
+ * A health body with an `install` the app can read. A kind it does not know
+ * reads as a manual copy, which the app only asks to update by hand; an
+ * `install` that is not an object is left out, as an older plugin sends none.
+ * Every other field stays as the plugin sent it.
+ */
+function readHealth(body: Record<string, unknown>): T.ErgatesHealth {
+  const { install, ...withoutInstall } = body
+  if (install === undefined) {
+    return body as unknown as T.ErgatesHealth
+  }
+  if (!isObject(install)) {
+    return withoutInstall as unknown as T.ErgatesHealth
+  }
+  const kind = INSTALL_KINDS.includes(install.kind) ? install.kind : 'manual copy'
+  return { ...body, install: { ...install, kind } } as unknown as T.ErgatesHealth
+}
+
 /**
  * `ready` loads the connection's stored credential before a call (the
  * gateway's `restore()`): a cold start through a push link opens a chat
  * without Home, which is what restores it for the other routes.
  */
 export function createErgatesApi(http: HttpClient, ready: () => Promise<unknown> = async () => undefined): ErgatesApi {
+  const exchange = async (method: string, path: string, body?: unknown) => {
+    await ready()
+    return http.exchange(method, `${ERGATES_BASE}${path}`, body)
+  }
   /** A 2xx JSON object, or the Ergates error as a `GatewayError`. */
   const call = async (method: string, path: string, body?: unknown): Promise<Record<string, unknown>> => {
-    await ready()
-    const answer = await http.exchange(method, `${ERGATES_BASE}${path}`, body)
-    if (answer.status < 200 || answer.status >= 300 || !answer.body || typeof answer.body !== 'object') {
+    const answer = await exchange(method, path, body)
+    if (answer.status < 200 || answer.status >= 300 || !isObject(answer.body)) {
       throw mapErgatesError(answer.status, answer.body)
     }
-    return answer.body as Record<string, unknown>
+    return answer.body
   }
   const proposal = (id: string, suffix = '') => `/proposals/${encodeURIComponent(id)}${suffix}`
 
   return {
-    health: async () => (await call('GET', '/health')) as unknown as T.ErgatesHealth,
+    health: async () => {
+      const answer = await exchange('GET', '/health')
+      if (answer.status === 404) {
+        // Hermes words the two 404s differently: the first when it does not serve the plugin at all,
+        // the second when the plugin is enabled but its routes never mounted.
+        const detail = isObject(answer.body) ? answer.body.detail : undefined
+        return { state: detail === messages.pluginNotFound ? 'absent' : 'not_loaded' }
+      }
+      if (answer.status < 200 || answer.status >= 300 || !isObject(answer.body)) {
+        throw mapErgatesError(answer.status, answer.body)
+      }
+      return { state: 'answered', health: readHealth(answer.body) }
+    },
+    setup: async () => {
+      const { setup } = await call('POST', '/setup', {})
+      // The setup screen lists the profiles the report names; a report without them is no report.
+      if (!isObject(setup) || !Array.isArray(setup.profiles)) {
+        throw new GatewayError('unknown', 'The plugin did not answer with a setup report.')
+      }
+      return setup as unknown as T.SetupState
+    },
     createReminder: async req => {
       await ready()
       const answer = await http.exchange('POST', `${ERGATES_BASE}/reminders`, req, { timeoutMs: REMINDER_TIMEOUT_MS })

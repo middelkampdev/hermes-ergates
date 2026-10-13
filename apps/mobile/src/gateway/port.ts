@@ -146,7 +146,14 @@ export interface FilesApi {
  * instead: each of those answers carries the receipt.
  */
 export interface ErgatesApi {
-  health(): Promise<T.ErgatesHealth>
+  /**
+   * Resolves for a 200 (`answered`) and for the two 404s the path can answer
+   * (`absent`, `not_loaded`). Any other answer rejects, with
+   * `code: 'store_unavailable'` when the plugin cannot open its store.
+   */
+  health(): Promise<T.PluginProbe>
+  /** `POST /setup`: installs the templates and enables the plugin in every profile. */
+  setup(): Promise<T.SetupState>
   createReminder(req: T.ReminderRequest): Promise<T.ReminderOutcome>
   getProposal(proposalId: string): Promise<T.ProposalReceipt>
   acceptProposal(proposalId: string, proposal: T.AgentProposal): Promise<T.ProposalReceipt>
@@ -156,6 +163,27 @@ export interface ErgatesApi {
   /** `scope` is a profile name, or `*` for every agent. */
   attentionPrefs(scope: string): Promise<T.AttentionPrefs>
   setAttentionPrefs(prefs: T.AttentionPrefs): Promise<T.AttentionPrefs>
+}
+
+/**
+ * How long an install may run before the app gives up on it. An install
+ * answers when it ends and Hermes shows no progress. Each of its three git
+ * phases (clone, fetch, checkout) may take up to `plugins.clone_timeout_seconds`,
+ * 300 s by default.
+ */
+export const PLUGIN_INSTALL_TIMEOUT_MS = 900_000
+
+/**
+ * Hermes's own plugin routes, behind the connection's auth. An install can run
+ * for minutes (a git download in up to three phases) and answers only when it
+ * ends. A refusal rejects with `GatewayError`; for `install` its `code` is a
+ * `PluginInstallCode` when Hermes's text is one the app knows. `enable` maps no
+ * code: any refusal is a plain error with Hermes's text as the message.
+ */
+export interface PluginsApi {
+  hub(): Promise<T.HermesPluginRow[]>
+  install(req: T.PluginInstallRequest): Promise<T.PluginInstallResult>
+  enable(name: string): Promise<void>
 }
 
 export interface GatewayPort {
@@ -180,6 +208,7 @@ export interface GatewayPort {
   tools: ToolsApi
   files: FilesApi
   ergates: ErgatesApi
+  plugins: PluginsApi
 }
 
 /**

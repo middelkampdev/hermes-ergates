@@ -26,7 +26,10 @@ cd apps/mobile && npm install && npx expo run:ios
 Connect in the app with `http://127.0.0.1:9119` and the token.
 
 The app's proposal, reminder and notification screens need the Ergates
-plugin in that Hermes (`integrations/ergates/README.md`, "Install"): link
+plugin in that Hermes. After Connect the app offers to install it with one
+tap, from GitHub at the commit of the app's build (ADR-043 in
+`docs/08-decision-log.md`). To run the plugin from this checkout instead
+(`integrations/ergates/README.md`, "Install"), link
 `integrations/ergates` to `~/.hermes/plugins/ergates`, then, from the
 repository root and with the Python your Hermes runs on, run
 `PYTHONPATH=integrations/ergates python -m ergates.install`

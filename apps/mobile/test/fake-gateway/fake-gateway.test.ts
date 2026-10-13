@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
+import { GatewayError } from '@/gateway/errors'
 import type * as T from '@/gateway/types'
 
 import { FakeGateway, type FakeConnection } from './fake-gateway'
@@ -23,6 +24,33 @@ describe('FakeGateway', () => {
     conn.simulateOnline()
     await expect(conn.request('prompt.submit', { session_id: 's1', text: 'hello' })).resolves.toEqual({ status: 'streaming' })
     expect(conn.submitCalls).toBe(1)
+  })
+})
+
+describe('FakeGateway status', () => {
+  it('reports the recorded Hermes version until a test sets another', async () => {
+    const gateway = new FakeGateway()
+    const recorded = (await gateway.status()).version
+
+    gateway.setHermesVersion('0.99.1')
+    expect((await gateway.status()).version).toBe('0.99.1')
+    expect(recorded).not.toBe('0.99.1')
+  })
+
+  it('keeps the rest of the recorded status when it sets a version', async () => {
+    const gateway = new FakeGateway()
+    const recorded = await gateway.status()
+
+    gateway.setHermesVersion('unknown')
+
+    expect(await gateway.status()).toEqual({ ...recorded, version: 'unknown' })
+  })
+
+  it('rejects with the error a test sets', async () => {
+    const gateway = new FakeGateway()
+    gateway.setHermesVersion(new GatewayError('network', 'No connection to the gateway.'))
+
+    await expect(gateway.status()).rejects.toMatchObject({ kind: 'network' })
   })
 })
 
