@@ -197,6 +197,15 @@ phone does not contact GitHub for the install. The app installs only
 build names, and offers the one tap only on Hermes versions that CI has
 tested. For the others it shows the command below.
 
+The app also updates a plugin it installed. When the plugin is a git install
+and the app's build carries a newer version, or the plugin is too old for the
+app, the app turns the plugin off, installs its own commit over it with
+`force` and turns it on again, because Hermes replaces a plugin over REST only
+while it is turned off. Hermes does not mount new routes into a running
+server, so the old code keeps answering until Hermes restarts: `GET /health`
+shows that as `install.commit` differing from `install.loaded_commit`. A
+deployment and a manual copy are never updated by the app.
+
 To install by hand, run this on the server as the user that runs Hermes:
 
 ```bash
@@ -463,7 +472,9 @@ from a git commit, with the setup finished:
   `MIN_API_LEVEL`, the oldest level this plugin still serves, follows at
   least one release later. A client that needs a level above `api_level`
   needs a newer plugin; one built for a level below `min_api_level` needs a
-  newer client.
+  newer client. Level 2 added `install.loaded_commit`, which the app relies
+  on to see that Hermes has to restart after an update, so a plugin at
+  level 1 is outdated for the current app.
 - `schema_version` is the store file's schema. `store.plugin_schema_version`
   is this plugin's own, `store.min_schema_version` the oldest plugin schema
   allowed to write the store and `store.writable` whether this plugin may
@@ -516,10 +527,11 @@ The app decides from this body whether the plugin fits it. A plugin is
 outdated when its `api_level` is below the app's (a plugin that reports none
 counts as level 0) or when `store.writable` is false. An app is too old for
 the plugin when its level is below `min_api_level`. `install.kind` decides
-what the app tells the user to do about an outdated plugin: run the install
-command with `--force` for a `git install`, update the folder it was copied or
-linked from for a `manual copy`, and update the deployment for a
-`deployment`.
+what the app does about an outdated plugin. For a `git install` it offers to
+update the plugin itself, and where it cannot it tells the user to run the
+install command with `--force`. For a `manual copy` it tells the user to
+update the folder it was copied or linked from, and for a `deployment` to
+update the deployment.
 
 `health` answers 503 `store_unavailable` only when the control store cannot
 be read, so the setup, push and install parts above never turn into an error
