@@ -21,7 +21,7 @@ import { finishPendingSetup, markPendingSetup, runningKind } from './pending-set
 import { NOT_WATCHED } from './restart-watch'
 import type { ServerCheck } from './server-check'
 import { INSTALL_RACE_AFTER_MS, isSetupRunning, runSetup, type StepStatus } from './setup-run'
-import { joinUpdate, lastUpdateOutcome, lastUpdateRun, restartWatchOf, runUpdate, watchUpdateRestart, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
+import { joinUpdate, lastUpdateOutcome, lastUpdateRun, restartWatchOf, runUpdate, schemaSeenOf, watchUpdateRestart, watchUpdateSchema, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
 
 const OLD = FAKE_PLUGIN_COMMIT
 const TARGET = 'b'.repeat(40)
@@ -1611,6 +1611,52 @@ describe('restartWatchOf: the restart signs the Finish page keeps beyond one mou
     void joinUpdate(connection.id, false, () => undefined)
 
     expect(restartWatchOf(connection.id).seen).toBe(true)
+    installedOnServer(gateway)
+    await first.finish()
+  })
+})
+
+describe('schemaSeenOf: the store versions the Finish page keeps beyond one mount', () => {
+  const withSchema = (minSchema: number): ServerCheck => ({ kind: 'ready', health: { ...FAKE_PLUGIN_HEALTH, store: { plugin_schema_version: 1, min_schema_version: minSchema, writable: true } }, update: null, hermesVersion: null })
+
+  it('has seen nothing for a connection that never folded a poll', () => {
+    expect(schemaSeenOf('c-9')).toBeNull()
+  })
+
+  it('keeps the highest min_schema_version any poll showed, for a page that mounts again', () => {
+    watchUpdateSchema('c-4', withSchema(3))
+    watchUpdateSchema('c-4', withSchema(2))
+    watchUpdateSchema('c-4', { kind: 'not_loaded', hermesVersion: null })
+
+    // A new page reads the same, before and after it folds its own first poll.
+    expect(schemaSeenOf('c-4')).toBe(3)
+    expect(watchUpdateSchema('c-4', null)).toBe(3)
+  })
+
+  it('is kept per connection', () => {
+    watchUpdateSchema('c-3', withSchema(4))
+
+    expect(schemaSeenOf('c-2')).toBeNull()
+  })
+
+  it('starts again when a new update run starts, with the restart watch', async () => {
+    watchUpdateSchema(connection.id, withSchema(5))
+
+    const running = start(runningServer())
+    expect(schemaSeenOf(connection.id)).toBeNull()
+    await running.finish()
+  })
+
+  it('stays when a call only joins the run that is going', async () => {
+    const gateway = runningServer()
+    gateway.plugins.fail('install', networkError())
+    const first = start(gateway)
+    await vi.advanceTimersByTimeAsync(2_000)
+    watchUpdateSchema(connection.id, withSchema(5))
+
+    void joinUpdate(connection.id, false, () => undefined)
+
+    expect(schemaSeenOf(connection.id)).toBe(5)
     installedOnServer(gateway)
     await first.finish()
   })

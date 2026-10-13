@@ -8,7 +8,6 @@ export {
   finishVariant,
   finishView,
   goBackTarget,
-  highestSchema,
   NO_UPDATE,
   pendingCommit,
   RESTART_HEADING,
@@ -32,7 +31,7 @@ export { checkServer, isSignedOut, pluginFits, type InstallKind, type PluginFit,
 export { isSetupRunning, joinSetup, lastManualOutcome, runSetup, type ManualFailure, type ManualOutcome, type SetupDeps, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
 export { SETUP_TITLE, opensFinish, setupRedirect, setupScreenView, setupView, stepStatusWord, type HeldCheck, type SetupAction, type SetupRunState, type SetupView } from './setup-view'
 export { clearUpdatedNotice } from './silent-update'
-export { joinUpdate, lastUpdateOutcome, lastUpdateRun, runUpdate, watchUpdateRestart, type LastUpdateRun, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
+export { joinUpdate, lastUpdateOutcome, lastUpdateRun, runUpdate, watchUpdateRestart, watchUpdateSchema, type LastUpdateRun, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
 export { askedOnOpen, offerOf, PENDING_UPDATE_RUN, retryTarget, targetOf, updateScreenView, updateSteps, updateView, type UpdateAction, type UpdateRunState, type UpdateTarget, type UpdateView } from './update-view'
 export { usePluginNotice } from './use-plugin-notice'
 export { serverCheckKey, useServerCheck } from './use-server-check'

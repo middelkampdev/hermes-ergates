@@ -18,7 +18,6 @@ import {
   finishVariant,
   finishView,
   goBackTarget,
-  highestSchema,
   NO_UPDATE,
   pendingCommit,
   RESTART_HEADING,
@@ -34,7 +33,7 @@ import {
 } from './finish-view'
 import type { PendingSetupResult } from './pending-setup'
 import type { UpdateOffer } from './plugin-version'
-import { NOT_WATCHED, watchRestart } from './restart-watch'
+import { highestSchema, NOT_WATCHED, watchRestart } from './restart-watch'
 import type { InstallKind, ServerCheck } from './server-check'
 import type { StepStatus } from './setup-run'
 import type { LastUpdateRun, UpdateOutcome, UpdateStep } from './update-run'

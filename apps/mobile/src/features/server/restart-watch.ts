@@ -1,8 +1,9 @@
 /**
- * What the Finish page has seen of the restart an update run asked for, as
- * one value the page folds every poll into. Pure: the update run keeps it per
- * connection (`restartWatchOf` in `update-run.ts`), so a page that mounts
- * again does not lose it.
+ * What the Finish page has seen of the restart an update run asked for, and
+ * of the store versions the polls named, as values the page folds every poll
+ * into. Pure: the update run keeps them per connection (`restartWatchOf` and
+ * `schemaSeenOf` in `update-run.ts`), so a page that mounts again does not
+ * lose them.
  */
 
 import type { ServerCheck } from './server-check'
@@ -34,4 +35,10 @@ export function watchRestart(watch: RestartWatch, check: ServerCheck | null, sig
   const stoppedAnswering = watch.oldCodeAnswered && (check?.kind === 'not_loaded' || check?.kind === 'unavailable')
   const seen = watch.seen || signedOut || check?.kind === 'unknown' || stoppedAnswering
   return oldCodeAnswered === watch.oldCodeAnswered && seen === watch.seen ? watch : { oldCodeAnswered, seen }
+}
+
+/** The highest `store.min_schema_version` of `seen` and the health read in `check`, if it carries one. */
+export function highestSchema(seen: number | null, check: ServerCheck | null): number | null {
+  const found = check !== null && 'health' in check ? check.health.store?.min_schema_version : undefined
+  return found === undefined ? seen : Math.max(seen ?? found, found)
 }

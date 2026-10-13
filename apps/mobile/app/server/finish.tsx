@@ -24,7 +24,6 @@ import {
   finishVariant,
   finishView,
   goBackTarget,
-  highestSchema,
   isSignedOut,
   lastManualOutcome,
   lastUpdateRun,
@@ -40,6 +39,7 @@ import {
   updateStillOpen,
   useServerCheck,
   watchUpdateRestart,
+  watchUpdateSchema,
   type FinishAction,
   type FinishUpdate,
   type FinishVariant,
@@ -83,8 +83,6 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   const [checking, setChecking] = useState(false)
   // The go back the user started from this page; its steps show here.
   const [run, setRun] = useState<UpdateRunState | null>(null)
-  // The highest store version any health read on this page asked for: going back is not offered past the one the previous version knows.
-  const [schemaSeen, setSchemaSeen] = useState<number | null>(null)
   // The setup call outlives this screen; only a mounted screen draws what it reports.
   const mounted = useRef(true)
 
@@ -101,11 +99,8 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   // A 401 wins over the old data the query still holds, or the page would keep asking for a restart that already happened.
   const signedOut = isSignedOut(check.error)
 
-  const seen = highestSchema(schemaSeen, data ?? null)
-  if (seen !== schemaSeen) {
-    setSchemaSeen(seen)
-  }
-  // The update run keeps, per connection, how it ended and what the polls showed of the restart it asked for, so this page knows the same after it mounts again (a sign-in replaces it, or the user leaves and comes back). Every poll is folded in here.
+  // The update run keeps, per connection, how it ended, what the polls showed of the restart it asked for, and the highest store version they named (going back is not offered past the one the previous version knows), so this page knows the same after it mounts again (a sign-in replaces it, or the user leaves and comes back). Every poll is folded in here.
+  const seen = watchUpdateSchema(connection.id, data ?? null)
   const restartSeen = watchUpdateRestart(connection.id, data ?? null, signedOut).seen
   const last = lastUpdateRun(connection.id)
   const update = useMemo<FinishUpdate>(

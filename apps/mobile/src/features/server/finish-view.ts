@@ -96,7 +96,7 @@ export const NO_UPDATE: FinishUpdate = { started: undefined, schemaSeen: null, w
 export interface FinishUpdateParts {
   /** `Connection.pluginUpdate`. */
   started: Connection['pluginUpdate']
-  /** The highest `store.min_schema_version` seen on the page, or null. */
+  /** The highest `store.min_schema_version` the polls showed since the update run started (`schemaSeenOf`), or null. */
   schemaSeen: number | null
   /** The connection's last update run in this session (`lastUpdateRun`); null after a relaunch. */
   last: LastUpdateRun | null
@@ -311,12 +311,6 @@ function afterUpdate(update: FinishUpdate): FinishVariant | null {
  */
 function canGoBack(started: NonNullable<Connection['pluginUpdate']>, schemaSeen: number | null): boolean {
   return started.previousSchema === null || schemaSeen === null || schemaSeen <= started.previousSchema
-}
-
-/** The highest `store.min_schema_version` of `seen` and the health read in `check`, if it carries one. */
-export function highestSchema(seen: number | null, check: ServerCheck | null): number | null {
-  const found = check !== null && 'health' in check ? check.health.store?.min_schema_version : undefined
-  return found === undefined ? seen : Math.max(seen ?? found, found)
 }
 
 /** What `runUpdate` takes to put the previous version back: it installs the commit the server had, and is a going back. */

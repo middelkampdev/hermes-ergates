@@ -26,7 +26,7 @@ import { useDeviceStore } from '@/state/device-store'
 import { COMMIT_PATTERN, PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
 import { parseHermesVersion } from './hermes-version'
 import { clearPendingSetupIfUnchanged, isGoingBack, markPendingSetup, pendingSnapshot, runningKind } from './pending-setup'
-import { NOT_WATCHED, watchRestart, type RestartWatch } from './restart-watch'
+import { highestSchema, NOT_WATCHED, watchRestart, type RestartWatch } from './restart-watch'
 import { Flights } from './run-flights'
 import { hermesVersionOf, hubRow, offerFor, type ServerCheck } from './server-check'
 import { installAndWait, manualFailure, NOT_LOADED, probeHealth, waitForRoutes, type ManualOutcome, type StepStatus } from './setup-run'
@@ -331,13 +331,15 @@ export interface LastUpdateRun {
 }
 
 /**
- * What the Finish screen reads of each connection's last run, and of the
- * restart it asked for. Kept in memory only, beside each other, so a screen
- * that mounts again (a sign-in replaces it, or the user leaves and comes
- * back) finds both. A new run starts both afresh.
+ * What the Finish screen reads of each connection's last run, of the restart
+ * it asked for, and of the store versions the polls named since. Kept in
+ * memory only, beside each other, so a screen that mounts again (a sign-in
+ * replaces it, or the user leaves and comes back) finds all three. A new run
+ * starts them afresh.
  */
 const outcomes = new Map<string, LastUpdateRun>()
 const watches = new Map<string, RestartWatch>()
+const schemas = new Map<string, number>()
 
 /**
  * The connection's last update run, or null: no run has gone since the app
@@ -366,6 +368,20 @@ export function watchUpdateRestart(connectionId: string, check: ServerCheck | nu
   const watch = watchRestart(restartWatchOf(connectionId), check, signedOut)
   watches.set(connectionId, watch)
   return watch
+}
+
+/** The highest `store.min_schema_version` a poll showed since the connection's last update run started, or null before one did. */
+export function schemaSeenOf(connectionId: string): number | null {
+  return schemas.get(connectionId) ?? null
+}
+
+/** Folds one poll into the store versions seen (`highestSchema`), keeps the result and answers it. Safe to call again with the same poll. */
+export function watchUpdateSchema(connectionId: string, check: ServerCheck | null): number | null {
+  const seen = highestSchema(schemaSeenOf(connectionId), check)
+  if (seen !== null) {
+    schemas.set(connectionId, seen)
+  }
+  return seen
 }
 
 function remember(connectionId: string, outcome: UpdateOutcome, goingBack: boolean): UpdateOutcome {
@@ -433,6 +449,7 @@ export function runUpdate(deps: UpdateDeps, onStep: (step: UpdateStep, status: S
   }
   outcomes.delete(connectionId)
   watches.delete(connectionId)
+  schemas.delete(connectionId)
   if (!installable(deps)) {
     return Promise.resolve(remember(connectionId, { kind: 'manual', failure: 'refused', detail: null }, goingBack))
   }
