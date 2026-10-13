@@ -190,6 +190,43 @@ describe('FakePlugins: the commit of the install record', () => {
   })
 })
 
+describe('FakePlugins: the code Hermes mounts', () => {
+  it('mounts the plugin of an install that places one where there was none, as Hermes does without a restart', async () => {
+    const mounted: string[] = []
+    const plugins = new FakePlugins({ onMount: commit => mounted.push(commit) })
+
+    await plugins.install(request)
+    expect(mounted).toEqual([request.ref])
+  })
+
+  it('mounts a plugin placed by a scripted result too', async () => {
+    const mounted: string[] = []
+    const plugins = new FakePlugins({ onMount: commit => mounted.push(commit) })
+    plugins.nextInstall({ plugin_name: 'ergates', enabled: false })
+
+    await plugins.install(request)
+    expect(mounted).toEqual([request.ref])
+  })
+
+  it('mounts nothing when it replaces a plugin that is already there: Hermes keeps the routes it mounted', async () => {
+    const mounted: string[] = []
+    const plugins = new FakePlugins({ onMount: commit => mounted.push(commit) })
+    plugins.rows = [{ name: 'ergates', version: '0.2.0', runtime_status: 'disabled' }]
+
+    await plugins.install(forced)
+    expect(mounted).toEqual([])
+  })
+
+  it('mounts nothing when an install fails', async () => {
+    const mounted: string[] = []
+    const plugins = new FakePlugins({ onMount: commit => mounted.push(commit) })
+    plugins.nextInstall(new GatewayError('unknown', 'git is not installed or not in PATH.', { code: 'no_git', status: 400 }))
+
+    await expect(plugins.install(request)).rejects.toMatchObject({ code: 'no_git' })
+    expect(mounted).toEqual([])
+  })
+})
+
 describe('FakePlugins: a forced install', () => {
   it('replaces a plugin that is turned off, enables it again and moves the commit', async () => {
     const plugins = new FakePlugins()

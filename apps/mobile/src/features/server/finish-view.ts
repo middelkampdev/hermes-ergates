@@ -141,6 +141,7 @@ export function finishVariant(check: ServerCheck | null, manual: FinishManual | 
       // The plugin is there, so installing over it would be refused: whatever went wrong before, turning it on is what is left.
       return manual?.failure === 'enable_refused' ? manualVariant(manual) : { kind: 'enable', refused: false, detail: null }
     case 'not_loaded':
+    case 'restart_needed':
       return { kind: 'restart' }
     case 'outdated':
       return updateVariant(check.installKind)

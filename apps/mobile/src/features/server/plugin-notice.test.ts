@@ -7,17 +7,25 @@ import { describe, expect, it } from 'vitest'
 import { FAKE_PLUGIN_HEALTH } from '@test/fake-gateway/fake-ergates'
 
 import { GatewayError } from '@/gateway/errors'
+import type { Connection } from '@/state/device-store'
 
-import { CHECKING_NOTICE, featureNotice, isBareNotFound, MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, recheckState } from './plugin-notice'
+import { CHECKING_NOTICE, featureNotice, isBareNotFound, MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, recheckState, updateLine } from './plugin-notice'
+import type { UpdateOffer } from './plugin-version'
 import type { ServerCheck } from './server-check'
 
 const health = FAKE_PLUGIN_HEALTH
 
-const ready: ServerCheck = { kind: 'ready', health }
+const offer: UpdateOffer = { from: '0.2.0', to: '0.3.0', commit: 'b'.repeat(40), previous: 'a'.repeat(40), previousSchema: 2 }
+const connection: Connection = { id: 'c1', label: 'A', baseUrl: 'http://a.example', authMode: 'token', primary: true, createdAt: 1 }
+
+const ready: ServerCheck = { kind: 'ready', health, update: null, hermesVersion: null }
+const readyWithUpdate: ServerCheck = { kind: 'ready', health, update: offer, hermesVersion: '0.21.6' }
+const restartNeeded: ServerCheck = { kind: 'restart_needed', health, hermesVersion: '0.21.6' }
 const missing: ServerCheck = { kind: 'missing', hermesVersion: '0.21.6', oneTap: true, reason: null }
 const disabled: ServerCheck = { kind: 'disabled', hermesVersion: '0.21.6' }
 const notLoaded: ServerCheck = { kind: 'not_loaded', hermesVersion: '0.21.6' }
-const outdated: ServerCheck = { kind: 'outdated', health, installKind: 'git install', hermesVersion: '0.21.6' }
+const outdated: ServerCheck = { kind: 'outdated', health, installKind: 'git install', update: null, hermesVersion: '0.21.6' }
+const outdatedWithUpdate: ServerCheck = { kind: 'outdated', health, installKind: 'git install', update: offer, hermesVersion: '0.21.6' }
 const appOutdated: ServerCheck = { kind: 'app_outdated', health }
 const unavailable: ServerCheck = { kind: 'unavailable', message: 'The store is locked.' }
 
@@ -44,8 +52,20 @@ describe('pluginNotice', () => {
     expect(pluginNotice(notLoaded)).toEqual({ text: 'Hermes has not loaded the Ergates plugin yet.', action: { label: 'Show me how', route: '/server/finish' } })
   })
 
-  it('offers the Finish screen for a plugin that needs an update', () => {
+  it('offers the Finish screen for a plugin that needs an update the app cannot make', () => {
     expect(pluginNotice(outdated)).toEqual({ text: 'The Ergates plugin on this server needs an update.', action: { label: 'Update', route: '/server/finish' } })
+  })
+
+  it('offers the update itself for a plugin that needs one the app can make', () => {
+    expect(pluginNotice(outdatedWithUpdate)).toEqual({ text: 'The Ergates plugin on this server needs an update.', action: { label: 'Update', route: '/server/update' } })
+  })
+
+  it('asks for a restart of Hermes once the update is installed', () => {
+    expect(pluginNotice(restartNeeded)).toEqual({ text: 'Restart Hermes to finish the plugin update.', action: { label: 'Show me how', route: '/server/finish' } })
+  })
+
+  it('says nothing about a working plugin that has an optional update, which is a line of its own', () => {
+    expect(pluginNotice(readyWithUpdate)).toBeNull()
   })
 
   it('tells the user to update the app when the plugin is newer, with nothing to tap', () => {
@@ -67,7 +87,7 @@ describe('pluginRowSubtitle', () => {
   })
 
   it('shows the notice text for every kind that has one', () => {
-    for (const check of [missing, disabled, notLoaded, outdated, appOutdated, unavailable]) {
+    for (const check of [missing, disabled, notLoaded, restartNeeded, outdated, outdatedWithUpdate, appOutdated, unavailable]) {
       expect(pluginRowSubtitle(check, false)).toBe(pluginNotice(check)?.text)
     }
   })
@@ -80,6 +100,34 @@ describe('pluginRowSubtitle', () => {
 
   it('keeps the last answer when a later check fails', () => {
     expect(pluginRowSubtitle(ready, true)).toBe(health.plugin_version)
+  })
+})
+
+describe('updateLine', () => {
+  it('offers the update of a plugin that works', () => {
+    expect(updateLine(readyWithUpdate, connection)).toEqual({ text: 'An update for the Ergates plugin is ready.', action: { label: 'Update', route: '/server/update' } })
+  })
+
+  it('says nothing for a working plugin without an update', () => {
+    expect(updateLine(ready, connection)).toBeNull()
+  })
+
+  it('leaves a plugin that needs an update to its notice, which has the same button', () => {
+    expect(updateLine(outdatedWithUpdate, connection)).toBeNull()
+  })
+
+  it.each([
+    ['restart_needed', restartNeeded],
+    ['missing', missing],
+    ['disabled', disabled],
+    ['not_loaded', notLoaded],
+    ['outdated', outdated],
+    ['app_outdated', appOutdated],
+    ['unavailable', unavailable],
+    ['unknown', { kind: 'unknown' }],
+    ['no check yet', undefined]
+  ] as [string, ServerCheck | undefined][])('says nothing for a check that is %s', (_title, check) => {
+    expect(updateLine(check, connection)).toBeNull()
   })
 })
 
@@ -135,6 +183,10 @@ describe('featureNotice: a feature whose route is missing while the cached check
     expect(featureNotice(disabled, missingRoute, 'answered')).toEqual({ notice: pluginNotice(disabled), checking: false, recheck: false })
     expect(featureNotice(missing, missingRoute, 'asking')).toEqual({ notice: MISSING_NOTICE, checking: false, recheck: false })
     expect(featureNotice(notLoaded, missingRoute, 'not_asked')).toEqual({ notice: pluginNotice(notLoaded), checking: false, recheck: false })
+  })
+
+  it('shows the restart notice when a feature fails while the plugin waits for a restart', () => {
+    expect(featureNotice(restartNeeded, missingRoute, 'not_asked')).toEqual({ notice: pluginNotice(restartNeeded), checking: false, recheck: false })
   })
 
   it("leaves the feature its own error when the fresh check still says ready, and does not ask again", () => {

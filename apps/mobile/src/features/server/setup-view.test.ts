@@ -27,7 +27,7 @@ const NOT_NOW = { label: 'Not now', action: 'not_now' }
 const SHOW_ME_HOW = { label: 'Show me how', action: 'finish' }
 
 const oneTap: ServerCheck = { kind: 'missing', hermesVersion: '0.21.6', oneTap: true, reason: null }
-const ready: ServerCheck = { kind: 'ready', health: FAKE_PLUGIN_HEALTH }
+const ready: ServerCheck = { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: null, hermesVersion: null }
 
 function stepsWith(statuses: Partial<Record<SetupStep, StepStatus>> = {}): Record<SetupStep, StepStatus> {
   return { install: 'pending', enable: 'pending', start: 'pending', setup: 'pending', ...statuses }
@@ -144,7 +144,8 @@ describe('setupView: the other checks', () => {
 
   it.each<[string, ServerCheck]>([
     ['not loaded', { kind: 'not_loaded', hermesVersion: '0.21.6' }],
-    ['outdated', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'git install', hermesVersion: '0.21.6' }]
+    ['waiting for a restart', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }],
+    ['outdated', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'git install', update: null, hermesVersion: '0.21.6' }]
   ])('leads a plugin that is %s to the guide, because the user finishes it on the server', (_title, check) => {
     const view = setupView(check, buildRecord(), null)
 

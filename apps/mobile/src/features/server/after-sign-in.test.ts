@@ -44,7 +44,13 @@ describe('afterSignIn', () => {
   })
 
   it('opens the Finish screen when Hermes has not loaded the plugin', async () => {
-    await expect(afterSignIn(serverWith({ state: 'not_loaded' }), buildRecord())).resolves.toBe('/server/finish')
+    const rows: HermesPluginRow[] = [{ name: 'ergates', version: '0.2.0', runtime_status: 'enabled' }]
+
+    await expect(afterSignIn(serverWith({ state: 'not_loaded' }, rows), buildRecord())).resolves.toBe('/server/finish')
+  })
+
+  it('opens the setup screen when Hermes found no routes and does not list the plugin at all', async () => {
+    await expect(afterSignIn(serverWith({ state: 'not_loaded' }), buildRecord())).resolves.toBe('/server')
   })
 
   it('opens the Finish screen when the plugin is older than this app needs', async () => {
@@ -84,12 +90,13 @@ describe('afterSignIn', () => {
 
 describe('routeAfterCheck', () => {
   it.each<[string, ServerCheck, string]>([
-    ['ready', { kind: 'ready', health: FAKE_PLUGIN_HEALTH }, '/'],
+    ['ready', { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: null, hermesVersion: null }, '/'],
     ['missing, one tap', { kind: 'missing', hermesVersion: '0.21.6', oneTap: true, reason: null }, '/server'],
     ['missing, by hand', { kind: 'missing', hermesVersion: '0.20.0', oneTap: false, reason: 'too_old' }, '/server'],
     ['disabled', { kind: 'disabled', hermesVersion: '0.21.6' }, '/server'],
     ['not loaded', { kind: 'not_loaded', hermesVersion: '0.21.6' }, '/server/finish'],
-    ['outdated', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'deployment', hermesVersion: '0.21.6' }, '/server/finish'],
+    ['waiting for a restart', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }, '/'],
+    ['outdated', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'deployment', update: null, hermesVersion: '0.21.6' }, '/server/finish'],
     ['newer than the app', { kind: 'app_outdated', health: FAKE_PLUGIN_HEALTH }, '/'],
     ['unavailable', { kind: 'unavailable', message: 'The store is not available.' }, '/'],
     ['unknown', { kind: 'unknown' }, '/']

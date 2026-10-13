@@ -18,7 +18,7 @@ const COMMIT = 'd'.repeat(40)
 const first: Connection = { id: 'c-1', label: 'Home server', baseUrl: 'http://100.64.0.1:9119', authMode: 'token', primary: true, createdAt: 1 }
 const second: Connection = { id: 'c-2', label: 'Office server', baseUrl: 'http://100.64.0.2:9119', authMode: 'password', primary: false, createdAt: 2 }
 
-const ready: ServerCheck = { kind: 'ready', health: FAKE_PLUGIN_HEALTH }
+const ready: ServerCheck = { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: null, hermesVersion: null }
 
 function stored(id: string): Connection {
   const found = useDeviceStore.getState().connections.find(connection => connection.id === id)
@@ -70,7 +70,8 @@ describe('finishPendingSetup', () => {
     ['missing', { kind: 'missing', hermesVersion: '0.21.6', oneTap: true, reason: null }],
     ['disabled', { kind: 'disabled', hermesVersion: '0.21.6' }],
     ['not loaded', { kind: 'not_loaded', hermesVersion: '0.21.6' }],
-    ['outdated', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'git install', hermesVersion: '0.21.6' }],
+    ['waiting for a restart', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }],
+    ['outdated', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'git install', update: null, hermesVersion: '0.21.6' }],
     ['unknown', { kind: 'unknown' }]
   ])('keeps the flag and waits while the plugin is %s', async (_title, check) => {
     const gateway = new FakeGateway()

@@ -7,11 +7,12 @@
  */
 
 import { isGatewayError } from '@/gateway/errors'
+import type { Connection } from '@/state/device-store'
 
 import type { ServerCheck } from './server-check'
 
-/** The screens a notice can lead to: the setup screen and the Finish screen. */
-export type NoticeRoute = '/server' | '/server/finish'
+/** The screens a notice can lead to: the setup screen, the Finish screen and the update screen. */
+export type NoticeRoute = '/server' | '/server/finish' | '/server/update'
 
 export interface PluginNotice {
   text: string
@@ -43,13 +44,26 @@ export function pluginNotice(check: ServerCheck | undefined): PluginNotice | nul
       return { text: 'The Ergates plugin is turned off on this server.', action: { label: 'Turn on', route: '/server' } }
     case 'not_loaded':
       return { text: 'Hermes has not loaded the Ergates plugin yet.', action: { label: 'Show me how', route: '/server/finish' } }
+    case 'restart_needed':
+      return { text: 'Restart Hermes to finish the plugin update.', action: { label: 'Show me how', route: '/server/finish' } }
     case 'outdated':
-      return { text: 'The Ergates plugin on this server needs an update.', action: { label: 'Update', route: '/server/finish' } }
+      // The app updates a plugin it can put back by itself; for any other, the user does it on the server.
+      return { text: 'The Ergates plugin on this server needs an update.', action: { label: 'Update', route: check.update === null ? '/server/finish' : '/server/update' } }
     case 'app_outdated':
       return { text: "This server's Ergates plugin needs a newer version of this app. Update Ergates.", action: null }
     case 'unavailable':
       return { text: `The Ergates plugin cannot open its data on this server: ${check.message}`, action: null }
   }
+}
+
+/**
+ * The line that offers an update for a plugin that works, or null. A plugin
+ * that cannot serve this app has a notice of its own (`pluginNotice`) with the
+ * same button. Nothing in the line depends on the connection yet; callers
+ * pass it with the check.
+ */
+export function updateLine(check: ServerCheck | undefined, _connection: Connection): PluginNotice | null {
+  return check?.kind === 'ready' && check.update !== null ? { text: 'An update for the Ergates plugin is ready.', action: { label: 'Update', route: '/server/update' } } : null
 }
 
 /**

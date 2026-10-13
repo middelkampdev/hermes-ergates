@@ -13,6 +13,9 @@
  * is replaced only after `disable`. The replaced plugin keeps the version its
  * row shows: the fake does not know what a commit holds, so a test that needs
  * another version sets `rows`.
+ * An install that places a plugin where there was none is mounted at once, as
+ * Hermes mounts new plugin routes without a restart (`onMount`); a replacement
+ * keeps the routes Hermes mounted before.
  * Test hooks: `rows` (the hub list), `installedCommit` (the commit of the
  * install record, which every install that places a plugin moves to its `ref`),
  * `nextInstall` (what the next install answers), `fail`; logs: `installs`,
@@ -36,6 +39,11 @@ interface Fault {
   when: 'before' | 'after'
 }
 
+export interface FakePluginsOptions {
+  /** Called with the commit of an install that placed a plugin where there was none. */
+  onMount?: (commit: string) => void
+}
+
 export class FakePlugins implements PluginsApi {
   /** What the hub lists. Set it to start from a server that already has plugins. */
   rows: HermesPluginRow[] = []
@@ -50,6 +58,11 @@ export class FakePlugins implements PluginsApi {
 
   private readonly faults: Fault[] = []
   private readonly scripted: (PluginInstallResult | Error)[] = []
+  private readonly onMount: (commit: string) => void
+
+  constructor(options: FakePluginsOptions = {}) {
+    this.onMount = options.onMount ?? (() => undefined)
+  }
 
   /**
    * The next install answers `outcome`: an error rejects and changes nothing;
@@ -131,6 +144,7 @@ export class FakePlugins implements PluginsApi {
       row.runtime_status = runtimeStatus
     } else {
       this.rows.push({ name: result.plugin_name, version: null, runtime_status: runtimeStatus })
+      this.onMount(commit)
     }
     this.installedCommit = commit
   }

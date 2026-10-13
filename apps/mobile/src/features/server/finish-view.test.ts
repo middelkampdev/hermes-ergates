@@ -32,7 +32,7 @@ function buildRecord(commit: string | null = COMMIT): BuildRecord {
   return { requiredPlugin: { version: '0.2.0', apiLevel: 1, commit }, hermesRange: { oldest: '0.21.6', newestMinor: '0.21' } }
 }
 
-const ready: ServerCheck = { kind: 'ready', health: FAKE_PLUGIN_HEALTH }
+const ready: ServerCheck = { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: null, hermesVersion: null }
 const waiting: ServerCheck = { kind: 'not_loaded', hermesVersion: '0.21.6' }
 
 type MissingReason = Extract<ServerCheck, { kind: 'missing' }>['reason']
@@ -42,7 +42,7 @@ function missing(reason: MissingReason): ServerCheck {
 }
 
 function outdated(installKind: InstallKind): ServerCheck {
-  return { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind, hermesVersion: '0.21.6' }
+  return { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind, update: null, hermesVersion: '0.21.6' }
 }
 
 const install = (extra: Partial<Extract<FinishVariant, { kind: 'install' }>> = {}): FinishVariant => ({ kind: 'install', restart: false, failure: null, detail: null, ...extra })
@@ -121,6 +121,13 @@ describe('finishVariant: what the check says the user has to do', () => {
 
   it('asks for a restart when Hermes has the plugin but has not loaded it', () => {
     expect(finishVariant(waiting, null)).toEqual({ kind: 'restart' })
+  })
+
+  it('asks for a restart when the update is installed and Hermes still runs the old code', () => {
+    const restartNeeded: ServerCheck = { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }
+
+    expect(finishVariant(restartNeeded, null)).toEqual({ kind: 'restart' })
+    expect(finishVariant(restartNeeded, { failure: 'scan_blocked', detail: null })).toEqual({ kind: 'restart' })
   })
 
   it('lets the server win over an old failure once the plugin is installed', () => {
@@ -354,6 +361,7 @@ describe('finishView: the status line and the button', () => {
 
   it.each<[string, ServerCheck]>([
     ['not loaded', waiting],
+    ['waiting for a restart', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }],
     ['outdated', outdated('git install')],
     ['unknown', { kind: 'unknown' }],
     ['missing', missing(null)]
@@ -468,6 +476,7 @@ describe('pendingCommit: when the screen records that the plugin is still to be 
   it.each<[string, ServerCheck | null]>([
     ['no answer yet', null],
     ['a plugin Hermes has not loaded', waiting],
+    ['a plugin that waits for a restart', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }],
     ['an outdated deployment', outdated('deployment')],
     ['a ready plugin', ready],
     ['a check that could not tell', { kind: 'unknown' }],

@@ -141,6 +141,15 @@ describe('FakeGateway server requests', () => {
 describe('FakeGateway plugin update', () => {
   const NEWER = 'b'.repeat(40)
 
+  it('runs the code of a plugin installed where there was none, because Hermes mounts it without a restart', async () => {
+    const gateway = new FakeGateway()
+
+    await gateway.plugins.install({ identifier: 'middelkampdev/hermes-ergates/integrations/ergates', ref: NEWER, enable: true, force: false })
+    const probe = await gateway.ergates.health()
+
+    expect(probe).toMatchObject({ state: 'answered', health: { install: { commit: NEWER, loaded_commit: NEWER } } })
+  })
+
   it('moves the install record at a reinstall and the loaded commit only at a restart', async () => {
     const gateway = new FakeGateway()
     gateway.plugins.rows = [{ name: 'ergates', version: '0.2.0', runtime_status: 'enabled' }]

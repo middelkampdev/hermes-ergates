@@ -556,7 +556,7 @@ describe('runSetup: one run per connection', () => {
     gateway.plugins.rows = [row('enabled')]
     const pending = useDeviceStore.getState().connections[0]
 
-    const during = await finishPendingSetup(gateway, pending, { kind: 'ready', health: FAKE_PLUGIN_HEALTH })
+    const during = await finishPendingSetup(gateway, pending, { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: null, hermesVersion: null })
 
     expect(during).toBeNull()
     expect(gateway.ergates.setupCalls).toBe(0)
@@ -573,7 +573,7 @@ describe('runSetup: one run per connection', () => {
     await run(gateway)
     const pending = useDeviceStore.getState().connections[0]
 
-    const report = await finishPendingSetup(gateway, pending, { kind: 'ready', health: FAKE_PLUGIN_HEALTH })
+    const report = await finishPendingSetup(gateway, pending, { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: null, hermesVersion: null })
 
     expect(report).toEqual(FAKE_SETUP)
   })
@@ -623,7 +623,7 @@ describe('runSetup: sign-in and the build', () => {
     expect(gateway.ergates.setupCalls).toBe(1)
 
     const pending = useDeviceStore.getState().connections[0]
-    const report = await finishPendingSetup(gateway, pending, { kind: 'ready', health: FAKE_PLUGIN_HEALTH })
+    const report = await finishPendingSetup(gateway, pending, { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: null, hermesVersion: null })
 
     expect(report).toEqual(FAKE_SETUP)
     expect(gateway.ergates.setupCalls).toBe(2)

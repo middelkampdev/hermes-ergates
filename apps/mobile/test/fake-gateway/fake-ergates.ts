@@ -11,7 +11,8 @@
  * Until `setHealth` is called, the health of a current plugin reports the
  * install record's commit from `installedCommit` and the loaded commit apart,
  * so a reinstall moves the first and only a restart (a test setting
- * `loadedCommit`) moves the second.
+ * `loadedCommit`) moves the second. A first install is the exception: Hermes
+ * mounts a new plugin at once, so `FakeGateway` moves the second with it.
  *
  * No React Native or Expo imports (ADR-029 rule 1).
  */
@@ -162,7 +163,7 @@ export class FakeErgates implements ErgatesApi {
   /** The cron jobs the reminder route made. */
   readonly jobs: { id: string; profile: string; name: string; schedule: string }[] = []
   readonly enabledPlugins = new Set<string>()
-  /** The commit the running plugin code was loaded from. It moves only when a test moves it, as a restart does. */
+  /** The commit the running plugin code was loaded from. It moves when a test moves it, as a restart does, and when `FakeGateway` installs a plugin where there was none. */
   loadedCommit: string | null = FAKE_PLUGIN_COMMIT
 
   private readonly hasProfile: (name: string) => boolean

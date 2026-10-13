@@ -37,6 +37,21 @@ export interface Connection {
    * personal data: it is the commit of this app's own build.
    */
   pendingPluginSetup?: string
+  /** Whether the app keeps the server's plugin up to date by itself. On unless this is false. */
+  autoUpdatePlugin?: boolean
+  /** The commit of the last update that was offered on its own screen, so that screen opens once per update. */
+  askedUpdateFor?: string
+  /**
+   * A plugin update the app started and has not finished (the server still has
+   * to restart, or the plugin's setup has not run). `previous` and
+   * `previousSchema` are what the server had before: the commit going back
+   * installs, and the store schema that decides whether going back is safe.
+   */
+  pluginUpdate?: { target: string; previous: string; previousSchema: number | null }
+  /** The oldest Hermes version seen to start a new plugin without a restart. Later updates on that version or newer run without asking. */
+  pluginRemountsFrom?: string
+  /** The plugin version the app updated the server to without asking, until Home has told the user once. */
+  pluginUpdatedNotice?: string
 }
 
 export interface Prefs {

@@ -317,7 +317,11 @@ export class FakeGateway implements GatewayPort {
   /** The Ergates routes, over this gateway's profiles. */
   readonly ergates = new FakeErgates({ hasProfile: name => this.profileNames.has(name), installedCommit: () => this.plugins.installedCommit })
   /** Hermes's plugin routes: the hub list, install, enable and disable. */
-  readonly plugins = new FakePlugins()
+  readonly plugins = new FakePlugins({
+    onMount: commit => {
+      this.ergates.loadedCommit = commit
+    }
+  })
 
   /** `ui_meta` and its revisions per profile once a write touched them, as profile.yaml holds them. */
   private readonly storedMeta = new Map<string, { uiMeta: T.UiMeta; revisions: Record<string, number> }>()

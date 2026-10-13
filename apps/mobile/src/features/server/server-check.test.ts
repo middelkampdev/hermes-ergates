@@ -8,6 +8,7 @@ import type { BuildRecord } from './build-record'
 import { checkServer, isSignedOut, pluginFits, pollInterval } from './server-check'
 
 const COMMIT = 'b'.repeat(40)
+const OLD_COMMIT = 'a'.repeat(40)
 const APP_LEVEL = 1
 
 function buildRecord(commit: string | null = COMMIT, apiLevel = APP_LEVEL): BuildRecord {
@@ -25,7 +26,7 @@ function currentHealth(overrides: Partial<ErgatesHealth> = {}): ErgatesHealth {
     min_api_level: 1,
     schema_version: 1,
     store: { plugin_schema_version: 1, min_schema_version: 1, writable: true },
-    install: { kind: 'git install', commit: COMMIT, catalog_name: null },
+    install: { kind: 'git install', commit: COMMIT, loaded_commit: COMMIT, catalog_name: null },
     ...overrides
   }
 }
@@ -60,13 +61,13 @@ describe('checkServer: a plugin that answers', () => {
     const health = currentHealth()
     const check = await checkServer(serverWith({ health: answered(health) }), buildRecord())
 
-    expect(check).toEqual({ kind: 'ready', health })
+    expect(check).toEqual({ kind: 'ready', health, update: null, hermesVersion: null })
   })
 
   it('is outdated, as a manual copy, when an older plugin leaves out the new fields', async () => {
     const check = await checkServer(serverWith({ health: answered(OLDER_HEALTH), hermes: '0.21.7' }), buildRecord())
 
-    expect(check).toEqual({ kind: 'outdated', health: OLDER_HEALTH, installKind: 'manual copy', hermesVersion: '0.21.7' })
+    expect(check).toEqual({ kind: 'outdated', health: OLDER_HEALTH, installKind: 'manual copy', update: null, hermesVersion: '0.21.7' })
   })
 
   it('is outdated when the plugin cannot write its store', async () => {
@@ -80,7 +81,7 @@ describe('checkServer: a plugin that answers', () => {
     const health = currentHealth({ api_level: 0, install: { kind: 'deployment', commit: null, catalog_name: null } })
     const check = await checkServer(serverWith({ health: answered(health) }), buildRecord())
 
-    expect(check).toEqual({ kind: 'outdated', health, installKind: 'deployment', hermesVersion: '0.21.6' })
+    expect(check).toEqual({ kind: 'outdated', health, installKind: 'deployment', update: null, hermesVersion: '0.21.6' })
   })
 
   it('reports the Hermes version as null when Hermes does not answer its status', async () => {
@@ -174,9 +175,15 @@ describe('checkServer: a plugin that is not there', () => {
   })
 
   it('is not_loaded when the plugin is enabled but its routes are not mounted', async () => {
-    const check = await checkServer(serverWith({ health: { state: 'not_loaded' } }), buildRecord())
+    const check = await checkServer(serverWith({ health: { state: 'not_loaded' }, rows: [row('enabled')] }), buildRecord())
 
     expect(check).toEqual({ kind: 'not_loaded', hermesVersion: '0.21.6' })
+  })
+
+  it('is missing when the health read found no routes and the hub lists no such plugin', async () => {
+    const check = await checkServer(serverWith({ health: { state: 'not_loaded' }, rows: [row('enabled', 'other')] }), buildRecord())
+
+    expect(check).toEqual({ kind: 'missing', hermesVersion: '0.21.6', oneTap: true, reason: null })
   })
 
   it('is not_loaded when the hub says enabled right after the health read said absent', async () => {
@@ -185,15 +192,12 @@ describe('checkServer: a plugin that is not there', () => {
     expect(check).toEqual({ kind: 'not_loaded', hermesVersion: '0.21.6' })
   })
 
-  it('asks the hub only after the health read said absent', async () => {
-    const gateway = serverWith({ health: { state: 'not_loaded' } })
+  it.each([['absent'], ['not_loaded']] as const)('asks the hub when the health read said %s', async state => {
+    const gateway = serverWith({ health: { state } })
     const hub = vi.spyOn(gateway.plugins, 'hub')
 
     await checkServer(gateway, buildRecord())
-    expect(hub).not.toHaveBeenCalled()
 
-    gateway.ergates.setHealth({ state: 'absent' })
-    await checkServer(gateway, buildRecord())
     expect(hub).toHaveBeenCalledTimes(1)
   })
 
@@ -211,6 +215,147 @@ describe('checkServer: a plugin that is not there', () => {
     gateway.plugins.fail('hub', mapHttpError(401))
 
     await expect(checkServer(gateway, buildRecord())).rejects.toMatchObject({ kind: 'unauthorized' })
+  })
+})
+
+describe('checkServer: a plugin that waits for a restart', () => {
+  const installed = (commit: string | null, loaded: string | null | undefined, kind: 'git install' | 'deployment' | 'manual copy' = 'git install') => {
+    const install = { kind, commit, catalog_name: null }
+    return currentHealth({ install: loaded === undefined ? install : { ...install, loaded_commit: loaded } })
+  }
+
+  it('is restart_needed when the install record names another commit than the code that answers', async () => {
+    const health = installed(COMMIT, OLD_COMMIT)
+    const check = await checkServer(serverWith({ health: answered(health) }), buildRecord())
+
+    expect(check).toEqual({ kind: 'restart_needed', health, hermesVersion: '0.21.6' })
+  })
+
+  it('is restart_needed when the plugin says nothing of the commit it runs while the record names this build\'s commit', async () => {
+    const health = installed(COMMIT, undefined)
+    const check = await checkServer(serverWith({ health: answered(health) }), buildRecord())
+
+    expect(check).toEqual({ kind: 'restart_needed', health, hermesVersion: '0.21.6' })
+  })
+
+  it('is not restart_needed when a plugin that says nothing of the commit it runs was installed from another commit', async () => {
+    const health = installed(OLD_COMMIT, undefined)
+    const check = await checkServer(serverWith({ health: answered(health) }), buildRecord())
+
+    expect(check).toMatchObject({ kind: 'ready' })
+  })
+
+  it('is ready when the record and the running code name the same commit', async () => {
+    const health = installed(COMMIT, COMMIT)
+    const check = await checkServer(serverWith({ health: answered(health) }), buildRecord())
+
+    expect(check).toEqual({ kind: 'ready', health, update: null, hermesVersion: null })
+  })
+
+  it('does not claim a restart when a git install could not tell which commit it loaded', async () => {
+    const health = installed(OLD_COMMIT, null)
+    const check = await checkServer(serverWith({ health: answered(health) }), buildRecord())
+
+    expect(check).toMatchObject({ kind: 'ready' })
+  })
+
+  it.each(['deployment', 'manual copy'] as const)('does not claim a restart for a %s, which has no commit', async kind => {
+    const health = installed(null, null, kind)
+    const check = await checkServer(serverWith({ health: answered(health) }), buildRecord())
+
+    expect(check).toMatchObject({ kind: 'ready' })
+  })
+
+  it('comes before the fit: a plugin that is also below this app\'s level waits for its restart first', async () => {
+    const health = currentHealth({ api_level: 0, install: { kind: 'git install', commit: COMMIT, loaded_commit: OLD_COMMIT, catalog_name: null } })
+
+    expect(await checkServer(serverWith({ health: answered(health) }), buildRecord())).toMatchObject({ kind: 'restart_needed' })
+  })
+
+  it('comes before the fit: so does a plugin that needs a newer app', async () => {
+    const health = currentHealth({ api_level: 2, min_api_level: 2, install: { kind: 'git install', commit: COMMIT, loaded_commit: OLD_COMMIT, catalog_name: null } })
+
+    expect(await checkServer(serverWith({ health: answered(health) }), buildRecord())).toMatchObject({ kind: 'restart_needed' })
+  })
+
+  it('needs no build record to see that the record and the running code differ', async () => {
+    const health = installed(COMMIT, OLD_COMMIT)
+
+    expect(await checkServer(serverWith({ health: answered(health) }), null)).toMatchObject({ kind: 'restart_needed' })
+  })
+
+  it('reports the Hermes version as null when Hermes does not answer its status', async () => {
+    const health = installed(COMMIT, OLD_COMMIT)
+    const check = await checkServer(serverWith({ health: answered(health), hermes: new GatewayError('network', 'No connection.') }), buildRecord())
+
+    expect(check).toEqual({ kind: 'restart_needed', health, hermesVersion: null })
+  })
+})
+
+describe('checkServer: an update for the plugin', () => {
+  const OLDER_PLUGIN = currentHealth({ plugin_version: '0.1.0', install: { kind: 'git install', commit: OLD_COMMIT, loaded_commit: OLD_COMMIT, catalog_name: null } })
+  const OFFER = { from: '0.1.0', to: '0.2.0', commit: COMMIT, previous: OLD_COMMIT, previousSchema: 1 }
+
+  it('offers it with a plugin that works, and carries the Hermes version to decide how it runs', async () => {
+    const check = await checkServer(serverWith({ health: answered(OLDER_PLUGIN), hermes: '0.21.7' }), buildRecord())
+
+    expect(check).toEqual({ kind: 'ready', health: OLDER_PLUGIN, update: OFFER, hermesVersion: '0.21.7' })
+  })
+
+  it('carries a null Hermes version when Hermes does not answer its status', async () => {
+    const check = await checkServer(serverWith({ health: answered(OLDER_PLUGIN), hermes: new GatewayError('timeout', 'Timed out.') }), buildRecord())
+
+    expect(check).toEqual({ kind: 'ready', health: OLDER_PLUGIN, update: OFFER, hermesVersion: null })
+  })
+
+  it('offers it with a plugin that is outdated', async () => {
+    const health = currentHealth({ plugin_version: '0.1.0', api_level: 0, install: { kind: 'git install', commit: OLD_COMMIT, loaded_commit: OLD_COMMIT, catalog_name: null } })
+    const check = await checkServer(serverWith({ health: answered(health) }), buildRecord())
+
+    expect(check).toEqual({ kind: 'outdated', health, installKind: 'git install', update: OFFER, hermesVersion: '0.21.6' })
+  })
+
+  it('replaces an outdated plugin of the same version, which a working one would keep', async () => {
+    const sameVersion = { ...OLDER_PLUGIN, plugin_version: '0.2.0' }
+
+    expect(await checkServer(serverWith({ health: answered(sameVersion) }), buildRecord())).toMatchObject({ kind: 'ready', update: null })
+    expect(await checkServer(serverWith({ health: answered({ ...sameVersion, api_level: 0 }) }), buildRecord())).toMatchObject({ kind: 'outdated', update: { from: '0.2.0', to: '0.2.0', commit: COMMIT } })
+  })
+
+  it('asks Hermes for its version only when there is an update to offer', async () => {
+    const gateway = serverWith({ health: answered({ ...OLDER_PLUGIN, plugin_version: '0.2.0' }) })
+    const status = vi.spyOn(gateway, 'status')
+
+    await checkServer(gateway, buildRecord())
+    expect(status).not.toHaveBeenCalled()
+
+    gateway.ergates.setHealth(answered(OLDER_PLUGIN))
+    await checkServer(gateway, buildRecord())
+    expect(status).toHaveBeenCalledTimes(1)
+  })
+
+  it('never replaces a plugin that is newer than this app, ready or outdated', async () => {
+    const newer = { ...OLDER_PLUGIN, plugin_version: '0.4.0' }
+
+    expect(await checkServer(serverWith({ health: answered(newer) }), buildRecord())).toMatchObject({ kind: 'ready', update: null })
+    expect(await checkServer(serverWith({ health: answered({ ...newer, api_level: 0 }) }), buildRecord())).toMatchObject({ kind: 'outdated', update: null })
+  })
+
+  it('leaves a deployment and a manual copy alone, outdated or not', async () => {
+    for (const install of [
+      { kind: 'deployment', commit: null, loaded_commit: null, catalog_name: null },
+      { kind: 'manual copy', commit: null, loaded_commit: null, catalog_name: null }
+    ] as const) {
+      const working = { ...OLDER_PLUGIN, install }
+
+      expect(await checkServer(serverWith({ health: answered(working) }), buildRecord())).toMatchObject({ kind: 'ready', update: null, hermesVersion: null })
+      expect(await checkServer(serverWith({ health: answered({ ...working, api_level: 0 }) }), buildRecord())).toMatchObject({ kind: 'outdated', update: null, installKind: install.kind })
+    }
+  })
+
+  it('offers nothing without a build record or a build commit', async () => {
+    expect(await checkServer(serverWith({ health: answered(OLDER_PLUGIN) }), null)).toMatchObject({ kind: 'ready', update: null })
+    expect(await checkServer(serverWith({ health: answered(OLDER_PLUGIN) }), buildRecord(null))).toMatchObject({ kind: 'ready', update: null })
   })
 })
 
@@ -261,17 +406,17 @@ describe('checkServer: a build without a record', () => {
   it('is ready when the plugin can write its store', async () => {
     const health = currentHealth()
 
-    expect(await checkServer(serverWith({ health: answered(health) }), null)).toEqual({ kind: 'ready', health })
+    expect(await checkServer(serverWith({ health: answered(health) }), null)).toEqual({ kind: 'ready', health, update: null, hermesVersion: null })
   })
 
   it('is ready when an older plugin reports no store at all', async () => {
-    expect(await checkServer(serverWith({ health: answered(OLDER_HEALTH) }), null)).toEqual({ kind: 'ready', health: OLDER_HEALTH })
+    expect(await checkServer(serverWith({ health: answered(OLDER_HEALTH) }), null)).toEqual({ kind: 'ready', health: OLDER_HEALTH, update: null, hermesVersion: null })
   })
 
   it('is outdated when the plugin cannot write its store', async () => {
     const health = currentHealth({ store: { plugin_schema_version: 1, min_schema_version: 1, writable: false }, install: { kind: 'deployment', commit: null, catalog_name: null } })
 
-    expect(await checkServer(serverWith({ health: answered(health) }), null)).toEqual({ kind: 'outdated', health, installKind: 'deployment', hermesVersion: '0.21.6' })
+    expect(await checkServer(serverWith({ health: answered(health) }), null)).toEqual({ kind: 'outdated', health, installKind: 'deployment', update: null, hermesVersion: '0.21.6' })
   })
 
   it('does not judge the API level without a record', async () => {

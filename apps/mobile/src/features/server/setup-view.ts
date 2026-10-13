@@ -173,6 +173,7 @@ export function setupView(check: ServerCheck, build: BuildRecord | null, run: Se
     case 'ready':
       return view({ body: [READY], primary: DONE })
     case 'not_loaded':
+    case 'restart_needed':
     case 'outdated':
       return view({ primary: SHOW_ME_HOW, secondary: NOT_NOW })
     case 'unavailable':
