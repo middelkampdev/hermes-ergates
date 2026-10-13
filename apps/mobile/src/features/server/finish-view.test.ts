@@ -892,14 +892,14 @@ describe('finishView: going back', () => {
   })
 
   it('keeps the steps next to the restart a finished run asks for', () => {
-    const run = runWith({ kind: 'restart' }, { pause: 'done', install: 'done', start: 'failed' })
+    const run = runWith({ kind: 'restart' }, { pause: 'done', install: 'done', start: 'pending' })
 
     const view = finishView({ kind: 'restart', after: 'go_back' }, buildRecord(), waiting, { state: 'pending' }, run)
 
     expect(view.intro).toEqual(['The previous version is installed. Restart Hermes to start it.'])
     expect(view.restartLines).toEqual(RESTART_LINES)
     expect(view.status).toBe('Waiting for your server…')
-    expect(view.steps?.map(step => step.status)).toEqual(['done', 'done', 'failed', 'pending'])
+    expect(view.steps?.map(step => step.status)).toEqual(['done', 'done', 'pending', 'pending'])
   })
 
   it('keeps the ticks next to the ready message when going back went through', () => {

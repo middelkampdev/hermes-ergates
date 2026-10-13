@@ -107,7 +107,8 @@ class UpdateRun {
       await this.turnBackOn()
     }
     if (outcome.kind !== 'done' && this.active !== null) {
-      this.onStep(this.active, 'failed')
+      // A restart to ask for is not a failure: the step it stopped at is still to come.
+      this.onStep(this.active, outcome.kind === 'restart' ? 'pending' : 'failed')
       this.active = null
     }
     return outcome
@@ -342,7 +343,8 @@ export function joinUpdate(connectionId: string, goingBack: boolean, onStep: (st
 /**
  * Replaces the plugin on the server with `target` and says how it went.
  * `onStep` reports each step's transitions; no step is left `active` when the
- * run returns. Unless `goingBack`, the update (`target`, `previous`,
+ * run returns, and a run that asks for a restart leaves the step it stopped
+ * at `pending`. Unless `goingBack`, the update (`target`, `previous`,
  * `previousSchema`) is recorded on the connection until the plugin's setup ran.
  * A target the app may not install is answered with the manual path before
  * anything else happens.

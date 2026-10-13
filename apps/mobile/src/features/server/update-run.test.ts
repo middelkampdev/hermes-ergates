@@ -291,7 +291,7 @@ describe('runUpdate: Hermes has to restart first', () => {
     const result = await run(gateway)
 
     expect(result.outcome).toEqual({ kind: 'restart' })
-    expect(result.last).toEqual({ pause: 'done', install: 'done', start: 'failed' })
+    expect(result.last).toEqual({ pause: 'done', install: 'done', start: 'pending' })
     expect(calls.order()).toEqual(['disable', 'install'])
     expect(gateway.ergates.setupCalls).toBe(0)
     expect(gateway.plugins.installedCommit).toBe(TARGET)
@@ -317,7 +317,7 @@ describe('runUpdate: Hermes has to restart first', () => {
     const result = await run(gateway)
 
     expect(result.outcome).toEqual({ kind: 'restart' })
-    expect(result.last).toMatchObject({ install: 'done', start: 'failed' })
+    expect(result.last).toMatchObject({ install: 'done', start: 'pending' })
     expect(gateway.plugins.enabled).toEqual([])
   })
 
@@ -554,7 +554,7 @@ describe('runUpdate: the install request is lost or does not answer', () => {
     const result = await run(gateway)
 
     expect(result.outcome).toEqual({ kind: 'restart' })
-    expect(result.last).toEqual({ pause: 'done', install: 'done', start: 'failed' })
+    expect(result.last).toEqual({ pause: 'done', install: 'done', start: 'pending' })
     expect(calls.order()).toEqual(['disable', 'install'])
     expect(gateway.plugins.installs).toHaveLength(1)
   })
@@ -738,7 +738,7 @@ describe('runUpdate: a plugin whose store cannot open', () => {
     const result = await run(gateway)
 
     expect(result.outcome).toEqual({ kind: 'restart' })
-    expect(result.last).toEqual({ pause: 'done', install: 'done', start: 'failed' })
+    expect(result.last).toEqual({ pause: 'done', install: 'done', start: 'pending' })
     expect(calls.order()).toEqual(['disable', 'install'])
     expect(stored().pendingPluginSetup).toBe(TARGET)
   })

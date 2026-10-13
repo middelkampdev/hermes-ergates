@@ -204,7 +204,7 @@ describe('runSetup: a server without the plugin', () => {
     const result = await run(gateway)
 
     expect(result.outcome).toEqual({ kind: 'restart' })
-    expect(result.last).toMatchObject({ install: 'done', enable: 'skipped', start: 'failed' })
+    expect(result.last).toMatchObject({ install: 'done', enable: 'skipped', start: 'pending' })
     expect(gateway.ergates.setupCalls).toBe(0)
     expect(flag()).toBe(COMMIT)
   })
@@ -278,7 +278,7 @@ describe('runSetup: Hermes finds no routes for the plugin', () => {
     const result = await run(gateway)
 
     expect(result.outcome).toEqual({ kind: 'restart' })
-    expect(result.last).toMatchObject({ install: 'skipped', enable: 'done', start: 'failed' })
+    expect(result.last).toMatchObject({ install: 'skipped', enable: 'done', start: 'pending' })
     expect(gateway.plugins.installs).toEqual([])
     expect(gateway.plugins.enabled).toEqual(['ergates'])
   })
@@ -291,7 +291,7 @@ describe('runSetup: Hermes finds no routes for the plugin', () => {
     const result = await run(gateway)
 
     expect(result.outcome).toEqual({ kind: 'restart' })
-    expect(result.last).toMatchObject({ install: 'skipped', enable: 'skipped', start: 'failed' })
+    expect(result.last).toMatchObject({ install: 'skipped', enable: 'skipped', start: 'pending' })
     expect(gateway.plugins.installs).toEqual([])
     expect(gateway.plugins.enabled).toEqual([])
   })
@@ -598,7 +598,7 @@ describe('runSetup: the code that answers', () => {
     const result = await run(gateway)
 
     expect(result.outcome).toEqual({ kind: 'restart' })
-    expect(result.last).toEqual({ install: 'skipped', enable: 'skipped', start: 'failed' })
+    expect(result.last).toEqual({ install: 'skipped', enable: 'skipped', start: 'pending' })
     expect(gateway.ergates.setupCalls).toBe(0)
     expect(flag()).toBe(COMMIT)
   })

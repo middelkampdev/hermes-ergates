@@ -219,7 +219,8 @@ class SetupRun {
       outcome = outcomeOfError(error, this.active)
     }
     if (outcome.kind !== 'done' && this.active !== null) {
-      this.onStep(this.active, 'failed')
+      // A restart to ask for is not a failure: the step it stopped at is still to come.
+      this.onStep(this.active, outcome.kind === 'restart' ? 'pending' : 'failed')
       this.active = null
     }
     return outcome
@@ -400,7 +401,8 @@ export function joinSetup(connectionId: string, onStep: (step: SetupStep, status
  * Brings the server to a plugin that is installed, enabled, served and set
  * up, and says how it went. `onStep` reports each step's transitions; a step
  * the server did not need ends as `skipped`, and no step is left `active` when
- * the run returns. The build must carry a commit to install: a build without
+ * the run returns; a run that asks for a restart leaves the step it stopped at
+ * `pending`. The build must carry a commit to install: a build without
  * one is answered with the manual path before anything else happens.
  *
  * One run goes at a time per connection. A call while a setup is going joins
