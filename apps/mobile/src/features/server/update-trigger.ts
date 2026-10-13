@@ -83,7 +83,8 @@ export function actionToTake({ check, connection, key, doneKey, fresh, running }
  * What a run without asking leaves on the connection. A finished update is
  * told to the user once. One that still needed a restart shows that what the
  * connection learned about this Hermes does not hold, so the next update asks
- * again. Any other end records nothing: the line offers the update.
+ * again. Any other end records nothing: the line offers the update while the
+ * server still has one, a run that ended `stale` too.
  */
 export function silentRunPatch(outcome: UpdateOutcome, offer: UpdateOffer): Partial<Pick<Connection, 'pluginUpdatedNotice' | 'pluginRemountsFrom'>> {
   switch (outcome.kind) {
@@ -92,6 +93,7 @@ export function silentRunPatch(outcome: UpdateOutcome, offer: UpdateOffer): Part
     case 'restart':
       return { pluginRemountsFrom: undefined }
     case 'manual':
+    case 'stale':
     case 'failed':
     case 'sign_in':
       return {}

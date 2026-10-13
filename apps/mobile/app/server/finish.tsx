@@ -182,6 +182,11 @@ function FinishOnServer({ connection }: { connection: Connection }) {
     if (!mounted.current) {
       return
     }
+    if (outcome.kind === 'stale') {
+      // The new version answers after all, and the run changed nothing: the page follows the check it just asked again.
+      setRun(null)
+      return
+    }
     if (outcome.kind === 'done') {
       // The run did the plugin's setup itself.
       setProblem(null)

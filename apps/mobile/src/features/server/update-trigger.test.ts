@@ -231,7 +231,8 @@ describe('silentRunPatch', () => {
   it.each<[string, UpdateOutcome]>([
     ['Hermes refuses the install', { kind: 'manual', failure: 'refused', detail: null }],
     ['a step fails', { kind: 'failed', step: 'install', message: 'Lost the connection to your server during the update.' }],
-    ['the session ended', { kind: 'sign_in' }]
+    ['the session ended', { kind: 'sign_in' }],
+    ['the first look no longer offered it', { kind: 'stale' }]
   ])('records nothing more when %s, so the line offers the update', (_title, outcome) => {
     expect(silentRunPatch(outcome, offer)).toEqual({})
   })

@@ -788,7 +788,7 @@ describe('runIsGoing: a go back that has no outcome yet', () => {
 
 describe('goBackTarget: what going back installs', () => {
   it('installs the commit the server had, and says it is going back', () => {
-    expect(goBackTarget({ target: COMMIT, previous: PREVIOUS, previousSchema: 1 })).toEqual({ target: PREVIOUS, previous: PREVIOUS, previousSchema: 1, goingBack: true })
+    expect(goBackTarget({ target: COMMIT, previous: PREVIOUS, previousSchema: 1 })).toEqual({ target: PREVIOUS, goingBack: true })
   })
 })
 

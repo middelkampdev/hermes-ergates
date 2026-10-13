@@ -44,8 +44,8 @@ export interface UpdateRunState {
 /** The state of a screen that just started a run, or rejoined one that is going: no step has reported yet. */
 export const PENDING_UPDATE_RUN: UpdateRunState = { steps: { pause: 'pending', install: 'pending', start: 'pending', setup: 'pending' }, outcome: null }
 
-/** The commits `runUpdate` takes besides the port, the build and the connection. */
-export type UpdateTarget = Pick<UpdateDeps, 'target' | 'previous' | 'previousSchema' | 'goingBack'>
+/** What `runUpdate` takes besides the port, the build and the connection: the commit to install, and whether it goes back. */
+export type UpdateTarget = Pick<UpdateDeps, 'target' | 'goingBack'>
 
 const TITLE = 'Update ready'
 const UP_TO_DATE = 'The plugin on your server is up to date.'
@@ -90,9 +90,9 @@ export function offerOf(check: ServerCheck | undefined): UpdateOffer | null {
   return check?.kind === 'ready' || check?.kind === 'outdated' ? check.update : null
 }
 
-/** The commits of the update an offer describes. */
+/** The update an offer describes. The run takes the way back from its own first look at the server, not from the offer. */
 export function targetOf(offer: UpdateOffer): UpdateTarget {
-  return { target: offer.commit, previous: offer.previous, previousSchema: offer.previousSchema, goingBack: false }
+  return { target: offer.commit, goingBack: false }
 }
 
 /**
@@ -148,9 +148,8 @@ function noOfferView(check: ServerCheck): UpdateView {
   return view({ body: notice === null ? [] : [notice.text], primary: DONE })
 }
 
-function runView(run: UpdateRunState): UpdateView {
+function runView(run: UpdateRunState, outcome: Exclude<UpdateOutcome, { kind: 'stale' }> | null): UpdateView {
   const steps = updateSteps(run)
-  const { outcome } = run
   if (outcome === null) {
     return view({ steps })
   }
@@ -172,23 +171,26 @@ function runView(run: UpdateRunState): UpdateView {
  * once the user started it, the run: a run decides everything and the check
  * is ignored, because the check changes under a run (the plugin goes off,
  * then answers with the new code) while the screen keeps showing the run.
- * Without an offer there is nothing to start.
+ * A run that ended `stale` changed nothing, so the screen shows what the
+ * check says again: the offer the server has now, or none. Without an offer
+ * there is nothing to start.
  */
 export function updateView(offer: UpdateOffer | null, check: ServerCheck, connection: Connection, run: UpdateRunState | null): UpdateView {
-  if (run !== null) {
-    return runView(run)
+  const outcome = run?.outcome ?? null
+  if (run !== null && outcome?.kind !== 'stale') {
+    return runView(run, outcome)
   }
   return offer === null ? noOfferView(check) : readyView(offer, check, connection)
 }
 
 /**
  * The view for the screen, or null while the first check is still on its way.
- * A run decides everything. Without one, a refused session wins over the older
- * answer the check still holds, and any other failed read is a server the
- * check could not reach.
+ * A run decides everything, except one that ended `stale`. Without one, a
+ * refused session wins over the older answer the check still holds, and any
+ * other failed read is a server the check could not reach.
  */
 export function updateScreenView(check: HeldCheck, connection: Connection, run: UpdateRunState | null): UpdateView | null {
-  if (run !== null) {
+  if (run !== null && run.outcome?.kind !== 'stale') {
     return updateView(null, check.data ?? { kind: 'unknown' }, connection, run)
   }
   if (isSignedOut(check.error)) {

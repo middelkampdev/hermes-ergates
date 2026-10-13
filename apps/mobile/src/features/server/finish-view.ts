@@ -307,7 +307,7 @@ export function highestSchema(seen: number | null, check: ServerCheck | null): n
 
 /** What `runUpdate` takes to put the previous version back: it installs the commit the server had, and is a going back. */
 export function goBackTarget(started: NonNullable<Connection['pluginUpdate']>): UpdateTarget {
-  return { target: started.previous, previous: started.previous, previousSchema: started.previousSchema, goingBack: true }
+  return { target: started.previous, goingBack: true }
 }
 
 /**

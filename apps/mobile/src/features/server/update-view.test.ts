@@ -270,6 +270,30 @@ describe('updateScreenView: the check as the screen holds it', () => {
     expect(updateScreenView({ data: ready(), error: signedOut }, connection, run)).toEqual(updateView(offer, { kind: 'unknown' }, connection, run))
     expect(updateScreenView({ data: undefined, error: null }, connection, run)).toEqual(updateView(offer, { kind: 'unknown' }, connection, run))
   })
+
+  describe('after a run that ended stale, which changed nothing', () => {
+    const stale = runWith({ kind: 'stale' }, { pause: 'pending' })
+    const newer: UpdateOffer = { ...offer, commit: 'f'.repeat(40), to: '0.3.0' }
+
+    it('shows the offer the server has now, as if no run had started', () => {
+      const check = ready('0.21.6', newer)
+
+      expect(updateScreenView({ data: check, error: null }, connection, stale)).toEqual(updateScreenView({ data: check, error: null }, connection, null))
+      expect(updateScreenView({ data: check, error: null }, connection, stale)?.primary).toEqual({ label: 'Update now', action: 'update' })
+    })
+
+    it('says the plugin is up to date when the server no longer needs an update', () => {
+      const view = updateScreenView({ data: ready('0.21.6', null), error: null }, connection, stale)
+
+      expect(view).toMatchObject({ body: [UP_TO_DATE], primary: DONE, steps: null })
+    })
+
+    it('says what the server says when the check that was asked again could not reach it', () => {
+      const view = updateScreenView({ data: undefined, error: new GatewayError('network', 'No connection to the gateway.') }, connection, stale)
+
+      expect(view).toEqual(updateView(null, { kind: 'unknown' }, connection, null))
+    })
+  })
 })
 
 describe('offerOf: the update a check offers', () => {
@@ -292,14 +316,14 @@ describe('offerOf: the update a check offers', () => {
 })
 
 describe('targetOf: what runUpdate takes for the commits', () => {
-  it('installs the offered commit, and remembers what the server had', () => {
-    expect(targetOf(offer)).toEqual({ target: COMMIT, previous: PREVIOUS, previousSchema: 1, goingBack: false })
+  it('installs the offered commit; the run reads the way back from the server itself', () => {
+    expect(targetOf(offer)).toEqual({ target: COMMIT, goingBack: false })
   })
 })
 
 describe('retryTarget: Try again installs only what the server still needs', () => {
   it('takes the target from the offer of the check that was just asked again', () => {
-    expect(retryTarget({ data: ready(), error: null })).toEqual({ target: COMMIT, previous: PREVIOUS, previousSchema: 1, goingBack: false })
+    expect(retryTarget({ data: ready(), error: null })).toEqual({ target: COMMIT, goingBack: false })
   })
 
   it('takes the commits of the new offer, not of the one the failed run started with', () => {

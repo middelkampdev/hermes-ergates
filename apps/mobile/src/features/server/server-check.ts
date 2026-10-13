@@ -124,12 +124,28 @@ export async function pluginPresence(port: GatewayPort, probe: PluginProbe): Pro
 
 async function outdated(port: GatewayPort, health: ErgatesHealth, build: BuildRecord | null): Promise<ServerCheck> {
   // A plugin that reports no install is older than the field: someone copied it by hand.
-  return { kind: 'outdated', health, installKind: health.install?.kind ?? 'manual copy', update: updateOffer(health, build, 'required'), hermesVersion: await hermesVersionOf(port) }
+  return { kind: 'outdated', health, installKind: health.install?.kind ?? 'manual copy', update: offerFor(health, build), hermesVersion: await hermesVersionOf(port) }
 }
 
 async function ready(port: GatewayPort, health: ErgatesHealth, build: BuildRecord | null): Promise<ServerCheck> {
-  const update = updateOffer(health, build, 'optional')
+  const update = offerFor(health, build)
   return { kind: 'ready', health, update, hermesVersion: update === null ? null : await hermesVersionOf(port) }
+}
+
+/**
+ * The update this build offers for a plugin that answers with `health`, by
+ * the rules the check uses: none while Hermes has to restart, none for a
+ * plugin that needs a newer app, else `updateOffer`, `required` for a plugin
+ * that cannot serve this app and `optional` for one that works. The update
+ * run asks it again at its first look at the plugin, so an update decided on
+ * an older check never replaces what the server has now.
+ */
+export function offerFor(health: ErgatesHealth, build: BuildRecord | null): UpdateOffer | null {
+  if (waitsForRestart(health, build)) {
+    return null
+  }
+  const fit = fitOf(health, build)
+  return fit === 'app_too_old' ? null : updateOffer(health, build, fit === 'plugin_too_old' ? 'required' : 'optional')
 }
 
 /**

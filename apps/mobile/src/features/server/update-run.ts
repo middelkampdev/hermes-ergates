@@ -26,7 +26,7 @@ import { parseHermesVersion } from './hermes-version'
 import { clearPendingSetupIfUnchanged, isGoingBack, markPendingSetup, pendingSnapshot, runningKind } from './pending-setup'
 import { NOT_WATCHED, watchRestart, type RestartWatch } from './restart-watch'
 import { Flights } from './run-flights'
-import { hermesVersionOf, hubRow, type ServerCheck } from './server-check'
+import { hermesVersionOf, hubRow, offerFor, type ServerCheck } from './server-check'
 import { installAndWait, manualFailure, NOT_LOADED, probeHealth, waitForRoutes, type ManualOutcome, type StepStatus } from './setup-run'
 
 export type UpdateStep = 'pause' | 'install' | 'start' | 'setup'
@@ -35,6 +35,8 @@ export type UpdateOutcome =
   | { kind: 'done'; setup: SetupState }
   /** The new plugin is installed and on, but Hermes still answers with the old code: Hermes needs a restart. */
   | { kind: 'restart' }
+  /** The first look at the plugin no longer offers this run's commit (or, going back, the new version answers): the run changed nothing. */
+  | { kind: 'stale' }
   | ManualOutcome
   | { kind: 'sign_in' }
   | { kind: 'failed'; step: UpdateStep; message: string }
@@ -45,11 +47,13 @@ export interface UpdateDeps {
   connectionId: string
   /** The commit to install: this build's, or when `goingBack` the commit the server had before the update. */
   target: string
-  /** The commit the server has now. */
-  previous: string
-  /** The store schema the plugin on the server writes, or null when it does not say. */
-  previousSchema: number | null
   goingBack: boolean
+}
+
+/** What the server has before an update: the commit going back installs, and the store schema its plugin writes (null when it does not say). */
+interface Before {
+  previous: string
+  previousSchema: number | null
 }
 
 const LOST_CONNECTION = 'Lost the connection to your server during the update.'
@@ -73,10 +77,9 @@ function refusal(error: GatewayError): ManualOutcome | null {
 
 class UpdateRun {
   private readonly port: GatewayPort
+  private readonly build: BuildRecord
   private readonly connectionId: string
   private readonly target: string
-  private readonly previous: string
-  private readonly previousSchema: number | null
   private readonly goingBack: boolean
   private readonly onStep: (step: UpdateStep, status: StepStatus) => void
   /** The step that has begun and not ended. */
@@ -88,10 +91,9 @@ class UpdateRun {
 
   constructor(deps: UpdateDeps, onStep: (step: UpdateStep, status: StepStatus) => void) {
     this.port = deps.port
+    this.build = deps.build
     this.connectionId = deps.connectionId
     this.target = deps.target
-    this.previous = deps.previous
-    this.previousSchema = deps.previousSchema
     this.goingBack = deps.goingBack
     this.onStep = onStep
   }
@@ -107,8 +109,8 @@ class UpdateRun {
       await this.turnBackOn()
     }
     if (outcome.kind !== 'done' && this.active !== null) {
-      // A restart to ask for is not a failure: the step it stopped at is still to come.
-      this.onStep(this.active, outcome.kind === 'restart' ? 'pending' : 'failed')
+      // A restart to ask for is not a failure, and a stale run changed nothing: the step it stopped at is still to come.
+      this.onStep(this.active, outcome.kind === 'restart' || outcome.kind === 'stale' ? 'pending' : 'failed')
       this.active = null
     }
     return outcome
@@ -117,13 +119,34 @@ class UpdateRun {
   /**
    * Remembers the update (going back leaves the update it undoes in place) and
    * the setup that waits for the new code. This comes after the first look at
-   * the plugin, so a run that cannot even look leaves nothing behind.
+   * the plugin, so a run that cannot even look leaves nothing behind, and the
+   * way back is what that look found on the server.
    */
-  private record(): void {
-    if (!this.goingBack) {
-      useDeviceStore.getState().updateConnection(this.connectionId, { pluginUpdate: { target: this.target, previous: this.previous, previousSchema: this.previousSchema } })
+  private record(before: Before | null): void {
+    if (before !== null) {
+      useDeviceStore.getState().updateConnection(this.connectionId, { pluginUpdate: { target: this.target, ...before } })
     }
     markPendingSetup(this.connectionId, this.target)
+  }
+
+  /**
+   * Whether the first look still calls for this run. An update needs the
+   * offer the server check would make now (`offerFor`) to name its target:
+   * a second phone may have put a newer plugin there meanwhile, Hermes may
+   * wait for a restart, or the plugin may be one the app does not update. It
+   * answers what the server has, for the way back. Going back needs the new
+   * version not to answer: if it does, the update started after all. Null
+   * when the run is stale.
+   */
+  private stillCalledFor(): Before | 'go_back' | null {
+    const { before } = this
+    if (this.goingBack) {
+      const update = pendingSnapshot(this.connectionId).update
+      const newCodeAnswers = before.state === 'answered' && update !== undefined && before.health.install?.loaded_commit === update.target
+      return newCodeAnswers ? null : 'go_back'
+    }
+    const offer = before.state === 'answered' ? offerFor(before.health, this.build) : null
+    return offer?.commit === this.target ? { previous: offer.previous, previousSchema: offer.previousSchema } : null
   }
 
   private begin(step: UpdateStep): void {
@@ -141,7 +164,11 @@ class UpdateRun {
     this.begin('pause')
     // Whether routes were mounted before is what tells a remount from a first mount, so it is read before anything changes.
     this.before = await probeHealth(this.port)
-    this.record()
+    const called = this.stillCalledFor()
+    if (called === null) {
+      return { kind: 'stale' }
+    }
+    this.record(called === 'go_back' ? null : called)
     this.mayBeOff = true
     await this.port.plugins.disable(PLUGIN_NAME)
     this.end('pause')
@@ -343,9 +370,11 @@ export function joinUpdate(connectionId: string, goingBack: boolean, onStep: (st
 /**
  * Replaces the plugin on the server with `target` and says how it went.
  * `onStep` reports each step's transitions; no step is left `active` when the
- * run returns, and a run that asks for a restart leaves the step it stopped
- * at `pending`. Unless `goingBack`, the update (`target`, `previous`,
- * `previousSchema`) is recorded on the connection until the plugin's setup ran.
+ * run returns, and a run that asks for a restart or ends `stale` leaves the
+ * step it stopped at `pending`. Unless `goingBack`, the update (`target`, and
+ * the commit and store schema the first look found) is recorded on the
+ * connection until the plugin's setup ran. A run whose first look no longer
+ * calls for it ends `stale` and changes nothing.
  * A target the app may not install is answered with the manual path before
  * anything else happens.
  *

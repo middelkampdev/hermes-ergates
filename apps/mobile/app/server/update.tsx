@@ -98,6 +98,11 @@ function UpdateReady({ connection }: { connection: Connection }) {
       if (!mounted.current) {
         return
       }
+      if (outcome.kind === 'stale') {
+        // The run changed nothing: the screen shows the offer of the check it just asked again, or that there is none.
+        setRun(null)
+        return
+      }
       setRun(current => ({ steps: current?.steps ?? PENDING_UPDATE_RUN.steps, outcome }))
       if (outcome.kind === 'restart' || outcome.kind === 'manual') {
         openFinish()
