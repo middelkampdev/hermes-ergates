@@ -177,6 +177,80 @@ describe('finishPendingSetup', () => {
     expect(stored('c-1').pluginUpdate).toEqual(update)
   })
 
+  describe('when the connection changes while the setup runs', () => {
+    const NEWER = 'e'.repeat(40)
+    const started = { target: COMMIT, previous: OLD_COMMIT, previousSchema: 1 }
+    const next = { target: NEWER, previous: COMMIT, previousSchema: 2 }
+
+    /** A gateway whose setup answers when `release` is called. */
+    function slowSetup(): { gateway: FakeGateway; release: () => void } {
+      const gateway = new FakeGateway()
+      let release: () => void = () => undefined
+      const gate = new Promise<void>(resolve => {
+        release = resolve
+      })
+      gateway.ergates.setup = async () => {
+        await gate
+        return FAKE_SETUP
+      }
+      return { gateway, release }
+    }
+
+    it('keeps an update that was started meanwhile, with its pending setup', async () => {
+      const { gateway, release } = slowSetup()
+      markPendingSetup('c-1', COMMIT)
+      useDeviceStore.getState().updateConnection('c-1', { pluginUpdate: started })
+      const finishing = finishPendingSetup(gateway, stored('c-1'), ready)
+
+      markPendingSetup('c-1', NEWER)
+      useDeviceStore.getState().updateConnection('c-1', { pluginUpdate: next })
+      release()
+
+      await expect(finishing).resolves.toEqual(FAKE_SETUP)
+      expect(stored('c-1').pendingPluginSetup).toBe(NEWER)
+      expect(stored('c-1').pluginUpdate).toEqual(next)
+    })
+
+    it('clears the pending setup it ran for and keeps an update that changed', async () => {
+      const { gateway, release } = slowSetup()
+      markPendingSetup('c-1', COMMIT)
+      useDeviceStore.getState().updateConnection('c-1', { pluginUpdate: started })
+      const finishing = finishPendingSetup(gateway, stored('c-1'), ready)
+
+      useDeviceStore.getState().updateConnection('c-1', { pluginUpdate: next })
+      release()
+
+      await finishing
+      expect(stored('c-1').pendingPluginSetup).toBeUndefined()
+      expect(stored('c-1').pluginUpdate).toEqual(next)
+    })
+
+    it('clears the update it saw when only the pending setup was marked again with the same commit', async () => {
+      const { gateway, release } = slowSetup()
+      markPendingSetup('c-1', COMMIT)
+      useDeviceStore.getState().updateConnection('c-1', { pluginUpdate: started })
+      const finishing = finishPendingSetup(gateway, stored('c-1'), ready)
+
+      markPendingSetup('c-1', COMMIT)
+      release()
+
+      await finishing
+      expect(stored('c-1')).toEqual(first)
+    })
+
+    it('leaves a connection that was removed alone', async () => {
+      const { gateway, release } = slowSetup()
+      markPendingSetup('c-1', COMMIT)
+      const finishing = finishPendingSetup(gateway, stored('c-1'), ready)
+
+      useDeviceStore.setState({ connections: [{ ...second }] })
+      release()
+
+      await expect(finishing).resolves.toEqual(FAKE_SETUP)
+      expect(stored('c-2')).toEqual(second)
+    })
+  })
+
   it('does not share the setup between connections', async () => {
     const gateway = new FakeGateway()
     markPendingSetup('c-1', COMMIT)

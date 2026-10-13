@@ -9,13 +9,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GatewayError, mapHttpError } from '@/gateway/errors'
 import { PLUGIN_INSTALL_TIMEOUT_MS } from '@/gateway/port'
 import { mapPluginInstallError } from '@/gateway/real/plugins-api'
-import type { HermesPluginRow, PluginInstallCode, PluginProbe } from '@/gateway/types'
+import type { ErgatesHealth, HermesPluginRow, PluginInstallCode, PluginProbe } from '@/gateway/types'
 import { useDeviceStore, type Connection } from '@/state/device-store'
 import { FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-gateway/fake-ergates'
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
 import { PLUGIN_IDENTIFIER, type BuildRecord } from './build-record'
-import { finishPendingSetup } from './pending-setup'
+import { finishPendingSetup, markPendingSetup, runningKind } from './pending-setup'
 import type { ServerCheck } from './server-check'
 import { INSTALL_RACE_AFTER_MS, isSetupRunning, lastManualOutcome, runSetup, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
 
@@ -32,10 +32,21 @@ function row(runtime_status: HermesPluginRow['runtime_status']): HermesPluginRow
   return { name: 'ergates', version: '0.2.0', runtime_status }
 }
 
+/** The health of a git install whose record names `commit` and whose code was loaded from `loaded`, or `'unreported'` for a plugin that does not say. */
+function healthAt(commit: string, loaded: string | null | 'unreported' = commit): ErgatesHealth {
+  const install: NonNullable<ErgatesHealth['install']> = { kind: 'git install', commit, catalog_name: null }
+  if (loaded !== 'unreported') {
+    install.loaded_commit = loaded
+  }
+  return { ...FAKE_PLUGIN_HEALTH, install }
+}
+
+/** What a plugin installed from the build's commit answers. */
+const SERVED: ErgatesHealth = healthAt(COMMIT)
+
 /** The check of a plugin that runs the commit the run installed. */
-function readyCheck(): ServerCheck {
-  const install = { kind: 'git install', commit: COMMIT, loaded_commit: COMMIT, catalog_name: null } as const
-  return { kind: 'ready', health: { ...FAKE_PLUGIN_HEALTH, install }, update: null, hermesVersion: null }
+function readyCheck(health: ErgatesHealth = SERVED): ServerCheck {
+  return { kind: 'ready', health, update: null, hermesVersion: null }
 }
 
 function flag(): string | undefined {
@@ -48,7 +59,7 @@ function flag(): string | undefined {
  */
 function mountsWhenEnabled(
   gateway: FakeGateway,
-  whenEnabled: PluginProbe = { state: 'answered', health: FAKE_PLUGIN_HEALTH },
+  whenEnabled: PluginProbe = { state: 'answered', health: SERVED },
   whenOff: PluginProbe = { state: 'absent' }
 ): () => PluginProbe {
   return () => (gateway.plugins.rows.some(found => found.name === 'ergates' && found.runtime_status === 'enabled') ? whenEnabled : whenOff)
@@ -159,8 +170,8 @@ describe('runSetup: a server without the plugin', () => {
 
   it('looks for the plugin up to three times, 2 seconds apart, before it runs the setup', async () => {
     const gateway = freshServer()
-    const answers: PluginProbe[] = [{ state: 'absent' }, { state: 'absent' }, { state: 'absent' }, { state: 'answered', health: FAKE_PLUGIN_HEALTH }]
-    gateway.ergates.setHealth(() => answers.shift() ?? { state: 'answered', health: FAKE_PLUGIN_HEALTH })
+    const answers: PluginProbe[] = [{ state: 'absent' }, { state: 'absent' }, { state: 'absent' }, { state: 'answered', health: SERVED }]
+    gateway.ergates.setHealth(() => answers.shift() ?? { state: 'answered', health: SERVED })
     const running = start(gateway)
 
     await vi.advanceTimersByTimeAsync(1_999)
@@ -251,7 +262,7 @@ describe('runSetup: a server that already has some of it', () => {
 describe('runSetup: Hermes finds no routes for the plugin', () => {
   it('installs when the plugin list does not hold the plugin, as when its folder is gone but its name is still enabled', async () => {
     const gateway = freshServer()
-    gateway.ergates.setHealth(mountsWhenEnabled(gateway, { state: 'answered', health: FAKE_PLUGIN_HEALTH }, { state: 'not_loaded' }))
+    gateway.ergates.setHealth(mountsWhenEnabled(gateway, { state: 'answered', health: SERVED }, { state: 'not_loaded' }))
 
     const result = await run(gateway)
 
@@ -573,6 +584,114 @@ describe('runSetup: the install request does not answer', () => {
   })
 })
 
+describe('runSetup: the code that answers', () => {
+  const OLD_CODE = 'a'.repeat(40)
+  const OTHER = 'e'.repeat(40)
+
+  it.each<[string, ErgatesHealth]>([
+    ['older than the files on the server', healthAt(COMMIT, OLD_CODE)],
+    ['from before it said which commit it runs, over the files of this build', healthAt(COMMIT, 'unreported')]
+  ])('asks for a restart, without running the setup, when the plugin answers with code %s', async (_title, health) => {
+    const gateway = serverListing('enabled')
+    gateway.ergates.setHealth({ state: 'answered', health })
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'restart' })
+    expect(result.last).toEqual({ install: 'skipped', enable: 'skipped', start: 'failed' })
+    expect(gateway.ergates.setupCalls).toBe(0)
+    expect(flag()).toBe(COMMIT)
+  })
+
+  it('leaves the pending setup to the commit the files name, so the setup that follows the restart runs on the new code', async () => {
+    const gateway = serverListing('enabled')
+    gateway.ergates.setHealth({ state: 'answered', health: healthAt(OTHER, OLD_CODE) })
+
+    await run(gateway)
+    const onOldCode = await finishPendingSetup(gateway, useDeviceStore.getState().connections[0], readyCheck(healthAt(OTHER, OLD_CODE)))
+
+    expect(onOldCode).toBeNull()
+    expect(flag()).toBe(COMMIT)
+  })
+
+  it('does not ask for a restart for a plugin that cannot read its own record', async () => {
+    const gateway = serverListing('enabled')
+    gateway.ergates.setHealth({ state: 'answered', health: healthAt(COMMIT, null) })
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+  })
+
+  it('points the pending setup at the commit that answers, so a setup that fails finishes later on that code', async () => {
+    const gateway = serverListing('disabled')
+    gateway.ergates.setHealth(mountsWhenEnabled(gateway, { state: 'answered', health: healthAt(OTHER) }))
+    gateway.ergates.fail('setup', new GatewayError('unauthorized', 'Sign-in required.', { status: 401 }))
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'sign_in' })
+    expect(result.last).toMatchObject({ install: 'skipped', enable: 'done', start: 'done', setup: 'failed' })
+    expect(flag()).toBe(OTHER)
+    const pending = useDeviceStore.getState().connections[0]
+    await expect(finishPendingSetup(gateway, pending, readyCheck(healthAt(OTHER)))).resolves.toEqual(FAKE_SETUP)
+    expect(gateway.ergates.setupCalls).toBe(2)
+    expect(flag()).toBeUndefined()
+  })
+
+  it('points it at the commit of a plugin it finds running before it does anything else', async () => {
+    const gateway = serverListing('enabled')
+    gateway.ergates.setHealth({ state: 'answered', health: healthAt(OTHER) })
+    gateway.ergates.fail('setup', new GatewayError('unknown', 'The request could not be completed.', { status: 500 }))
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toMatchObject({ kind: 'failed', step: 'setup' })
+    expect(flag()).toBe(OTHER)
+  })
+
+  it.each<[string, ErgatesHealth]>([
+    ['no commit it reports', healthAt(OTHER, 'unreported')],
+    ['a commit it could not read', healthAt(OTHER, null)],
+    ['something that is not a full commit', healthAt(OTHER, 'main')],
+    ['a deployment', { ...FAKE_PLUGIN_HEALTH, install: { kind: 'deployment', commit: null, loaded_commit: null, catalog_name: null } }],
+    ['a plugin that says nothing about its install', { ...FAKE_PLUGIN_HEALTH, install: undefined }]
+  ])('keeps the build\'s commit in the pending setup for %s', async (_title, health) => {
+    const gateway = serverListing('enabled')
+    gateway.ergates.setHealth({ state: 'answered', health })
+    gateway.ergates.fail('setup', new GatewayError('unknown', 'The request could not be completed.', { status: 500 }))
+
+    await run(gateway)
+
+    expect(flag()).toBe(COMMIT)
+  })
+
+  it('does not clear a pending setup that changed while the plugin\'s setup ran', async () => {
+    const gateway = freshServer()
+    const newer = 'f'.repeat(40)
+    gateway.ergates.setup = async () => {
+      markPendingSetup(connection.id, newer)
+      return FAKE_SETUP
+    }
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(flag()).toBe(newer)
+  })
+
+  it('clears the update the app started, with the pending setup, when the setup of its target ran', async () => {
+    const gateway = freshServer()
+    const update = { target: COMMIT, previous: OLD_CODE, previousSchema: 1 }
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: update })
+
+    await run(gateway)
+
+    expect(useDeviceStore.getState().connections[0].pluginUpdate).toBeUndefined()
+    expect(flag()).toBeUndefined()
+  })
+})
+
 describe('runSetup: Hermes refuses', () => {
   it.each<PluginInstallCode>(['scan_blocked', 'no_git', 'download_failed', 'enable_refused'])('ends in the manual path for %s', async code => {
     const gateway = freshServer()
@@ -736,9 +855,12 @@ describe('runSetup: one run per connection', () => {
 
     expect(isSetupRunning(connection.id)).toBe(true)
     expect(isSetupRunning('c-2')).toBe(false)
+    expect(runningKind(connection.id)).toBe('setup')
+    expect(runningKind('c-2')).toBeNull()
     gateway.plugins.rows = [row('enabled')]
     await running.finish()
     expect(isSetupRunning(connection.id)).toBe(false)
+    expect(runningKind(connection.id)).toBeNull()
   })
 
   it('says no run is going after one that ended in a failure', async () => {

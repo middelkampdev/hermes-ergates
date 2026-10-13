@@ -167,3 +167,46 @@ describe('FakeGateway plugin update', () => {
     await expect(commits()).resolves.toEqual([NEWER, NEWER])
   })
 })
+
+describe('FakeGateway plugin routes', () => {
+  const NAME = 'ergates'
+  const answers = async (gateway: FakeGateway) => (await gateway.ergates.health()).state
+
+  it('answers for a plugin the hub does not list, as the recorded world does', async () => {
+    await expect(answers(new FakeGateway())).resolves.toBe('answered')
+  })
+
+  it.each(['disabled', 'inactive'] as const)('does not serve the routes of a plugin that is %s', async status => {
+    const gateway = new FakeGateway()
+    gateway.plugins.rows = [{ name: NAME, version: '0.2.0', runtime_status: status }]
+
+    await expect(answers(gateway)).resolves.toBe('absent')
+  })
+
+  it('serves the routes again once the plugin is enabled, and not while it is turned off', async () => {
+    const gateway = new FakeGateway()
+    gateway.plugins.rows = [{ name: NAME, version: '0.2.0', runtime_status: 'enabled' }]
+    await expect(answers(gateway)).resolves.toBe('answered')
+
+    await gateway.plugins.disable(NAME)
+    await expect(answers(gateway)).resolves.toBe('absent')
+    await gateway.plugins.enable(NAME)
+
+    await expect(answers(gateway)).resolves.toBe('answered')
+  })
+
+  it('ignores the rows of other plugins', async () => {
+    const gateway = new FakeGateway()
+    gateway.plugins.rows = [{ name: 'other', version: null, runtime_status: 'disabled' }]
+
+    await expect(answers(gateway)).resolves.toBe('answered')
+  })
+
+  it('keeps the health a test sets, whatever the row says', async () => {
+    const gateway = new FakeGateway()
+    gateway.plugins.rows = [{ name: NAME, version: '0.2.0', runtime_status: 'disabled' }]
+    gateway.ergates.setHealth({ state: 'not_loaded' })
+
+    await expect(answers(gateway)).resolves.toBe('not_loaded')
+  })
+})

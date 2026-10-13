@@ -30,7 +30,11 @@ export function runningKind(connectionId: string): RunKind | null {
   return runs.get(connectionId) ?? null
 }
 
-/** Whether a run (setup, update or going back) is going for the connection. Each of them runs the plugin's setup itself. */
+/**
+ * Whether a run is going for the connection, of any kind: it is true during
+ * an update and while going back too. Each of them runs the plugin's setup
+ * itself. `runningKind` says which one.
+ */
 export function isSetupRunning(connectionId: string): boolean {
   return runs.has(connectionId)
 }
@@ -52,21 +56,53 @@ export function clearPendingSetup(connectionId: string): void {
   useDeviceStore.getState().updateConnection(connectionId, { pendingPluginSetup: undefined })
 }
 
-function pendingCommitOf(connectionId: string): string | undefined {
-  return useDeviceStore.getState().connections.find(connection => connection.id === connectionId)?.pendingPluginSetup
+/** The pending setup and the update behind it, as a caller saw them. */
+export interface PendingSnapshot {
+  pending: string | undefined
+  update: Connection['pluginUpdate']
 }
 
-async function runPendingSetup(port: GatewayPort, connectionId: string): Promise<SetupState> {
+/** What the device store holds now for the connection (nothing for a connection that is gone). */
+export function pendingSnapshot(connectionId: string): PendingSnapshot {
+  const found = useDeviceStore.getState().connections.find(connection => connection.id === connectionId)
+  return { pending: found?.pendingPluginSetup, update: found?.pluginUpdate }
+}
+
+function sameUpdate(a: Connection['pluginUpdate'], b: Connection['pluginUpdate']): boolean {
+  return a !== undefined && b !== undefined && a.target === b.target && a.previous === b.previous && a.previousSchema === b.previousSchema
+}
+
+/**
+ * Clears the pending setup and the update behind it once the plugin's setup
+ * ran, each only if the store still holds what the caller saw before the
+ * setup began. A setup takes a while, and an update started meanwhile has set
+ * both again for code that has not had its setup yet.
+ */
+export function clearPendingSetupIfUnchanged(connectionId: string, seen: PendingSnapshot): void {
+  const now = pendingSnapshot(connectionId)
+  const patch: Partial<Pick<Connection, 'pendingPluginSetup' | 'pluginUpdate'>> = {}
+  if (seen.pending !== undefined && now.pending === seen.pending) {
+    patch.pendingPluginSetup = undefined
+  }
+  if (sameUpdate(now.update, seen.update)) {
+    patch.pluginUpdate = undefined
+  }
+  if (Object.keys(patch).length > 0) {
+    useDeviceStore.getState().updateConnection(connectionId, patch)
+  }
+}
+
+async function runPendingSetup(port: GatewayPort, connectionId: string, seen: PendingSnapshot): Promise<SetupState> {
   const report = await port.ergates.setup()
-  // An update the app started is over once the setup of the code it installed ran.
-  useDeviceStore.getState().updateConnection(connectionId, { pendingPluginSetup: undefined, pluginUpdate: undefined })
+  clearPendingSetupIfUnchanged(connectionId, seen)
   return report
 }
 
 /**
  * Runs the plugin's setup when the check finds the plugin ready and the
  * connection has a pending setup, then clears the flag (and the update it
- * belonged to) and returns the report.
+ * belonged to) and returns the report. A flag or update that changed while the
+ * setup ran, because an update started meanwhile, stays.
  *
  * It answers null and calls nothing for any other check, for a connection
  * without the flag, and for a connection whose run is going: the run runs the
@@ -87,7 +123,8 @@ export async function finishPendingSetup(port: GatewayPort, connection: Connecti
   if (check.kind !== 'ready' || isSetupRunning(connection.id)) {
     return null
   }
-  const pending = pendingCommitOf(connection.id)
+  const seen = pendingSnapshot(connection.id)
+  const { pending } = seen
   const { install } = check.health
   if (pending === undefined || (install?.kind === 'git install' && install.loaded_commit !== pending)) {
     return null
@@ -96,7 +133,7 @@ export async function finishPendingSetup(port: GatewayPort, connection: Connecti
   if (going) {
     return going
   }
-  const attempt = runPendingSetup(port, connection.id)
+  const attempt = runPendingSetup(port, connection.id, seen)
   finishing.set(connection.id, attempt)
   const forget = () => {
     finishing.delete(connection.id)

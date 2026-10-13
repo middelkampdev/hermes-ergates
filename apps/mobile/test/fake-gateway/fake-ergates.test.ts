@@ -260,6 +260,18 @@ describe('FakeErgates health and setup', () => {
     await expect(ergates.health()).resolves.toMatchObject({ health: { install: { commit: 'b'.repeat(40), loaded_commit: 'b'.repeat(40) } } })
   })
 
+  it('answers absent, while it is told Hermes does not serve the plugin, until a test sets its own health', async () => {
+    const served = { now: false }
+    const ergates = new FakeErgates({ hasProfile: () => true, pluginServed: () => served.now })
+
+    await expect(ergates.health()).resolves.toEqual({ state: 'absent' })
+    served.now = true
+    await expect(ergates.health()).resolves.toMatchObject({ state: 'answered' })
+    served.now = false
+    ergates.setHealth({ state: 'not_loaded' })
+    await expect(ergates.health()).resolves.toEqual({ state: 'not_loaded' })
+  })
+
   it('keeps whatever health a test sets, whatever the commits say', async () => {
     const ergates = new FakeErgates({ hasProfile: () => true, installedCommit: () => 'b'.repeat(40) })
     const probe = { state: 'answered', health: { ok: true, plugin_version: '0.2.0', schema_version: 1 } } as const

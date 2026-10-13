@@ -23,12 +23,12 @@ import { isGatewayError, type GatewayError } from '@/gateway/errors'
 import { PLUGIN_INSTALL_TIMEOUT_MS, type GatewayPort } from '@/gateway/port'
 import type { PluginInstallCode, PluginInstallResult, PluginProbe, SetupState } from '@/gateway/types'
 
-import { PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
-import { clearPendingSetup, isSetupRunning, markPendingSetup, runningKind } from './pending-setup'
+import { COMMIT_PATTERN, PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
+import { clearPendingSetupIfUnchanged, isSetupRunning, markPendingSetup, pendingSnapshot, runningKind } from './pending-setup'
 import { Flights } from './run-flights'
-import { hubRow, pluginPresence } from './server-check'
+import { hubRow, pluginPresence, waitsForRestart } from './server-check'
 
-/** Whether a run is going for the connection; `pending-setup.ts` owns the answer so that it can check it without importing this module. */
+/** Whether a run of any kind is going for the connection, an update or going back too (`runningKind` says which); `pending-setup.ts` owns the answer so that it can check it without importing this module. */
 export { isSetupRunning }
 
 export type SetupStep = 'install' | 'enable' | 'start' | 'setup'
@@ -192,6 +192,7 @@ function outcomeOfError(error: unknown, step: SetupStep | null): SetupOutcome {
 
 class SetupRun {
   private readonly port: GatewayPort
+  private readonly build: BuildRecord
   private readonly commit: string
   private readonly connectionId: string
   private readonly onStep: (step: SetupStep, status: StepStatus) => void
@@ -202,6 +203,7 @@ class SetupRun {
 
   constructor(deps: SetupDeps, commit: string, onStep: (step: SetupStep, status: StepStatus) => void) {
     this.port = deps.port
+    this.build = deps.build
     this.connectionId = deps.connectionId
     this.commit = commit
     this.onStep = onStep
@@ -235,13 +237,33 @@ class SetupRun {
   /** Each step returns the outcome that ends the run, or null to go on to the next. */
   private async install(): Promise<SetupOutcome | null> {
     this.begin('install')
-    const presence = await pluginPresence(this.port, await this.port.ergates.health())
+    const probe = await this.port.ergates.health()
+    this.follow(probe)
+    const presence = await pluginPresence(this.port, probe)
     if (presence.there) {
       this.needsEnable = presence.enabled === false
       this.end('install', 'skipped')
       return null
     }
     return this.requestInstall()
+  }
+
+  /**
+   * Points the pending setup at the commit the answering code was loaded
+   * from, so that the flag names code that can load: the plugin already on the
+   * server may be another commit than this build's. Code that is older than
+   * the files on the server is left alone, because the setup belongs to the
+   * commit that loads after the restart.
+   */
+  private follow(probe: PluginProbe): void {
+    if (probe.state !== 'answered' || waitsForRestart(probe.health, this.build)) {
+      return
+    }
+    const { install } = probe.health
+    const loaded = install?.kind === 'git install' ? install.loaded_commit : undefined
+    if (typeof loaded === 'string' && COMMIT_PATTERN.test(loaded)) {
+      markPendingSetup(this.connectionId, loaded)
+    }
   }
 
   private async requestInstall(): Promise<SetupOutcome | null> {
@@ -316,6 +338,11 @@ class SetupRun {
     this.begin('start')
     const found = await waitForRoutes(this.port)
     if (found.state === 'answered') {
+      // The files changed under the running code: its setup is not the new code's.
+      if (waitsForRestart(found.health, this.build)) {
+        return { kind: 'restart' }
+      }
+      this.follow(found)
       this.end('start', 'done')
       return null
     }
@@ -324,8 +351,9 @@ class SetupRun {
 
   private async setup(): Promise<SetupOutcome> {
     this.begin('setup')
+    const seen = pendingSnapshot(this.connectionId)
     const report = await this.port.ergates.setup()
-    clearPendingSetup(this.connectionId)
+    clearPendingSetupIfUnchanged(this.connectionId, seen)
     this.end('setup', 'done')
     return { kind: 'done', setup: report }
   }

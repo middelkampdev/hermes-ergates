@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 
-import { GatewayError, mapHttpError } from '@/gateway/errors'
+import { GatewayError, mapErgatesError, mapHttpError } from '@/gateway/errors'
 import { PLUGIN_INSTALL_TIMEOUT_MS } from '@/gateway/port'
 import { mapPluginInstallError } from '@/gateway/real/plugins-api'
 import type { PluginInstallCode } from '@/gateway/types'
@@ -16,7 +16,7 @@ import { FAKE_PLUGIN_COMMIT, FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-g
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
 import { PLUGIN_IDENTIFIER, type BuildRecord } from './build-record'
-import { finishPendingSetup, markPendingSetup } from './pending-setup'
+import { finishPendingSetup, markPendingSetup, runningKind } from './pending-setup'
 import type { ServerCheck } from './server-check'
 import { INSTALL_RACE_AFTER_MS, isSetupRunning, runSetup, type StepStatus } from './setup-run'
 import { lastUpdateOutcome, runUpdate, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
@@ -197,14 +197,16 @@ describe('runUpdate: the update', () => {
   it('records the update and the pending setup before it changes anything on the server, and clears both when the setup ran', async () => {
     const gateway = runningServer()
     remounting(gateway)
-    const running = start(gateway, { previousSchema: null })
+    const disable = gateway.plugins.disable.bind(gateway.plugins)
+    const recorded: Pick<Connection, 'pendingPluginSetup' | 'pluginUpdate'>[] = []
+    gateway.plugins.disable = name => {
+      recorded.push({ pendingPluginSetup: stored().pendingPluginSetup, pluginUpdate: stored().pluginUpdate })
+      return disable(name)
+    }
 
-    expect(stored().pendingPluginSetup).toBe(TARGET)
-    expect(stored().pluginUpdate).toEqual({ target: TARGET, previous: OLD, previousSchema: null })
-    expect(gateway.plugins.disabled).toEqual([])
+    await run(gateway, { previousSchema: null })
 
-    await running.finish()
-
+    expect(recorded).toEqual([{ pendingPluginSetup: TARGET, pluginUpdate: { target: TARGET, previous: OLD, previousSchema: null } }])
     expect(stored().pendingPluginSetup).toBeUndefined()
     expect(stored().pluginUpdate).toBeUndefined()
   })
@@ -486,6 +488,21 @@ describe('runUpdate: an update that fails half-way turns the old plugin back on'
     expect(result.last).toEqual({ pause: 'failed' })
     expect(calls.order()).toEqual([])
     expect(rowStatus(gateway)).toBe('enabled')
+    expect(stored()).toEqual(connection)
+  })
+
+  it('and records nothing when the first look at the plugin fails in a way the app does not know', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.ergates.setHealth(() => {
+      throw new TypeError('x is not a function')
+    })
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'failed', step: 'pause', message: 'Something went wrong during the update.' })
+    expect(calls.order()).toEqual([])
+    expect(stored()).toEqual(connection)
   })
 
   it('enables the new plugin when the install says it left it off', async () => {
@@ -665,14 +682,18 @@ describe('runUpdate: going back', () => {
   it('installs the previous commit the same way and clears the update when the setup ran', async () => {
     const gateway = serverAfterFailedUpdate()
     const calls = watch(gateway)
-    const running = start(gateway, { target: OLD, previous: TARGET, goingBack: true })
+    const disable = gateway.plugins.disable.bind(gateway.plugins)
+    const recorded: Pick<Connection, 'pendingPluginSetup' | 'pluginUpdate'>[] = []
+    gateway.plugins.disable = name => {
+      recorded.push({ pendingPluginSetup: stored().pendingPluginSetup, pluginUpdate: stored().pluginUpdate })
+      return disable(name)
+    }
+    gateway.ergates.setHealth(() => ({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD, loaded_commit: OLD, catalog_name: null } } }))
+
+    const result = await run(gateway, { target: OLD, previous: TARGET, goingBack: true })
 
     // The update stays what it was until the run is over; the pending setup now waits for the commit that goes back on.
-    expect(stored().pluginUpdate).toEqual(FAILED_UPDATE)
-    expect(stored().pendingPluginSetup).toBe(OLD)
-    gateway.ergates.setHealth(() => ({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD, loaded_commit: OLD, catalog_name: null } } }))
-    const result = await running.finish()
-
+    expect(recorded).toEqual([{ pendingPluginSetup: OLD, pluginUpdate: FAILED_UPDATE }])
     expect(result.outcome).toEqual({ kind: 'done', setup: FAKE_SETUP })
     expect(gateway.plugins.installs).toEqual([{ identifier: PLUGIN_IDENTIFIER, ref: OLD, enable: true, force: true }])
     expect(calls.order()).toEqual(['disable', 'install', 'setup'])
@@ -704,6 +725,46 @@ describe('runUpdate: going back', () => {
   })
 })
 
+describe('runUpdate: a plugin whose store cannot open', () => {
+  const unavailable = () => mapErgatesError(503, { error: { code: 'store_unavailable', message: 'the Ergates control store is unavailable' } })
+
+  it('asks for a restart when the plugin still answers 503 after the install, as code that cannot open its store does until Hermes restarts', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.ergates.setHealth(unavailable)
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'restart' })
+    expect(result.last).toEqual({ pause: 'done', install: 'done', start: 'failed' })
+    expect(calls.order()).toEqual(['disable', 'install'])
+    expect(stored().pendingPluginSetup).toBe(TARGET)
+  })
+
+  it('does the same going back from a plugin the check called unavailable, and keeps the update', async () => {
+    const gateway = runningServer()
+    const failed = { target: TARGET, previous: OLD, previousSchema: 1 }
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: failed })
+    gateway.ergates.setHealth(unavailable)
+
+    const result = await run(gateway, { target: OLD, previous: TARGET, goingBack: true })
+
+    expect(result.outcome).toEqual({ kind: 'restart' })
+    expect(gateway.plugins.installs).toEqual([{ identifier: PLUGIN_IDENTIFIER, ref: OLD, enable: true, force: true }])
+    expect(stored().pluginUpdate).toEqual(failed)
+    expect(stored().pendingPluginSetup).toBe(OLD)
+  })
+
+  it('still fails the start for any other error from the plugin', async () => {
+    const gateway = runningServer()
+    gateway.ergates.setHealth(() => mapErgatesError(500, { error: { code: 'internal', message: 'The request could not be completed.' } }))
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'failed', step: 'start', message: 'The request could not be completed.' })
+  })
+})
+
 describe('runUpdate: what it installs', () => {
   it.each<[string, Partial<UpdateDeps>]>([
     ['a target that is not a full commit', { target: 'main' }],
@@ -731,15 +792,34 @@ describe('runUpdate: what it installs', () => {
     expect(gateway.plugins.disabled).toEqual([])
   })
 
-  it('goes back to a commit that is not the build\'s', async () => {
+  it('goes back to the commit the update recorded, although it is not the build\'s', async () => {
     const gateway = runningServer()
     remounting(gateway)
     const other = 'c'.repeat(40)
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: { target: TARGET, previous: other, previousSchema: 1 } })
 
-    const result = await run(gateway, { target: other, goingBack: true })
+    const result = await run(gateway, { target: other, previous: TARGET, goingBack: true })
 
     expect(result.outcome).toMatchObject({ kind: 'done' })
     expect(gateway.plugins.installs).toEqual([{ identifier: PLUGIN_IDENTIFIER, ref: other, enable: true, force: true }])
+  })
+
+  it.each<[string, Connection['pluginUpdate']]>([
+    ['another commit than the update recorded', { target: TARGET, previous: 'd'.repeat(40), previousSchema: 1 }],
+    ['when no update was recorded', undefined]
+  ])('refuses to go back to %s, touching nothing', async (_title, recorded) => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: recorded })
+    const before = stored()
+
+    const result = await run(gateway, { target: 'c'.repeat(40), goingBack: true })
+
+    expect(result.outcome).toEqual({ kind: 'manual', failure: 'refused', detail: null })
+    expect(result.transitions).toEqual([])
+    expect(calls.order()).toEqual([])
+    expect(gateway.ergates.calls).toEqual([])
+    expect(stored()).toEqual(before)
   })
 })
 
@@ -809,6 +889,64 @@ describe('the pending setup after an update', () => {
   })
 })
 
+describe('a setup after an update that waits for Hermes to restart', () => {
+  it('does not run the plugin\'s setup on the old code, and leaves it to the new code after the restart', async () => {
+    const gateway = runningServer()
+    await run(gateway)
+    const update = { target: TARGET, previous: OLD, previousSchema: 1 }
+
+    const retry = await runSetup({ port: gateway, build: buildRecord(), connectionId: connection.id }, () => undefined)
+
+    expect(retry).toEqual({ kind: 'restart' })
+    expect(gateway.ergates.setupCalls).toBe(0)
+    expect(stored().pendingPluginSetup).toBe(TARGET)
+    expect(stored().pluginUpdate).toEqual(update)
+
+    gateway.ergates.loadedCommit = TARGET
+    const afterRestart = await finishPendingSetup(gateway, stored(), readyAt(TARGET))
+
+    expect(afterRestart).toEqual(FAKE_SETUP)
+    expect(gateway.ergates.setupCalls).toBe(1)
+    expect(stored().pendingPluginSetup).toBeUndefined()
+    expect(stored().pluginUpdate).toBeUndefined()
+  })
+})
+
+describe('runUpdate: the connection changes while the plugin\'s setup runs', () => {
+  const NEWER = 'e'.repeat(40)
+  const next = { target: NEWER, previous: TARGET, previousSchema: 2 }
+
+  it('keeps an update that was started meanwhile, with its pending setup', async () => {
+    const gateway = runningServer()
+    remounting(gateway)
+    gateway.ergates.setup = async () => {
+      markPendingSetup(connection.id, NEWER)
+      useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: next })
+      return FAKE_SETUP
+    }
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(stored().pendingPluginSetup).toBe(NEWER)
+    expect(stored().pluginUpdate).toEqual(next)
+  })
+
+  it('clears the pending setup it ran for and keeps an update that changed', async () => {
+    const gateway = runningServer()
+    remounting(gateway)
+    gateway.ergates.setup = async () => {
+      useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: next })
+      return FAKE_SETUP
+    }
+
+    await run(gateway)
+
+    expect(stored().pendingPluginSetup).toBeUndefined()
+    expect(stored().pluginUpdate).toEqual(next)
+  })
+})
+
 describe('runUpdate: one run per connection', () => {
   it('joins an update that is going instead of starting another', async () => {
     const gateway = runningServer()
@@ -844,6 +982,57 @@ describe('runUpdate: one run per connection', () => {
       ['setup', 'done']
     ])
     expect(gateway.plugins.disabled).toHaveLength(1)
+    expect(gateway.plugins.installs).toHaveLength(1)
+  })
+
+  it('refuses a call for another target while an update is going, instead of giving it the outcome of the other', async () => {
+    const gateway = runningServer()
+    gateway.plugins.fail('install', networkError())
+    const first = start(gateway)
+    await vi.advanceTimersByTimeAsync(2_000)
+    const steps: Transition[] = []
+
+    const refused = await runUpdate(
+      { port: gateway, build: buildRecord(), connectionId: connection.id, target: 'c'.repeat(40), previous: TARGET, previousSchema: 1, goingBack: true },
+      (step, status) => steps.push([step, status])
+    )
+
+    expect(refused).toEqual({ kind: 'failed', step: 'pause', message: 'An update is running. Try again when it is done.' })
+    expect(steps).toEqual([])
+    expect(gateway.plugins.installs).toHaveLength(1)
+    installedOnServer(gateway)
+    const result = await first.finish()
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(stored().pluginUpdate).toBeUndefined()
+  })
+
+  it('refuses an update for the build while going back is running', async () => {
+    const gateway = runningServer()
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: { target: TARGET, previous: OLD, previousSchema: 1 } })
+    gateway.plugins.fail('install', networkError())
+    const going = start(gateway, { target: OLD, previous: TARGET, goingBack: true })
+    await vi.advanceTimersByTimeAsync(2_000)
+
+    const refused = await runUpdate({ port: gateway, build: buildRecord(), connectionId: connection.id, target: TARGET, previous: OLD, previousSchema: 1, goingBack: false }, () => undefined)
+
+    expect(refused).toEqual({ kind: 'failed', step: 'pause', message: 'Going back is running. Try again when it is done.' })
+    expect(gateway.plugins.installs).toHaveLength(1)
+    gateway.plugins.installedCommit = OLD
+    gateway.plugins.rows[0].runtime_status = 'enabled'
+    await going.finish()
+  })
+
+  it('still joins a call for the same target', async () => {
+    const gateway = runningServer()
+    gateway.plugins.fail('install', networkError())
+    const first = start(gateway)
+    await vi.advanceTimersByTimeAsync(2_000)
+
+    const second = runUpdate({ port: gateway, build: buildRecord(), connectionId: connection.id, target: TARGET, previous: OLD, previousSchema: 1, goingBack: false }, () => undefined)
+
+    installedOnServer(gateway)
+    const result = await first.finish()
+    await expect(second).resolves.toEqual(result.outcome)
     expect(gateway.plugins.installs).toHaveLength(1)
   })
 
@@ -903,12 +1092,15 @@ describe('runUpdate: one run per connection', () => {
 
     expect(isSetupRunning(connection.id)).toBe(true)
     expect(isSetupRunning('c-2')).toBe(false)
+    expect(runningKind(connection.id)).toBe('update')
+    expect(runningKind('c-2')).toBeNull()
     await expect(finishPendingSetup(gateway, stored(), readyAt(TARGET))).resolves.toBeNull()
     expect(gateway.ergates.setupCalls).toBe(0)
 
     installedOnServer(gateway)
     await running.finish()
     expect(isSetupRunning(connection.id)).toBe(false)
+    expect(runningKind(connection.id)).toBeNull()
     expect(gateway.ergates.setupCalls).toBe(1)
   })
 

@@ -137,7 +137,7 @@ async function ready(port: GatewayPort, health: ErgatesHealth, build: BuildRecor
  * read its record when Hermes imported it, or a read during an install saw
  * the mount first, so `null` does not say the files differ from the code.
  */
-function waitsForRestart(health: ErgatesHealth, build: BuildRecord | null): boolean {
+export function waitsForRestart(health: ErgatesHealth, build: BuildRecord | null): boolean {
   const { install } = health
   if (install?.kind !== 'git install' || !install.commit) {
     return false

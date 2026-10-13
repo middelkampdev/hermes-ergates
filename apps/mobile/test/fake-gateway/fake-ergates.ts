@@ -13,6 +13,8 @@
  * so a reinstall moves the first and only a restart (a test setting
  * `loadedCommit`) moves the second. A first install is the exception: Hermes
  * mounts a new plugin at once, so `FakeGateway` moves the second with it.
+ * Hermes answers 404 for the routes of a plugin that is turned off, whatever
+ * code is mounted: the default health follows `pluginServed` the same way.
  *
  * No React Native or Expo imports (ADR-029 rule 1).
  */
@@ -155,6 +157,8 @@ export interface FakeErgatesOptions {
   now?: () => number
   /** The commit of the plugin's install record, read at every default health call. */
   installedCommit?: () => string | null
+  /** Whether Hermes serves the plugin's routes (it is not turned off), read at every default health call. Defaults to true. */
+  pluginServed?: () => boolean
 }
 
 export class FakeErgates implements ErgatesApi {
@@ -170,6 +174,7 @@ export class FakeErgates implements ErgatesApi {
   private readonly templates: Record<string, ProposalTemplate>
   private readonly now: () => number
   private readonly installedCommit: () => string | null
+  private readonly pluginServed: () => boolean
   private readonly reminders = new Map<string, StoredReminder>()
   private readonly proposals = new Map<string, StoredProposal>()
   private readonly prefs = new Map<string, Omit<AttentionPrefs, 'profile'>>()
@@ -183,6 +188,7 @@ export class FakeErgates implements ErgatesApi {
     this.templates = options.templates ?? { [PROPOSAL_TEMPLATE.template_id]: PROPOSAL_TEMPLATE }
     this.now = options.now ?? Date.now
     this.installedCommit = options.installedCommit ?? (() => FAKE_PLUGIN_COMMIT)
+    this.pluginServed = options.pluginServed ?? (() => true)
   }
 
   /** What `ergates_propose_agent` does: record the proposal as `proposed`. */
@@ -409,8 +415,11 @@ export class FakeErgates implements ErgatesApi {
     return fault.error === 'hang' ? new Promise<never>(() => undefined) : Promise.reject(fault.error)
   }
 
-  /** The health of a current plugin, with the commits as they stand now. */
+  /** The health of a current plugin, with the commits as they stand now; Hermes finds no routes for a plugin that is turned off. */
   private currentPlugin(): PluginProbe {
+    if (!this.pluginServed()) {
+      return { state: 'absent' }
+    }
     const install = { kind: 'git install', commit: this.installedCommit(), loaded_commit: this.loadedCommit, catalog_name: null } as const
     return { state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install } }
   }

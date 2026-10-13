@@ -11,8 +11,9 @@
  * on, so a refused or lost update never leaves the server without it.
  *
  * Plain async code over the gateway port, no React: screens call it and draw
- * the steps from `onStep`. The update and the pending setup are recorded first
- * and cleared only when the plugin's setup succeeded.
+ * the steps from `onStep`. The update and the pending setup are recorded
+ * before anything changes on the server and cleared only when the plugin's
+ * setup succeeded.
  */
 
 import { isGatewayError, type GatewayError } from '@/gateway/errors'
@@ -22,7 +23,7 @@ import { useDeviceStore } from '@/state/device-store'
 
 import { COMMIT_PATTERN, PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
 import { parseHermesVersion } from './hermes-version'
-import { clearPendingSetup, markPendingSetup, runningKind } from './pending-setup'
+import { clearPendingSetupIfUnchanged, markPendingSetup, pendingSnapshot, runningKind } from './pending-setup'
 import { Flights } from './run-flights'
 import { hermesVersionOf, hubRow } from './server-check'
 import { installAndWait, manualFailure, NOT_LOADED, probeHealth, waitForRoutes, type ManualOutcome, type StepStatus } from './setup-run'
@@ -53,6 +54,8 @@ export interface UpdateDeps {
 const LOST_CONNECTION = 'Lost the connection to your server during the update.'
 const UNEXPECTED = 'Something went wrong during the update.'
 const SETUP_RUNNING = 'Setting up this server is running. Try again when it is done.'
+const UPDATE_RUNNING = 'An update is running. Try again when it is done.'
+const GOING_BACK_RUNNING = 'Going back is running. Try again when it is done.'
 
 function outcomeOfError(error: unknown, step: UpdateStep | null): UpdateOutcome {
   if (!isGatewayError(error)) {
@@ -93,7 +96,6 @@ class UpdateRun {
   }
 
   async execute(): Promise<UpdateOutcome> {
-    this.record()
     let outcome: UpdateOutcome
     try {
       outcome = (await this.pause()) ?? (await this.install()) ?? (await this.start()) ?? (await this.setup())
@@ -110,7 +112,11 @@ class UpdateRun {
     return outcome
   }
 
-  /** Remembers the update (going back leaves the update it undoes in place) and the setup that waits for the new code. */
+  /**
+   * Remembers the update (going back leaves the update it undoes in place) and
+   * the setup that waits for the new code. This comes after the first look at
+   * the plugin, so a run that cannot even look leaves nothing behind.
+   */
   private record(): void {
     if (!this.goingBack) {
       useDeviceStore.getState().updateConnection(this.connectionId, { pluginUpdate: { target: this.target, previous: this.previous, previousSchema: this.previousSchema } })
@@ -133,6 +139,7 @@ class UpdateRun {
     this.begin('pause')
     // Whether routes were mounted before is what tells a remount from a first mount, so it is read before anything changes.
     this.before = await probeHealth(this.port)
+    this.record()
     this.mayBeOff = true
     await this.port.plugins.disable(PLUGIN_NAME)
     this.end('pause')
@@ -195,7 +202,16 @@ class UpdateRun {
 
   private async start(): Promise<UpdateOutcome | null> {
     this.begin('start')
-    const found = await waitForRoutes(this.port)
+    let found: PluginProbe
+    try {
+      found = await waitForRoutes(this.port)
+    } catch (error) {
+      // Code that cannot open its store answers 503 until Hermes restarts: that is a restart to ask for, not a failure.
+      if (isGatewayError(error) && error.code === 'store_unavailable') {
+        return { kind: 'restart' }
+      }
+      throw error
+    }
     if (found.state === 'not_loaded') {
       return { kind: 'restart' }
     }
@@ -230,9 +246,9 @@ class UpdateRun {
 
   private async setup(): Promise<UpdateOutcome> {
     this.begin('setup')
+    const seen = pendingSnapshot(this.connectionId)
     const report = await this.port.ergates.setup()
-    clearPendingSetup(this.connectionId)
-    useDeviceStore.getState().updateConnection(this.connectionId, { pluginUpdate: undefined })
+    clearPendingSetupIfUnchanged(this.connectionId, seen)
     this.end('setup')
     return { kind: 'done', setup: report }
   }
@@ -267,10 +283,20 @@ function remember(connectionId: string, outcome: UpdateOutcome): UpdateOutcome {
   return outcome
 }
 
-/** The app installs the commit of its own build, or, going back, a full commit it recorded itself; anything else is the user's to install. */
-function installable({ build, target, goingBack }: UpdateDeps): boolean {
-  return COMMIT_PATTERN.test(target) && (goingBack || target === build.requiredPlugin.commit)
+/**
+ * The app installs the commit of its own build, or, going back, the commit it
+ * recorded itself when it started the update; anything else is the user's to
+ * install.
+ */
+function installable({ build, connectionId, target, goingBack }: UpdateDeps): boolean {
+  if (!COMMIT_PATTERN.test(target)) {
+    return false
+  }
+  return goingBack ? pendingSnapshot(connectionId).update?.previous === target : target === build.requiredPlugin.commit
 }
+
+/** What the connection's latest update run installs. Read only while that run is going, so an old entry is never taken for the current one. */
+const latest = new Map<string, { target: string; goingBack: boolean }>()
 
 /**
  * Replaces the plugin on the server with `target` and says how it went.
@@ -280,24 +306,31 @@ function installable({ build, target, goingBack }: UpdateDeps): boolean {
  * A target the app may not install is answered with the manual path before
  * anything else happens.
  *
- * One run goes at a time per connection. A call while an update is going
+ * One run goes at a time per connection. A call for the update that is going
  * joins it (the other arguments of the call are not used): `onStep` first gets
  * the latest status of every step that has reported, then every later
- * transition, and the promise settles with the same outcome. A call while a
- * setup is going touches nothing and fails with a message that says so.
+ * transition, and the promise settles with the same outcome. A call for
+ * another target, or while a setup is going, touches nothing and fails with a
+ * message that names the run that is going.
  */
 export function runUpdate(deps: UpdateDeps, onStep: (step: UpdateStep, status: StepStatus) => void): Promise<UpdateOutcome> {
-  const joined = flights.join(deps.connectionId, onStep)
-  if (joined !== null) {
-    return joined
-  }
-  if (runningKind(deps.connectionId) !== null) {
+  const { connectionId, target, goingBack } = deps
+  const kind = runningKind(connectionId)
+  if (kind === 'setup') {
     return Promise.resolve({ kind: 'failed', step: 'pause', message: SETUP_RUNNING })
   }
-  outcomes.delete(deps.connectionId)
-  if (!installable(deps)) {
-    return Promise.resolve(remember(deps.connectionId, { kind: 'manual', failure: 'refused', detail: null }))
+  if (kind === 'update') {
+    const going = latest.get(connectionId)
+    if (going === undefined || going.target !== target || going.goingBack !== goingBack) {
+      return Promise.resolve({ kind: 'failed', step: 'pause', message: going?.goingBack ? GOING_BACK_RUNNING : UPDATE_RUNNING })
+    }
+    return flights.join(connectionId, onStep) ?? Promise.resolve({ kind: 'failed', step: 'pause', message: UPDATE_RUNNING })
   }
+  outcomes.delete(connectionId)
+  if (!installable(deps)) {
+    return Promise.resolve(remember(connectionId, { kind: 'manual', failure: 'refused', detail: null }))
+  }
+  latest.set(connectionId, { target, goingBack })
   // Remembered before the outcome reaches anything that waits for it, so a screen opened by it finds it.
-  return flights.start(deps.connectionId, onStep, report => new UpdateRun(deps, report).execute().then(outcome => remember(deps.connectionId, outcome)))
+  return flights.start(connectionId, onStep, report => new UpdateRun(deps, report).execute().then(outcome => remember(connectionId, outcome)))
 }
