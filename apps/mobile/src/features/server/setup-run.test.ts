@@ -16,6 +16,7 @@ import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
 import { PLUGIN_IDENTIFIER, type BuildRecord } from './build-record'
 import { finishPendingSetup } from './pending-setup'
+import type { ServerCheck } from './server-check'
 import { INSTALL_RACE_AFTER_MS, isSetupRunning, lastManualOutcome, runSetup, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
 
 const COMMIT = 'c'.repeat(40)
@@ -29,6 +30,12 @@ function buildRecord(commit: string | null = COMMIT): BuildRecord {
 
 function row(runtime_status: HermesPluginRow['runtime_status']): HermesPluginRow {
   return { name: 'ergates', version: '0.2.0', runtime_status }
+}
+
+/** The check of a plugin that runs the commit the run installed. */
+function readyCheck(): ServerCheck {
+  const install = { kind: 'git install', commit: COMMIT, loaded_commit: COMMIT, catalog_name: null } as const
+  return { kind: 'ready', health: { ...FAKE_PLUGIN_HEALTH, install }, update: null, hermesVersion: null }
 }
 
 function flag(): string | undefined {
@@ -753,7 +760,7 @@ describe('runSetup: one run per connection', () => {
     gateway.plugins.rows = [row('enabled')]
     const pending = useDeviceStore.getState().connections[0]
 
-    const during = await finishPendingSetup(gateway, pending, { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: null, hermesVersion: null })
+    const during = await finishPendingSetup(gateway, pending, readyCheck())
 
     expect(during).toBeNull()
     expect(gateway.ergates.setupCalls).toBe(0)
@@ -770,7 +777,7 @@ describe('runSetup: one run per connection', () => {
     await run(gateway)
     const pending = useDeviceStore.getState().connections[0]
 
-    const report = await finishPendingSetup(gateway, pending, { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: null, hermesVersion: null })
+    const report = await finishPendingSetup(gateway, pending, readyCheck())
 
     expect(report).toEqual(FAKE_SETUP)
   })
@@ -820,7 +827,7 @@ describe('runSetup: sign-in and the build', () => {
     expect(gateway.ergates.setupCalls).toBe(1)
 
     const pending = useDeviceStore.getState().connections[0]
-    const report = await finishPendingSetup(gateway, pending, { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: null, hermesVersion: null })
+    const report = await finishPendingSetup(gateway, pending, readyCheck())
 
     expect(report).toEqual(FAKE_SETUP)
     expect(gateway.ergates.setupCalls).toBe(2)

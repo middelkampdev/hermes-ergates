@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { GatewayError } from '@/gateway/errors'
+import type { ErgatesHealth } from '@/gateway/types'
 import { useDeviceStore, type Connection } from '@/state/device-store'
 import { FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-gateway/fake-ergates'
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
@@ -18,7 +19,15 @@ const COMMIT = 'd'.repeat(40)
 const first: Connection = { id: 'c-1', label: 'Home server', baseUrl: 'http://100.64.0.1:9119', authMode: 'token', primary: true, createdAt: 1 }
 const second: Connection = { id: 'c-2', label: 'Office server', baseUrl: 'http://100.64.0.2:9119', authMode: 'password', primary: false, createdAt: 2 }
 
-const ready: ServerCheck = { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: null, hermesVersion: null }
+const OLD_COMMIT = 'a'.repeat(40)
+
+/** A ready check whose plugin answers with the code of `loaded` (a git install), or with the install `install` says. */
+function readyWith(install: ErgatesHealth['install']): ServerCheck {
+  return { kind: 'ready', health: { ...FAKE_PLUGIN_HEALTH, install }, update: null, hermesVersion: null }
+}
+
+/** The plugin the pending setup waits for: installed from COMMIT and running it. */
+const ready = readyWith({ kind: 'git install', commit: COMMIT, loaded_commit: COMMIT, catalog_name: null })
 
 function stored(id: string): Connection {
   const found = useDeviceStore.getState().connections.find(connection => connection.id === id)
@@ -164,5 +173,50 @@ describe('finishPendingSetup', () => {
     await finishPendingSetup(gateway, stored('c-1'), ready)
 
     expect(stored('c-2').pendingPluginSetup).toBe(COMMIT)
+  })
+})
+
+describe('finishPendingSetup: the code that answers', () => {
+  it.each<[string, ErgatesHealth['install']]>([
+    ['an older commit', { kind: 'git install', commit: COMMIT, loaded_commit: OLD_COMMIT, catalog_name: null }],
+    ['a commit it does not report', { kind: 'git install', commit: COMMIT, catalog_name: null }],
+    ['a commit it could not read', { kind: 'git install', commit: COMMIT, loaded_commit: null, catalog_name: null }]
+  ])('keeps the flag and waits while the plugin of a git install runs %s', async (_title, install) => {
+    const gateway = new FakeGateway()
+    markPendingSetup('c-1', COMMIT)
+
+    const report = await finishPendingSetup(gateway, stored('c-1'), readyWith(install))
+
+    expect(report).toBeNull()
+    expect(gateway.ergates.setupCalls).toBe(0)
+    expect(stored('c-1').pendingPluginSetup).toBe(COMMIT)
+  })
+
+  it('runs the setup once the plugin runs the commit that is pending', async () => {
+    const gateway = new FakeGateway()
+    markPendingSetup('c-1', COMMIT)
+    const oldCode = readyWith({ kind: 'git install', commit: COMMIT, loaded_commit: OLD_COMMIT, catalog_name: null })
+
+    await finishPendingSetup(gateway, stored('c-1'), oldCode)
+    expect(gateway.ergates.setupCalls).toBe(0)
+    const report = await finishPendingSetup(gateway, stored('c-1'), ready)
+
+    expect(report).toEqual(FAKE_SETUP)
+    expect(gateway.ergates.setupCalls).toBe(1)
+    expect(stored('c-1').pendingPluginSetup).toBeUndefined()
+  })
+
+  it.each<[string, ErgatesHealth['install']]>([
+    ['a deployment', { kind: 'deployment', commit: null, loaded_commit: null, catalog_name: null }],
+    ['a manual copy', { kind: 'manual copy', commit: null, loaded_commit: null, catalog_name: null }],
+    ['a plugin that says nothing about its install', undefined]
+  ])('runs the setup for %s whatever commit is pending, since no commit says which code it runs', async (_title, install) => {
+    const gateway = new FakeGateway()
+    markPendingSetup('c-1', COMMIT)
+
+    const report = await finishPendingSetup(gateway, stored('c-1'), readyWith(install))
+
+    expect(report).toEqual(FAKE_SETUP)
+    expect(gateway.ergates.setupCalls).toBe(1)
   })
 })

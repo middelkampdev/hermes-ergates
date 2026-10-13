@@ -41,8 +41,8 @@ export function clearPendingSetup(connectionId: string): void {
   useDeviceStore.getState().updateConnection(connectionId, { pendingPluginSetup: undefined })
 }
 
-function hasPendingSetup(connectionId: string): boolean {
-  return useDeviceStore.getState().connections.find(connection => connection.id === connectionId)?.pendingPluginSetup !== undefined
+function pendingCommitOf(connectionId: string): string | undefined {
+  return useDeviceStore.getState().connections.find(connection => connection.id === connectionId)?.pendingPluginSetup
 }
 
 async function runPendingSetup(port: GatewayPort, connectionId: string): Promise<SetupState> {
@@ -54,16 +54,29 @@ async function runPendingSetup(port: GatewayPort, connectionId: string): Promise
 /**
  * Runs the plugin's setup when the check finds the plugin ready and the
  * connection has a pending setup, then clears the flag and returns the report.
- * Any other check, a connection without the flag, or a connection whose setup
- * run is going (the run runs the setup itself, and a second one would enable
- * the plugin in every profile again) answers null and calls nothing. The flag is read from the device store by `connection.id`, so a
- * connection object that is out of date cannot start a second setup. Callers
- * at the same time share one setup and its result. A setup that fails keeps
- * the flag and rejects (a 401 too), so the caller can show the error and try
- * again with the next check.
+ *
+ * It answers null and calls nothing for any other check, for a connection
+ * without the flag, and for a connection whose run is going: the run runs the
+ * setup itself, and a second one would enable the plugin in every profile
+ * again. It also waits while a git install answers with other code than the
+ * pending commit: after an update the old code keeps answering until Hermes
+ * restarts, and the setup belongs to the new code. A deployment, a manual
+ * copy and a plugin that says nothing about its install name no commit, so
+ * they run.
+ *
+ * The flag is read from the device store by `connection.id`, so a connection
+ * object that is out of date cannot start a second setup. Callers at the same
+ * time share one setup and its result. A setup that fails keeps the flag and
+ * rejects (a 401 too), so the caller can show the error and try again with
+ * the next check.
  */
 export async function finishPendingSetup(port: GatewayPort, connection: Connection, check: ServerCheck): Promise<SetupState | null> {
-  if (check.kind !== 'ready' || !hasPendingSetup(connection.id) || isSetupRunning(connection.id)) {
+  if (check.kind !== 'ready' || isSetupRunning(connection.id)) {
+    return null
+  }
+  const pending = pendingCommitOf(connection.id)
+  const { install } = check.health
+  if (pending === undefined || (install?.kind === 'git install' && install.loaded_commit !== pending)) {
     return null
   }
   const going = finishing.get(connection.id)
