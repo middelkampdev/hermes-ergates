@@ -13,7 +13,9 @@
  * Plain async code over the gateway port, no React: screens call it and draw
  * the steps from `onStep`. The update and the pending setup are recorded
  * before anything changes on the server and cleared only when the plugin's
- * setup succeeded.
+ * setup succeeded, or when a going back's install is confirmed: that ends the
+ * update, and the connection keeps that the previous version is back
+ * (`Connection.pluginWentBack`).
  */
 
 import { isGatewayError, type GatewayError } from '@/gateway/errors'
@@ -117,16 +119,42 @@ class UpdateRun {
   }
 
   /**
-   * Remembers the update (going back leaves the update it undoes in place) and
-   * the setup that waits for the new code. This comes after the first look at
-   * the plugin, so a run that cannot even look leaves nothing behind, and the
-   * way back is what that look found on the server.
+   * Remembers the update and the setup that waits for the new code, and
+   * forgets an earlier going back. This comes after the first look at the
+   * plugin, so a run that cannot even look leaves nothing behind, and the way
+   * back is what that look found on the server. Going back records nothing
+   * here: the previous version was set up when it was first installed, and
+   * the update it undoes stays until its install is confirmed (`wentBack`).
    */
   private record(before: Before | null): void {
-    if (before !== null) {
-      useDeviceStore.getState().updateConnection(this.connectionId, { pluginUpdate: { target: this.target, ...before } })
+    if (before === null) {
+      return
     }
+    useDeviceStore.getState().updateConnection(this.connectionId, { pluginUpdate: { target: this.target, ...before }, pluginWentBack: undefined })
     markPendingSetup(this.connectionId, this.target)
+  }
+
+  /**
+   * Once a going back's install is confirmed (Hermes answered it, or the
+   * record was seen to name the target), the update it undoes is over: it is
+   * cleared with the setup that waited for it, and the connection keeps that
+   * the previous version is back, so the Finish screen says so after a
+   * relaunch too. A pending setup for another commit stays.
+   */
+  private wentBack(): void {
+    if (!this.goingBack) {
+      return
+    }
+    const { pending, update } = pendingSnapshot(this.connectionId)
+    const failed = update?.target
+    if (failed === undefined) {
+      return
+    }
+    useDeviceStore.getState().updateConnection(this.connectionId, {
+      pluginUpdate: undefined,
+      pluginWentBack: { to: this.target, from: failed },
+      ...(pending === failed ? { pendingPluginSetup: undefined } : {})
+    })
   }
 
   /**
@@ -183,6 +211,7 @@ class UpdateRun {
     )
     switch (end.kind) {
       case 'answered':
+        this.wentBack()
         if (!end.result.enabled) {
           const refused = await this.enableInstalled()
           if (refused !== null) {
@@ -200,6 +229,7 @@ class UpdateRun {
       case 'lost':
         return { kind: 'failed', step: 'install', message: LOST_CONNECTION }
       case 'seen':
+        this.wentBack()
         break
     }
     this.mayBeOff = false
@@ -312,8 +342,10 @@ const watches = new Map<string, RestartWatch>()
 /**
  * The connection's last update run, or null: no run has gone since the app
  * started, or a new run has begun. The Finish screen reads it to say why the
- * update stopped and whether the previous version is back. It is not in the
- * route, because the text of a route is anyone's to write.
+ * update stopped and whether it waits for the restart the run asked for.
+ * Whether the previous version is back is on the connection
+ * (`pluginWentBack`), so it holds after a relaunch. It is not in the route,
+ * because the text of a route is anyone's to write.
  */
 export function lastUpdateRun(connectionId: string): LastUpdateRun | null {
   return outcomes.get(connectionId) ?? null
@@ -373,8 +405,10 @@ export function joinUpdate(connectionId: string, goingBack: boolean, onStep: (st
  * run returns, and a run that asks for a restart or ends `stale` leaves the
  * step it stopped at `pending`. Unless `goingBack`, the update (`target`, and
  * the commit and store schema the first look found) is recorded on the
- * connection until the plugin's setup ran. A run whose first look no longer
- * calls for it ends `stale` and changes nothing.
+ * connection until the plugin's setup ran. Going back marks no pending setup;
+ * once its install is confirmed it clears the update and records
+ * `pluginWentBack`. A run whose first look no longer calls for it ends
+ * `stale` and changes nothing.
  * A target the app may not install is answered with the manual path before
  * anything else happens.
  *

@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-gateway/fake-ergates'
 
 import { GatewayError } from '@/gateway/errors'
+import type { ErgatesHealth } from '@/gateway/types'
 
 import type { BuildRecord } from './build-record'
 import manualCommands from './manual-commands.json'
@@ -622,10 +623,11 @@ describe('finishVariant: an update the app started', () => {
     expect(finishVariant(waiting, null, update)).toEqual({ kind: 'not_started', previous: '--force && rm -rf', goBack: false })
   })
 
-  it('asks for a restart, not a second go back, once the previous version is back on the server', () => {
-    expect(finishVariant(waiting, null, updating({ wentBack: true }))).toEqual({ kind: 'restart', after: 'go_back' })
-    expect(finishVariant(unavailable, null, updating({ wentBack: true }))).toEqual({ kind: 'restart', after: 'go_back' })
-    expect(finishVariant(restartNeeded, null, updating({ wentBack: true }))).toEqual({ kind: 'restart', after: 'go_back' })
+  it('offers no second go back once the previous version is back, because going back ended the update', () => {
+    const back = { ...NO_UPDATE, wentBack: { to: PREVIOUS, from: COMMIT } }
+
+    expect(finishVariant(waiting, null, back)).toEqual({ kind: 'restart', after: null })
+    expect(finishVariant(unavailable, null, back)).toBeNull()
   })
 
   /** The variant of each poll in turn, for an update run that ended asking for a restart. */
@@ -633,7 +635,7 @@ describe('finishVariant: an update the app started', () => {
     let watch = NOT_WATCHED
     return polls.map(poll => {
       watch = watchRestart(watch, poll, false)
-      return finishVariant(poll, null, finishUpdateOf({ started, schemaSeen: null, last: { outcome: { kind: 'restart' }, goingBack: false }, restartSeen: watch.seen }))
+      return finishVariant(poll, null, finishUpdateOf({ started, schemaSeen: null, last: { outcome: { kind: 'restart' }, goingBack: false }, restartSeen: watch.seen, wentBack: undefined }))
     })
   }
 
@@ -657,21 +659,10 @@ describe('finishVariant: an update the app started', () => {
     expect(finishVariant(check, null, updating({ awaitingRestart: true }))).toEqual({ kind: 'restart', after: 'update' })
   })
 
-  it('lets the previous version being back win over a restart the update run waits for', () => {
-    expect(finishVariant(waiting, null, updating({ awaitingRestart: true, wentBack: true }))).toEqual({ kind: 'restart', after: 'go_back' })
-  })
-
-  it('asks for a plain restart when the server needs one after the update is over, although a go back is in memory', () => {
-    const over = finishUpdateOf({ started: undefined, schemaSeen: null, last: { outcome: { kind: 'restart' }, goingBack: true }, restartSeen: false })
+  it('does not say the previous version is back for a server that has another commit installed now', () => {
+    const over = finishUpdateOf({ started: undefined, schemaSeen: null, last: { outcome: { kind: 'restart' }, goingBack: true }, restartSeen: false, wentBack: { to: PREVIOUS, from: COMMIT } })
 
     expect(finishVariant(restartNeeded, null, over)).toEqual({ kind: 'restart', after: null })
-    expect(finishView(finishVariant(restartNeeded, null, over), buildRecord(), restartNeeded).intro).toEqual(['Hermes has not loaded the Ergates plugin yet.'])
-  })
-
-  it('says the previous version is back when the go back ended asking for a restart, whichever way the plugin answers', () => {
-    for (const check of [waiting, unavailable, restartNeeded]) {
-      expect(finishVariant(check, null, updating({ wentBack: true }))).toEqual({ kind: 'restart', after: 'go_back' })
-    }
   })
 
   it('updates by hand when the app could not and the plugin still works', () => {
@@ -690,6 +681,68 @@ describe('finishVariant: an update the app started', () => {
     expect(finishVariant(outdated('git install'), null, updating())).toEqual({ kind: 'update' })
     expect(finishVariant(missing(null), null, updating())).toEqual({ kind: 'install', restart: false, failure: null, detail: null })
     expect(finishVariant(disabled, null, updating())).toEqual({ kind: 'enable', refused: false, detail: null })
+  })
+})
+
+describe('finishVariant and finishView: after the app put the previous version back', () => {
+  const back = { to: PREVIOUS, from: COMMIT }
+  const installedAt = (commit: string, loaded: string | undefined = commit): ErgatesHealth => ({ ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit, loaded_commit: loaded, catalog_name: null } })
+  const previousLoadsAfterRestart: ServerCheck = { kind: 'restart_needed', health: installedAt(PREVIOUS, COMMIT), hermesVersion: '0.21.6' }
+  const previousRunsButIsOld: ServerCheck = { kind: 'outdated', health: installedAt(PREVIOUS, undefined), installKind: 'git install', update: offer, hermesVersion: '0.21.6' }
+  const previousWorks: ServerCheck = { kind: 'ready', health: installedAt(PREVIOUS), update: offer, hermesVersion: '0.21.6' }
+  /** What a page builds after a relaunch: nothing in memory, only what the connection keeps. */
+  const afterRelaunch = finishUpdateOf({ started: undefined, schemaSeen: null, last: null, restartSeen: false, wentBack: back })
+
+  it('asks for the restart that starts the previous version while the code of the failed one still answers', () => {
+    const variant = finishVariant(previousLoadsAfterRestart, null, afterRelaunch)
+
+    expect(variant).toEqual({ kind: 'restart', after: 'go_back' })
+    expect(finishView(variant, buildRecord(), previousLoadsAfterRestart)).toMatchObject({
+      intro: ['The previous version is installed. Restart Hermes to start it.'],
+      command: null,
+      restartLines: RESTART_LINES
+    })
+  })
+
+  it('says the previous version is back and the update did not start when this app needs a newer plugin, without the failed commit\'s command', () => {
+    const variant = finishVariant(previousRunsButIsOld, null, afterRelaunch)
+
+    expect(variant).toEqual({ kind: 'went_back' })
+    expect(finishView(variant, buildRecord(), previousRunsButIsOld)).toEqual({
+      title: 'Finish on your server',
+      intro: ['The previous version is back, but this app needs a newer plugin. The update did not start on your server.', 'The guide shows what to check before you try again.'],
+      command: null,
+      restartLines: null,
+      guide: { label: 'Open the guide', url: `${SERVER_GUIDE_URL}#manual` },
+      status: 'Waiting for your server…',
+      done: false,
+      steps: null,
+      primary: { label: 'Check now', action: 'check' }
+    })
+  })
+
+  it('says the previous version is back and the server is ready once it works', () => {
+    const variant = finishVariant(previousWorks, null, afterRelaunch)
+
+    expect(variant).toEqual({ kind: 'went_back' })
+    expect(finishView(variant, buildRecord(), previousWorks, { state: 'done' })).toMatchObject({ status: 'The previous version is back. Your server is ready.', done: true, primary: { label: 'Done', action: 'done' } })
+  })
+
+  it('reads every check as usual once the server has another commit installed', () => {
+    const elsewhere = installedAt('e'.repeat(40))
+
+    expect(finishVariant({ kind: 'outdated', health: elsewhere, installKind: 'git install', update: offer, hermesVersion: null }, null, afterRelaunch)).toEqual({ kind: 'update' })
+    expect(finishVariant({ kind: 'ready', health: elsewhere, update: null, hermesVersion: null }, null, afterRelaunch)).toBeNull()
+  })
+
+  it('lets a pending setup that waits for the new code ask for its restart first', () => {
+    expect(finishVariant(previousWorks, null, afterRelaunch, true)).toEqual({ kind: 'restart', after: 'go_back' })
+  })
+
+  it('records no pending setup for the build while the previous version is back, so the page does not wait for the failed update', () => {
+    expect(pendingCommit(previousRunsButIsOld, buildRecord(), back)).toBeNull()
+    expect(pendingCommit(previousRunsButIsOld, buildRecord(), undefined)).toBe(COMMIT)
+    expect(pendingCommit({ ...previousRunsButIsOld, health: installedAt('e'.repeat(40)) }, buildRecord(), back)).toBe(COMMIT)
   })
 })
 
@@ -721,35 +774,25 @@ describe('highestSchema: the oldest store version any health read since the upda
 describe('finishUpdateOf: what the screen knows about the update', () => {
   const ranUpdate = (outcome: UpdateOutcome): LastUpdateRun => ({ outcome, goingBack: false })
   const wentBack = (outcome: UpdateOutcome): LastUpdateRun => ({ outcome, goingBack: true })
-  const base = { started, schemaSeen: null, last: null, restartSeen: false }
+  const base = { started, schemaSeen: null, last: null, restartSeen: false, wentBack: undefined }
 
   it('carries the record of the update and the store version seen', () => {
-    expect(finishUpdateOf({ ...base, schemaSeen: 2 })).toEqual({ started, schemaSeen: 2, wentBack: false, byHand: false, awaitingRestart: false })
+    expect(finishUpdateOf({ ...base, schemaSeen: 2 })).toEqual({ started, schemaSeen: 2, wentBack: undefined, byHand: false, awaitingRestart: false })
     expect(finishUpdateOf({ ...base, started: undefined })).toEqual(NO_UPDATE)
   })
 
-  it.each<[string, UpdateOutcome]>([
-    ['asked for the restart that starts it', { kind: 'restart' }],
-    ['went through', { kind: 'done', setup: FAKE_SETUP }]
-  ])('says the previous version is back when a going back %s, however long ago the page was opened', (_title, outcome) => {
-    expect(finishUpdateOf({ ...base, last: wentBack(outcome) }).wentBack).toBe(true)
-  })
-
-  it('does not say the previous version is back once the update is over, whatever the session still remembers', () => {
-    for (const outcome of [{ kind: 'restart' }, { kind: 'done', setup: FAKE_SETUP }] as UpdateOutcome[]) {
-      expect(finishUpdateOf({ ...base, started: undefined, last: wentBack(outcome) }).wentBack).toBe(false)
-    }
-  })
-
   it.each<[string, LastUpdateRun | null]>([
-    ['no run in memory', null],
-    ['a going back that failed', wentBack({ kind: 'failed', step: 'install', message: 'Lost it.' })],
-    ['a going back that Hermes refused', wentBack({ kind: 'manual', failure: 'refused', detail: null })],
-    ['a going back that needs a new sign-in', wentBack({ kind: 'sign_in' })],
-    ['an update that asked for a restart', ranUpdate({ kind: 'restart' })],
-    ['an update that went through', ranUpdate({ kind: 'done', setup: FAKE_SETUP })]
-  ])('does not say the previous version is back for %s', (_title, last) => {
-    expect(finishUpdateOf({ ...base, last }).wentBack).toBe(false)
+    ['after a relaunch, with no run in memory', null],
+    ['after the going back in this session', wentBack({ kind: 'restart' })],
+    ['after a later update run in this session', ranUpdate({ kind: 'failed', step: 'install', message: 'Lost it.' })]
+  ])('carries what the connection keeps of a going back %s', (_title, last) => {
+    const back = { to: PREVIOUS, from: COMMIT }
+
+    expect(finishUpdateOf({ ...base, started: undefined, last, wentBack: back }).wentBack).toEqual(back)
+  })
+
+  it('takes nothing about a going back from the session alone', () => {
+    expect(finishUpdateOf({ ...base, last: wentBack({ kind: 'done', setup: FAKE_SETUP }) }).wentBack).toBeUndefined()
   })
 
   it('says the update was left to the user only when an update run, not a going back, ended by hand', () => {

@@ -11,7 +11,7 @@ import { useDeviceStore, type Connection } from '@/state/device-store'
 import { FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-gateway/fake-ergates'
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
-import { clearPendingSetup, finishPendingSetup, markPendingSetup, trackRun } from './pending-setup'
+import { clearPendingSetup, finishPendingSetup, forgetWentBackIfMoved, markPendingSetup, trackRun } from './pending-setup'
 import type { ServerCheck } from './server-check'
 
 const COMMIT = 'd'.repeat(40)
@@ -346,5 +346,49 @@ describe('finishPendingSetup: the code that answers', () => {
 
     expect(result).toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(1)
+  })
+})
+
+describe('forgetWentBackIfMoved: the previous version the app put back, as checks see it', () => {
+  const back = { to: OLD_COMMIT, from: COMMIT }
+
+  beforeEach(() => {
+    useDeviceStore.getState().updateConnection('c-1', { pluginWentBack: back })
+  })
+
+  it.each<[string, ErgatesHealth['install']]>([
+    ['another commit installed', { kind: 'git install', commit: COMMIT, loaded_commit: COMMIT, catalog_name: null }],
+    ['a manual copy, which names no commit', { kind: 'manual copy', commit: null, loaded_commit: null, catalog_name: null }],
+    ['a plugin that reports no install', undefined]
+  ])('forgets it once a check shows %s', (_title, install) => {
+    forgetWentBackIfMoved('c-1', readyWith(install))
+
+    expect(stored('c-1').pluginWentBack).toBeUndefined()
+  })
+
+  it('keeps it while the server has the commit it put back, whatever the code that answers', () => {
+    forgetWentBackIfMoved('c-1', readyWith({ kind: 'git install', commit: OLD_COMMIT, loaded_commit: COMMIT, catalog_name: null }))
+    forgetWentBackIfMoved('c-1', { kind: 'restart_needed', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD_COMMIT, loaded_commit: COMMIT, catalog_name: null } }, hermesVersion: null })
+
+    expect(stored('c-1').pluginWentBack).toEqual(back)
+  })
+
+  it.each<[string, ServerCheck]>([
+    ['not loaded', { kind: 'not_loaded', hermesVersion: '0.21.6' }],
+    ['unavailable', { kind: 'unavailable', message: 'The store is busy.' }],
+    ['unknown', { kind: 'unknown' }]
+  ])('keeps it for a check that shows no install commit (%s)', (_title, check) => {
+    forgetWentBackIfMoved('c-1', check)
+
+    expect(stored('c-1').pluginWentBack).toEqual(back)
+  })
+
+  it('leaves another connection alone and writes nothing without a record', () => {
+    const before = useDeviceStore.getState().connections
+
+    forgetWentBackIfMoved('c-2', readyWith({ kind: 'git install', commit: COMMIT, loaded_commit: COMMIT, catalog_name: null }))
+
+    expect(useDeviceStore.getState().connections).toBe(before)
+    expect(stored('c-1').pluginWentBack).toEqual(back)
   })
 })

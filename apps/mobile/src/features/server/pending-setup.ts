@@ -108,6 +108,21 @@ export type PendingSetupResult = { kind: 'none' } | { kind: 'waiting' } | { kind
 const NONE: PendingSetupResult = { kind: 'none' }
 const WAITING: PendingSetupResult = { kind: 'waiting' }
 
+/**
+ * Forgets that the app put the previous version back (`Connection.pluginWentBack`)
+ * once a check shows another install than the commit it put back: what the
+ * Finish screen says about going back holds for that commit only. A check
+ * without a health read shows no install and changes nothing. Writes nothing
+ * when there is nothing to forget, since every screen that reads the store
+ * would redraw.
+ */
+export function forgetWentBackIfMoved(connectionId: string, check: ServerCheck): void {
+  const back = useDeviceStore.getState().connections.find(connection => connection.id === connectionId)?.pluginWentBack
+  if (back !== undefined && 'health' in check && check.health.install?.commit !== back.to) {
+    useDeviceStore.getState().updateConnection(connectionId, { pluginWentBack: undefined })
+  }
+}
+
 async function runPendingSetup(port: GatewayPort, connectionId: string, seen: PendingSnapshot): Promise<PendingSetupResult> {
   const report = await port.ergates.setup()
   clearPendingSetupIfUnchanged(connectionId, seen)

@@ -109,8 +109,8 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   const restartSeen = watchUpdateRestart(connection.id, data ?? null, signedOut).seen
   const last = lastUpdateRun(connection.id)
   const update = useMemo<FinishUpdate>(
-    () => finishUpdateOf({ started: connection.pluginUpdate, schemaSeen: seen, last, restartSeen }),
-    [connection.pluginUpdate, seen, last, restartSeen]
+    () => finishUpdateOf({ started: connection.pluginUpdate, schemaSeen: seen, last, restartSeen, wentBack: connection.pluginWentBack }),
+    [connection.pluginUpdate, seen, last, restartSeen, connection.pluginWentBack]
   )
   const goingBack = runIsGoing(run)
 
@@ -123,8 +123,8 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   const variant = live ?? held
   const updateOpen = updateStillOpen(variant, data ?? null)
 
-  // Once the plugin answers its setup runs. Record that as soon as the server said it is missing, off or outdated, so a closed app or a restart in between does not skip it. Not while the go back runs: it records the commit it installs itself.
-  const commit = pendingCommit(data ?? null, build)
+  // Once the plugin answers its setup runs. Record that as soon as the server said it is missing, off or outdated, so a closed app or a restart in between does not skip it. Not while the go back runs, and not for the previous version a go back put back: it was set up when it was first installed.
+  const commit = pendingCommit(data ?? null, build, connection.pluginWentBack)
   useEffect(() => {
     if (commit !== null && !goingBack) {
       markPendingSetup(connection.id, commit)
@@ -187,11 +187,7 @@ function FinishOnServer({ connection }: { connection: Connection }) {
       setRun(null)
       return
     }
-    if (outcome.kind === 'done') {
-      // The run did the plugin's setup itself.
-      setProblem(null)
-      setFinished(true)
-    }
+    // A go back that went through ran the plugin's setup itself; whether the page is done is the check's to say, as the previous version may still be too old for this app.
     setRun(current => ({ steps: current?.steps ?? PENDING_UPDATE_RUN.steps, outcome }))
   }
 

@@ -16,7 +16,7 @@ import { FAKE_PLUGIN_COMMIT, FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-g
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
 import { PLUGIN_IDENTIFIER, type BuildRecord } from './build-record'
-import { finishUpdateOf, finishVariant, finishView } from './finish-view'
+import { finishUpdateOf, finishVariant, finishView, type SetupProgress } from './finish-view'
 import { finishPendingSetup, markPendingSetup, runningKind } from './pending-setup'
 import { NOT_WATCHED } from './restart-watch'
 import type { ServerCheck } from './server-check'
@@ -816,29 +816,30 @@ describe('runUpdate: going back', () => {
     return gateway
   }
 
-  it('installs the previous commit the same way and clears the update when the setup ran', async () => {
+  it('installs the previous commit the same way, records that it is back, and marks no pending setup of its own', async () => {
     const gateway = serverAfterFailedUpdate()
     const calls = watch(gateway)
     const disable = gateway.plugins.disable.bind(gateway.plugins)
-    const recorded: Pick<Connection, 'pendingPluginSetup' | 'pluginUpdate'>[] = []
+    const recorded: Pick<Connection, 'pendingPluginSetup' | 'pluginUpdate' | 'pluginWentBack'>[] = []
     gateway.plugins.disable = name => {
-      recorded.push({ pendingPluginSetup: stored().pendingPluginSetup, pluginUpdate: stored().pluginUpdate })
+      recorded.push({ pendingPluginSetup: stored().pendingPluginSetup, pluginUpdate: stored().pluginUpdate, pluginWentBack: stored().pluginWentBack })
       return disable(name)
     }
     gateway.ergates.setHealth(() => ({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD, loaded_commit: OLD, catalog_name: null } } }))
 
     const result = await run(gateway, { target: OLD, goingBack: true })
 
-    // The update stays what it was until the run is over; the pending setup now waits for the commit that goes back on.
-    expect(recorded).toEqual([{ pendingPluginSetup: OLD, pluginUpdate: FAILED_UPDATE }])
+    // Before the install is confirmed nothing changes on the phone: the update stays, and the previous version was set up when it was first installed.
+    expect(recorded).toEqual([{ pendingPluginSetup: TARGET, pluginUpdate: FAILED_UPDATE, pluginWentBack: undefined }])
     expect(result.outcome).toEqual({ kind: 'done', setup: FAKE_SETUP })
     expect(gateway.plugins.installs).toEqual([{ identifier: PLUGIN_IDENTIFIER, ref: OLD, enable: true, force: true }])
     expect(calls.order()).toEqual(['disable', 'install', 'setup'])
     expect(stored().pluginUpdate).toBeUndefined()
     expect(stored().pendingPluginSetup).toBeUndefined()
+    expect(stored().pluginWentBack).toEqual({ to: OLD, from: TARGET })
   })
 
-  it('keeps the update when Hermes has to restart before the old code answers', async () => {
+  it('ends the update once the install is confirmed, so nothing waits for the failed commit when Hermes has to restart', async () => {
     const gateway = serverAfterFailedUpdate()
     // The new version did not start; once the old files are back, the package of the new one still answers until Hermes restarts.
     gateway.ergates.setHealth(notLoadedThen({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD, loaded_commit: TARGET, catalog_name: null } } }))
@@ -846,11 +847,36 @@ describe('runUpdate: going back', () => {
     const result = await run(gateway, { target: OLD, goingBack: true })
 
     expect(result.outcome).toEqual({ kind: 'restart' })
-    expect(stored().pluginUpdate).toEqual(FAILED_UPDATE)
-    expect(stored().pendingPluginSetup).toBe(OLD)
+    expect(gateway.ergates.setupCalls).toBe(0)
+    expect(stored().pluginUpdate).toBeUndefined()
+    expect(stored().pendingPluginSetup).toBeUndefined()
+    expect(stored().pluginWentBack).toEqual({ to: OLD, from: TARGET })
   })
 
-  it('turns the plugin back on when the install is refused, as an update does', async () => {
+  it('confirms the install it found on the server when the answer to the request was lost', async () => {
+    const gateway = serverAfterFailedUpdate()
+    gateway.plugins.fail('install', networkError(), 'after')
+    gateway.ergates.setHealth(notLoadedThen({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD, loaded_commit: TARGET, catalog_name: null } } }))
+
+    const result = await run(gateway, { target: OLD, goingBack: true })
+
+    expect(result.outcome).toEqual({ kind: 'restart' })
+    expect(stored().pluginUpdate).toBeUndefined()
+    expect(stored().pluginWentBack).toEqual({ to: OLD, from: TARGET })
+  })
+
+  it('keeps a pending setup that is not the failed update\'s', async () => {
+    const gateway = serverAfterFailedUpdate()
+    const other = 'e'.repeat(40)
+    markPendingSetup(connection.id, other)
+    gateway.ergates.setHealth(notLoadedThen({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD, loaded_commit: TARGET, catalog_name: null } } }))
+
+    await run(gateway, { target: OLD, goingBack: true })
+
+    expect(stored().pendingPluginSetup).toBe(other)
+  })
+
+  it('turns the plugin back on when the install is refused, as an update does, and leaves the update in place', async () => {
     const gateway = serverAfterFailedUpdate()
     const calls = watch(gateway)
     gateway.plugins.nextInstall(new GatewayError('unknown', 'Hermes words this its own way.', { code: 'download_failed', status: 400 }))
@@ -860,6 +886,50 @@ describe('runUpdate: going back', () => {
     expect(result.outcome).toEqual({ kind: 'manual', failure: 'download_failed', detail: null })
     expect(calls.order()).toEqual(['disable', 'install', 'enable'])
     expect(stored().pluginUpdate).toEqual(FAILED_UPDATE)
+    expect(stored().pendingPluginSetup).toBe(TARGET)
+    expect(stored().pluginWentBack).toBeUndefined()
+  })
+})
+
+describe('runUpdate: what is left of a going back', () => {
+  const WENT_BACK = { to: OLD, from: TARGET }
+
+  it('is forgotten when a new update starts', async () => {
+    const gateway = runningServer()
+    useDeviceStore.getState().updateConnection(connection.id, { pluginWentBack: WENT_BACK })
+    const disable = gateway.plugins.disable.bind(gateway.plugins)
+    const atDisable: Connection['pluginWentBack'][] = []
+    gateway.plugins.disable = name => {
+      atDisable.push(stored().pluginWentBack)
+      return disable(name)
+    }
+
+    await run(gateway)
+
+    expect(atDisable).toEqual([undefined])
+    expect(stored().pluginWentBack).toBeUndefined()
+  })
+
+  it('stays when the update ends stale, since nothing changed', async () => {
+    const gateway = runningServer()
+    gateway.ergates.setHealth({ state: 'absent' })
+    useDeviceStore.getState().updateConnection(connection.id, { pluginWentBack: WENT_BACK })
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'stale' })
+    expect(stored().pluginWentBack).toEqual(WENT_BACK)
+  })
+
+  it('stays when the update cannot even look at the server', async () => {
+    const gateway = runningServer()
+    gateway.ergates.setHealth(signInRequired())
+    useDeviceStore.getState().updateConnection(connection.id, { pluginWentBack: WENT_BACK })
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'sign_in' })
+    expect(stored().pluginWentBack).toEqual(WENT_BACK)
   })
 })
 
@@ -879,7 +949,7 @@ describe('runUpdate: a plugin whose store cannot open', () => {
     expect(stored().pendingPluginSetup).toBe(TARGET)
   })
 
-  it('does the same going back from a plugin the check called unavailable, and keeps the update', async () => {
+  it('does the same going back from a plugin the check called unavailable, and ends the update it undid', async () => {
     const gateway = runningServer()
     const failed = { target: TARGET, previous: OLD, previousSchema: 1 }
     useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: failed })
@@ -889,8 +959,9 @@ describe('runUpdate: a plugin whose store cannot open', () => {
 
     expect(result.outcome).toEqual({ kind: 'restart' })
     expect(gateway.plugins.installs).toEqual([{ identifier: PLUGIN_IDENTIFIER, ref: OLD, enable: true, force: true }])
-    expect(stored().pluginUpdate).toEqual(failed)
-    expect(stored().pendingPluginSetup).toBe(OLD)
+    expect(stored().pluginUpdate).toBeUndefined()
+    expect(stored().pendingPluginSetup).toBeUndefined()
+    expect(stored().pluginWentBack).toEqual({ to: OLD, from: TARGET })
   })
 
   it('still fails the start for any other error from the plugin', async () => {
@@ -1050,8 +1121,8 @@ describe('a setup after an update that waits for Hermes to restart', () => {
   })
 })
 
-describe('a setup while going back waits for Hermes to restart', () => {
-  it('leaves the pending setup on the commit that loads after the restart, so the setup runs then', async () => {
+describe('a setup after going back waits for Hermes to restart', () => {
+  it('points the pending setup at the commit that loads after the restart, so the setup runs then', async () => {
     const gateway = runningServer()
     const failed = { target: TARGET, previous: OLD, previousSchema: 1 }
     // The update put TARGET on the server and its package was imported, but its routes did not start: going back installs OLD.
@@ -1067,14 +1138,15 @@ describe('a setup while going back waits for Hermes to restart', () => {
 
     const back = await run(gateway, { target: OLD, goingBack: true })
     expect(back.outcome).toEqual({ kind: 'restart' })
-    expect(stored().pendingPluginSetup).toBe(OLD)
+    // Going back leaves nothing pending: the previous version was set up when it was first installed.
+    expect(stored().pendingPluginSetup).toBeUndefined()
+    expect(stored().pluginUpdate).toBeUndefined()
 
     const setup = await runSetup({ port: gateway, build: buildRecord(), connectionId: connection.id }, () => undefined)
 
     expect(setup).toEqual({ kind: 'restart' })
     expect(gateway.ergates.setupCalls).toBe(0)
     expect(stored().pendingPluginSetup).toBe(OLD)
-    expect(stored().pluginUpdate).toEqual(failed)
 
     gateway.ergates.loadedCommit = OLD
     const afterRestart = await finishPendingSetup(gateway, stored(), readyAt(OLD, OLD))
@@ -1082,7 +1154,6 @@ describe('a setup while going back waits for Hermes to restart', () => {
     expect(afterRestart).toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(1)
     expect(stored().pendingPluginSetup).toBeUndefined()
-    expect(stored().pluginUpdate).toBeUndefined()
   })
 })
 
@@ -1549,10 +1620,25 @@ describe('the Finish page after it mounts again', () => {
   const FAILED_UPDATE = { target: TARGET, previous: OLD, previousSchema: 1 }
   const notLoaded: ServerCheck = { kind: 'not_loaded', hermesVersion: '0.21.7' }
 
-  /** What a Finish page that mounts now builds from what the update run and the polls left in memory. */
-  function freshPage(check: ServerCheck) {
-    const update = finishUpdateOf({ started: stored().pluginUpdate, schemaSeen: null, last: lastUpdateRun(connection.id), restartSeen: restartWatchOf(connection.id).seen })
-    return finishView(finishVariant(check, null, update), buildRecord(), check)
+  /** What a Finish page that mounts now builds from the connection and from what the update run and the polls left in memory; after a relaunch that memory is empty. */
+  function freshPage(check: ServerCheck, { relaunched = false, setup = { state: 'pending' } as SetupProgress } = {}) {
+    const last = relaunched ? null : lastUpdateRun(connection.id)
+    const restartSeen = relaunched ? false : restartWatchOf(connection.id).seen
+    const update = finishUpdateOf({ started: stored().pluginUpdate, schemaSeen: null, last, restartSeen, wentBack: stored().pluginWentBack })
+    return finishView(finishVariant(check, null, update), buildRecord(), check, setup)
+  }
+
+  /** A check whose plugin has the files of `commit` and answers with the code of `loaded`. */
+  function checkAt(kind: 'ready' | 'restart_needed' | 'outdated', commit: string, loaded: string = commit): ServerCheck {
+    const health = { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit, loaded_commit: loaded, catalog_name: null } } as const
+    switch (kind) {
+      case 'ready':
+        return { kind, health, update: null, hermesVersion: null }
+      case 'restart_needed':
+        return { kind, health, hermesVersion: null }
+      case 'outdated':
+        return { kind, health, installKind: 'git install', update: null, hermesVersion: null }
+    }
   }
 
   it('keeps the sign of the restart, so a plugin that does not come up is a new version that did not start', async () => {
@@ -1582,12 +1668,17 @@ describe('the Finish page after it mounts again', () => {
     gateway.ergates.setHealth(notLoadedThen({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD, loaded_commit: TARGET, catalog_name: null } } }))
 
     const result = await run(gateway, { target: OLD, goingBack: true })
+    const mixed = checkAt('restart_needed', OLD, TARGET)
 
     expect(result.outcome).toEqual({ kind: 'restart' })
-    expect(freshPage(notLoaded)).toMatchObject({ intro: ['The previous version is installed. Restart Hermes to start it.'], primary: { label: 'Check now', action: 'check' } })
+    for (const relaunched of [false, true]) {
+      expect(freshPage(mixed, { relaunched })).toMatchObject({ intro: ['The previous version is installed. Restart Hermes to start it.'], primary: { label: 'Check now', action: 'check' } })
+    }
+    // Hermes has not loaded anything yet: the page does not offer a second go back to the commit that is already installed.
+    expect(freshPage(notLoaded).primary).toEqual({ label: 'Check now', action: 'check' })
   })
 
-  it('leaves nothing to say about a going back that went through, because it ended the update', async () => {
+  it('says the previous version is back once the going back went through, after a relaunch too', async () => {
     const gateway = runningServer()
     gateway.plugins.installedCommit = TARGET
     markPendingSetup(connection.id, TARGET)
@@ -1598,9 +1689,22 @@ describe('the Finish page after it mounts again', () => {
 
     expect(result.outcome).toMatchObject({ kind: 'done' })
     expect(stored().pluginUpdate).toBeUndefined()
-    // Later in the session the server needs a restart for some other reason: the page does not claim the previous version was just put back.
-    const restartNeeded: ServerCheck = { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: null }
-    const update = finishUpdateOf({ started: stored().pluginUpdate, schemaSeen: null, last: lastUpdateRun(connection.id), restartSeen: false })
-    expect(finishVariant(restartNeeded, null, update)).toEqual({ kind: 'restart', after: null })
+    for (const relaunched of [false, true]) {
+      expect(freshPage(checkAt('ready', OLD), { relaunched, setup: { state: 'done' } }).status).toBe('The previous version is back. Your server is ready.')
+      expect(freshPage(checkAt('outdated', OLD), { relaunched }).intro).toEqual([
+        'The previous version is back, but this app needs a newer plugin. The update did not start on your server.',
+        'The guide shows what to check before you try again.'
+      ])
+    }
+  })
+
+  it('reads a restart for another commit, later, as about that commit and not the going back', async () => {
+    const gateway = runningServer()
+    gateway.plugins.installedCommit = TARGET
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: FAILED_UPDATE })
+    gateway.ergates.setHealth(() => ({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD, loaded_commit: OLD, catalog_name: null } } }))
+    await run(gateway, { target: OLD, goingBack: true })
+
+    expect(freshPage(checkAt('restart_needed', 'e'.repeat(40), OLD)).intro).toEqual(['Hermes has not loaded the Ergates plugin yet.'])
   })
 })

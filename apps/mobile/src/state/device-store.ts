@@ -48,6 +48,13 @@ export interface Connection {
    * installs, and the store schema that decides whether going back is safe.
    */
   pluginUpdate?: { target: string; previous: string; previousSchema: number | null }
+  /**
+   * The app put the previous plugin back after an update that did not start:
+   * `to` is the commit it installed, `from` the commit of the failed update.
+   * Set once that install is confirmed; cleared when a new update starts, or
+   * when a check shows another install commit than `to`.
+   */
+  pluginWentBack?: { to: string; from: string }
   /** The oldest Hermes version seen to start a new plugin without a restart. Later updates on that version or newer run without asking. */
   pluginRemountsFrom?: string
   /** The plugin version the app updated the server to without asking, until Home has told the user once. */
