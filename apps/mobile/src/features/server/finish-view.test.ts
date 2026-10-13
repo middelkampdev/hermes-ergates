@@ -625,11 +625,18 @@ describe('finishVariant: an update the app started', () => {
     expect(finishVariant(waiting, null, update)).toEqual({ kind: 'not_started', previous: '--force && rm -rf', goBack: false })
   })
 
-  it('offers no second go back once the previous version is back, because going back ended the update', () => {
+  it('asks for the restart that starts the previous version once it is back, and offers no second go back, because going back ended the update', () => {
     const back = { ...NO_UPDATE, wentBack: { to: PREVIOUS, from: COMMIT } }
 
-    expect(finishVariant(waiting, null, back)).toEqual({ kind: 'restart', after: null })
-    expect(finishVariant(unavailable, null, back)).toBeNull()
+    // The failed version's routes stay mounted until Hermes restarts: they answer 503 or not at all, and only a restart starts the previous version.
+    expect(finishVariant(waiting, null, back)).toEqual({ kind: 'restart', after: 'go_back' })
+    expect(finishVariant(unavailable, null, back)).toEqual({ kind: 'restart', after: 'go_back' })
+    expect(finishView(finishVariant(unavailable, null, back), buildRecord(), unavailable).intro).toEqual(['The previous version is installed. Restart Hermes to start it.'])
+  })
+
+  it('has nothing to say about a store that cannot open when no update or go back is under way', () => {
+    expect(finishVariant(unavailable, null, NO_UPDATE)).toBeNull()
+    expect(finishVariant(waiting, null, NO_UPDATE)).toEqual({ kind: 'restart', after: null })
   })
 
   /** The variant of each poll in turn, for an update run that ended asking for a restart. */

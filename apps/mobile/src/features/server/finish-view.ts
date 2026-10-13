@@ -294,11 +294,16 @@ function restartVariant(update: FinishUpdate, check: ServerCheck): FinishVariant
   return { kind: 'restart', after: showsWentBack(check, update.wentBack) ? 'go_back' : 'update' }
 }
 
-/** The variant for a plugin that does not answer while an update the app started is under way, or null outside one. */
+/**
+ * The variant for a plugin that does not answer while an update the app
+ * started is under way, or after the app put the previous version back, or
+ * null outside both.
+ */
 function afterUpdate(update: FinishUpdate): FinishVariant | null {
   const { started } = update
   if (started === undefined) {
-    return null
+    // A go back ended the update; the failed version's routes answer until Hermes restarts, and the restart starts the previous version.
+    return update.wentBack !== undefined ? { kind: 'restart', after: 'go_back' } : null
   }
   // Until the server went away, a plugin that does not answer is the restart the update asked for, not a new version that failed to start.
   if (update.awaitingRestart) {
