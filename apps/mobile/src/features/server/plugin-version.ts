@@ -52,8 +52,10 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 | null {
  * replaced, so a phone with an older app never undoes a newer one. `need` is
  * `required` when the plugin cannot serve this app (its API level or store)
  * and `optional` when it works. An equal version is replaced only when the
- * update is `required`: for a working plugin it would let two phones on
- * different builds of one version swap the server back and forth.
+ * update is `required` because the plugin's API level is below this app's:
+ * for a working plugin it would let two phones on different builds of one
+ * version swap the server back and forth, and a store that is read-only stays
+ * so after a reinstall of the same version.
  */
 export function updateOffer(health: ErgatesHealth, build: BuildRecord | null, need: 'optional' | 'required'): UpdateOffer | null {
   const { install } = health
@@ -66,7 +68,8 @@ export function updateOffer(health: ErgatesHealth, build: BuildRecord | null, ne
     return null
   }
   const order = compareVersions(health.plugin_version, version)
-  if (order === null || order === 1 || (order === 0 && need === 'optional')) {
+  const apiLevelBehind = (health.api_level ?? 0) < build.requiredPlugin.apiLevel
+  if (order === null || order === 1 || (order === 0 && !(need === 'required' && apiLevelBehind))) {
     return null
   }
   return { from: health.plugin_version, to: version, commit, previous, previousSchema: health.store?.plugin_schema_version ?? null }

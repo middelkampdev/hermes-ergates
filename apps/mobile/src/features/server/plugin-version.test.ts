@@ -72,13 +72,32 @@ describe('updateOffer: a git install behind this build', () => {
 
 describe('updateOffer: equal versions', () => {
   const sameVersion = installedHealth({ plugin_version: '0.3.0' })
+  const readOnly = { plugin_schema_version: 2, min_schema_version: 3, writable: false }
 
   it('offers no replacement of a working plugin, so two builds of one version never swap it back and forth', () => {
     expect(updateOffer(sameVersion, buildRecord(), 'optional')).toBeNull()
   })
 
-  it('replaces a plugin this app cannot use, because the running plugin cannot serve it', () => {
-    expect(updateOffer(sameVersion, buildRecord(), 'required')).toEqual({ from: '0.3.0', to: '0.3.0', commit: BUILD_COMMIT, previous: INSTALLED_COMMIT, previousSchema: 2 })
+  it('replaces a plugin whose API level is below this app\'s, because the running plugin cannot serve it', () => {
+    expect(updateOffer({ ...sameVersion, api_level: 1 }, buildRecord(), 'required')).toEqual({ from: '0.3.0', to: '0.3.0', commit: BUILD_COMMIT, previous: INSTALLED_COMMIT, previousSchema: 2 })
+  })
+
+  it('does not replace a plugin whose only problem is a read-only store, because a reinstall of that version cannot fix the store', () => {
+    expect(updateOffer({ ...sameVersion, store: readOnly }, buildRecord(), 'required')).toBeNull()
+  })
+
+  it('replaces a plugin with a read-only store when its API level is below this app\'s too', () => {
+    expect(updateOffer({ ...sameVersion, api_level: 1, store: readOnly }, buildRecord(), 'required')).toMatchObject({ commit: BUILD_COMMIT })
+  })
+
+  it('counts a plugin that reports no API level as level 0', () => {
+    const { api_level: _level, ...withoutLevel } = sameVersion
+
+    expect(updateOffer(withoutLevel, buildRecord(), 'required')).toMatchObject({ commit: BUILD_COMMIT })
+  })
+
+  it('still replaces a lower version with a read-only store, as an update of the plugin may make its store writable again', () => {
+    expect(updateOffer({ ...installedHealth(), store: readOnly }, buildRecord(), 'required')).toMatchObject({ commit: BUILD_COMMIT })
   })
 })
 
