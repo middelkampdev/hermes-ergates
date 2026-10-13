@@ -33,7 +33,8 @@ RECEIPT_KEYS = {"id", "request_id", "profile", "state", "job_id", "timezone_advi
 PROPOSAL_RECEIPT_KEYS = {"proposal_id", "state", "reserved_profile_name", "expires_at", "completed_steps",
                          "step_status", "next_step", "template"}
 SWEEP_STATUS = {"interval_seconds": 120, "last_run_at": 1_760_000_000.0, "last_error": None}
-INSTALL = {"kind": "git install", "commit": "0123456789abcdef0123456789abcdef01234567", "catalog_name": None}
+INSTALL = {"kind": "git install", "commit": "0123456789abcdef0123456789abcdef01234567", "catalog_name": None,
+           "loaded_commit": "0123456789abcdef0123456789abcdef01234567"}
 PUSH_STATUS = {"configured": True, "token_set": False, "legacy_config_token": False}
 
 
@@ -175,13 +176,19 @@ def test_health_reports_every_field_the_app_reads(ops, hermes, tmp_path):
     reply = ops.health()
 
     assert (reply.status, reply.body) == (200, {
-        "ok": True, "plugin_version": ergates.__version__, "api_level": 1, "min_api_level": 1, "schema_version": 2,
+        "ok": True, "plugin_version": ergates.__version__, "api_level": 2, "min_api_level": 1, "schema_version": 2,
         "store": {"plugin_schema_version": 2, "min_schema_version": 2, "writable": True},
         "install": INSTALL,
         "setup": {"finished": True, "templates": "installed", "profiles": [{"name": "default", "enabled": True}]},
         "push": {"configured": True, "token_set": False, "legacy_config_token": False},
         "sweep": SWEEP_STATUS,
     })
+
+
+def test_the_api_levels_are_the_ones_this_release_serves():
+    """The app relies on ``install.loaded_commit``, which level 1 plugins do not report, so the level is 2;
+    level 1 is still served for one more release."""
+    assert (ergates.API_LEVEL, ergates.MIN_API_LEVEL) == (2, 1)
 
 
 def test_min_api_level_is_at_most_api_level():
@@ -258,13 +265,14 @@ def test_health_says_whether_the_bad_template_is_the_bundled_one_or_an_installed
 
 
 def test_health_reports_the_install_as_it_is_at_each_call(store, cron, clock, hermes, tmp_path):
-    states = iter([dict(INSTALL), {"kind": "deployment", "commit": None, "catalog_name": None}])
+    deployment = {"kind": "deployment", "commit": None, "catalog_name": None, "loaded_commit": None}
+    states = iter([dict(INSTALL), deployment])
     ops = _operations(store, cron, clock, hermes, tmp_path, install=lambda: next(states))
 
     first, second = ops.health(), ops.health()
 
     assert first.body["install"] == INSTALL
-    assert second.body["install"] == {"kind": "deployment", "commit": None, "catalog_name": None}
+    assert second.body["install"] == deployment
 
 
 def test_health_reports_push_as_booleans_and_never_a_value(store, cron, clock, hermes, tmp_path):

@@ -26,6 +26,9 @@ on their first request after an install, so the gateway and cron processes
 start no sweep. A sweep that cannot start is logged by error class and named
 in ``GET /health``; the router still mounts.
 
+Importing it also records the commit the plugin was installed at, which
+``GET /health`` reports as ``install.loaded_commit`` (see ``install``).
+
 Hermes imports this file under its own module name, outside any package, so
 the plugin folder is added to ``sys.path`` to import the ``ergates`` package.
 The Hermes boundary
@@ -99,15 +102,28 @@ def sweep_status() -> dict:
     return _sweep.status()
 
 
+def _read_install() -> dict:
+    return install_info(
+        hermes_adapter.install_record(), hermes_adapter.root_plugin_dir(), os.environ.get(INSTALL_KIND_ENV),
+    )
+
+
+# The commit Hermes's install record named when Hermes imported this file. A reinstall replaces the plugin's files
+# and the record, but a running server keeps the routes it mounted, so this stays the commit of the code that
+# answers until the server restarts.
+_loaded_commit: Optional[str] = _read_install()["commit"]
+
+
 def install() -> dict:
     """How the plugin got here, for ``GET /health`` (``ergates.install_info``), read at each call.
 
     The ``ERGATES_INSTALL_KIND`` marker is read from the environment at each
-    call, not when the operations are built.
+    call, not when the operations are built. ``loaded_commit`` is the
+    exception: it was read once, when this file was imported, so it differs
+    from ``commit`` after a reinstall until Hermes restarts. It is ``None``
+    for a manual copy and a deployment, which have no commit.
     """
-    return install_info(
-        hermes_adapter.install_record(), hermes_adapter.root_plugin_dir(), os.environ.get(INSTALL_KIND_ENV),
-    )
+    return {**_read_install(), "loaded_commit": _loaded_commit}
 
 
 def operations() -> Operations:

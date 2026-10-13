@@ -448,9 +448,9 @@ version of the file (see "What it writes"). The body of a plugin installed
 from a git commit, with the setup finished:
 
 ```json
-{"ok": true, "plugin_version": "<version>", "api_level": 1, "min_api_level": 1, "schema_version": 2,
+{"ok": true, "plugin_version": "<version>", "api_level": 2, "min_api_level": 1, "schema_version": 2,
  "store": {"plugin_schema_version": 2, "min_schema_version": 2, "writable": true},
- "install": {"kind": "git install", "commit": "<40 hex>", "catalog_name": null},
+ "install": {"kind": "git install", "commit": "<40 hex>", "catalog_name": null, "loaded_commit": "<40 hex>"},
  "setup": {"finished": true, "templates": "installed", "profiles": [{"name": "default", "enabled": true}]},
  "push": {"configured": true, "token_set": true, "legacy_config_token": false},
  "sweep": {"interval_seconds": 120, "last_run_at": 1760000000.0, "last_error": null}}
@@ -482,6 +482,14 @@ from a git commit, with the setup finished:
   `manual copy`: anything else, a copied or linked folder included. Only a
   git install has a `commit`. The answer never carries the record's `source`
   or a path.
+
+  `loaded_commit` is the commit the record named when Hermes imported the
+  plugin's routes, so it names the code that is answering. `commit` is read at
+  every call. A reinstall replaces the files and the record, while a running
+  Hermes keeps the routes it mounted. After a reinstall `commit` is the new
+  commit and `loaded_commit` is still the old one: restart Hermes to run the
+  new code. `loaded_commit` is `null` for a manual copy and a deployment, and
+  a plugin from before API level 2 does not report it.
 - `setup` is the report `POST /setup` would give now, read without writing.
   `finished` is true only when `templates` is `installed`, there is at least
   one profile and every profile is enabled. `templates` is `installed`,
@@ -518,7 +526,8 @@ be read, so the setup, push and install parts above never turn into an error
 of their own. Checking the plugin in every profile and parsing `config.yaml`
 is slow, so `setup` and `push` are reused for 10 seconds (`POST /setup` and
 `POST /profiles/{profile}/plugin` drop them at once); `store`, `install` and
-`sweep` are read at every call.
+`sweep` are read at every call, except `install.loaded_commit`, which is read
+once when the routes are imported.
 
 ## Tools and the tool gate
 
