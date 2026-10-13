@@ -1442,7 +1442,7 @@ describe('the Finish page after it mounts again', () => {
     expect(freshPage(notLoaded)).toMatchObject({ intro: ['The previous version is installed. Restart Hermes to start it.'], primary: { label: 'Check now', action: 'check' } })
   })
 
-  it('still knows the previous version is back after a going back that went through', async () => {
+  it('leaves nothing to say about a going back that went through, because it ended the update', async () => {
     const gateway = runningServer()
     gateway.plugins.installedCommit = TARGET
     markPendingSetup(connection.id, TARGET)
@@ -1452,7 +1452,10 @@ describe('the Finish page after it mounts again', () => {
     const result = await run(gateway, { target: OLD, previous: TARGET, goingBack: true })
 
     expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(stored().pluginUpdate).toBeUndefined()
+    // Later in the session the server needs a restart for some other reason: the page does not claim the previous version was just put back.
+    const restartNeeded: ServerCheck = { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: null }
     const update = finishUpdateOf({ started: stored().pluginUpdate, schemaSeen: null, last: lastUpdateRun(connection.id), restartSeen: false })
-    expect(update.wentBack).toBe(true)
+    expect(finishVariant(restartNeeded, null, update)).toEqual({ kind: 'restart', after: null })
   })
 })

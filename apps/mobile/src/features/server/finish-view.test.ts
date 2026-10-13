@@ -611,6 +611,13 @@ describe('finishVariant: an update the app started', () => {
     expect(finishVariant(waiting, null, updating({ awaitingRestart: true, wentBack: true }))).toEqual({ kind: 'restart', after: 'go_back' })
   })
 
+  it('asks for a plain restart when the server needs one after the update is over, although a go back is in memory', () => {
+    const over = finishUpdateOf({ started: undefined, schemaSeen: null, last: { outcome: { kind: 'restart' }, goingBack: true }, restartSeen: false })
+
+    expect(finishVariant(restartNeeded, null, over)).toEqual({ kind: 'restart', after: null })
+    expect(finishView(finishVariant(restartNeeded, null, over), buildRecord(), restartNeeded).intro).toEqual(['Hermes has not loaded the Ergates plugin yet.'])
+  })
+
   it('says the previous version is back when the go back ended asking for a restart, whichever way the plugin answers', () => {
     for (const check of [waiting, unavailable, restartNeeded]) {
       expect(finishVariant(check, null, updating({ wentBack: true }))).toEqual({ kind: 'restart', after: 'go_back' })
@@ -676,6 +683,12 @@ describe('finishUpdateOf: what the screen knows about the update', () => {
     ['went through', { kind: 'done', setup: FAKE_SETUP }]
   ])('says the previous version is back when a going back %s, however long ago the page was opened', (_title, outcome) => {
     expect(finishUpdateOf({ ...base, last: wentBack(outcome) }).wentBack).toBe(true)
+  })
+
+  it('does not say the previous version is back once the update is over, whatever the session still remembers', () => {
+    for (const outcome of [{ kind: 'restart' }, { kind: 'done', setup: FAKE_SETUP }] as UpdateOutcome[]) {
+      expect(finishUpdateOf({ ...base, started: undefined, last: wentBack(outcome) }).wentBack).toBe(false)
+    }
   })
 
   it.each<[string, LastUpdateRun | null]>([
@@ -919,6 +932,13 @@ describe('finishView: what the status line says when the plugin cannot serve the
 
   it('keeps waiting while an update the app installed waits for its restart, where the page already says what to do', () => {
     expect(finishView({ kind: 'restart', after: 'update' }, buildRecord(), unavailable).status).toBe('Waiting for your server…')
+  })
+
+  it('shows the notice again after the previous version was put back, where the page asks only for a restart', () => {
+    const goBack: FinishVariant = { kind: 'restart', after: 'go_back' }
+
+    expect(finishView(goBack, buildRecord(), unavailable).status).toBe('The Ergates plugin cannot open its data on this server: The store is busy.')
+    expect(finishView(goBack, buildRecord(), { kind: 'app_outdated', health: FAKE_PLUGIN_HEALTH }).status).toBe("This server's Ergates plugin needs a newer version of this app. Update Ergates.")
   })
 
   it('shows the notice of a plugin that is newer than the app instead of waiting', () => {

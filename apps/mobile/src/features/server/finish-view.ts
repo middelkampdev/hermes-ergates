@@ -103,14 +103,16 @@ export interface FinishUpdateParts {
  * What the screen knows about the update. It all comes from memory the update
  * run keeps, so a page that mounts again knows the same. After a relaunch no
  * run is in memory, so no restart is waited for and the previous version is
- * not known to be back.
+ * not known to be back. The previous version counts as back only while the
+ * update is on record (`started`): once the setup ran and cleared it, the
+ * update is over, and a later restart is not about it.
  */
 export function finishUpdateOf({ started, schemaSeen, last, restartSeen }: FinishUpdateParts): FinishUpdate {
   const kind = last?.outcome.kind
   return {
     started,
     schemaSeen,
-    wentBack: last?.goingBack === true && (kind === 'restart' || kind === 'done'),
+    wentBack: started !== undefined && last?.goingBack === true && (kind === 'restart' || kind === 'done'),
     byHand: last?.goingBack === false && kind === 'manual',
     awaitingRestart: last?.goingBack === false && kind === 'restart' && !restartSeen
   }
@@ -424,7 +426,7 @@ function statusOf(variant: FinishVariant | null, check: ServerCheck | null, setu
     return updateStillOpen(variant, check) ? WAITING : setup.state === 'failed' ? setup.message : CHECKING
   }
   // During an update the page already says what to do.
-  const updating = variant?.kind === 'not_started' || (variant?.kind === 'restart' && variant.after !== null)
+  const updating = variant?.kind === 'not_started' || (variant?.kind === 'restart' && variant.after === 'update')
   if ((check.kind === 'app_outdated' || check.kind === 'unavailable') && !updating) {
     return pluginNotice(check)?.text ?? WAITING
   }
