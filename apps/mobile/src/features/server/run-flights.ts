@@ -37,8 +37,14 @@ export class Flights<Step, Status, Outcome> {
   /**
    * Starts the run `work` begins and records it until its promise settles.
    * `work` reports each transition through the function it is given.
+   * `goingBack` tells the connection's other kind of caller what is running.
    */
-  start(connectionId: string, onStep: (step: Step, status: Status) => void, work: (report: (step: Step, status: Status) => void) => Promise<Outcome>): Promise<Outcome> {
+  start(
+    connectionId: string,
+    onStep: (step: Step, status: Status) => void,
+    work: (report: (step: Step, status: Status) => void) => Promise<Outcome>,
+    goingBack = false
+  ): Promise<Outcome> {
     const statuses = new Map<Step, Status>()
     const listeners = [onStep]
     const promise = work((step, status) => {
@@ -46,7 +52,7 @@ export class Flights<Step, Status, Outcome> {
       listeners.forEach(listener => listener(step, status))
     })
     this.going.set(connectionId, { promise, statuses, listeners })
-    trackRun(connectionId, this.kind, promise)
+    trackRun(connectionId, this.kind, goingBack, promise)
     const forget = () => {
       this.going.delete(connectionId)
     }

@@ -23,11 +23,16 @@ const finishing = new Map<string, Promise<SetupState>>()
 export type RunKind = 'setup' | 'update'
 
 /** The runs going, by connection, until each ends. */
-const runs = new Map<string, RunKind>()
+const runs = new Map<string, { kind: RunKind; goingBack: boolean }>()
 
 /** Which run is going for the connection, or null. */
 export function runningKind(connectionId: string): RunKind | null {
-  return runs.get(connectionId) ?? null
+  return runs.get(connectionId)?.kind ?? null
+}
+
+/** Whether the run going for the connection is a going back. */
+export function isGoingBack(connectionId: string): boolean {
+  return runs.get(connectionId)?.goingBack === true
 }
 
 /**
@@ -40,8 +45,8 @@ export function isSetupRunning(connectionId: string): boolean {
 }
 
 /** Records that a run is going for the connection until `run` settles. Kept here, not in the run modules, because they import this one. */
-export function trackRun(connectionId: string, kind: RunKind, run: Promise<unknown>): void {
-  runs.set(connectionId, kind)
+export function trackRun(connectionId: string, kind: RunKind, goingBack: boolean, run: Promise<unknown>): void {
+  runs.set(connectionId, { kind, goingBack })
   const forget = () => {
     runs.delete(connectionId)
   }

@@ -24,7 +24,7 @@ import { PLUGIN_INSTALL_TIMEOUT_MS, type GatewayPort } from '@/gateway/port'
 import type { PluginInstallCode, PluginInstallResult, PluginProbe, SetupState } from '@/gateway/types'
 
 import { COMMIT_PATTERN, PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
-import { clearPendingSetupIfUnchanged, isSetupRunning, markPendingSetup, pendingSnapshot, runningKind } from './pending-setup'
+import { clearPendingSetupIfUnchanged, isGoingBack, isSetupRunning, markPendingSetup, pendingSnapshot, runningKind } from './pending-setup'
 import { Flights } from './run-flights'
 import { hubRow, pluginPresence, waitsForRestart } from './server-check'
 
@@ -65,6 +65,7 @@ const LOST_CONNECTION = 'Lost the connection to your server during setup.'
 export const NOT_LOADED = 'Hermes did not load the plugin.'
 const UNEXPECTED = 'Something went wrong during setup.'
 const UPDATE_RUNNING = 'The plugin is being updated. Try again when it is done.'
+const GOING_BACK_RUNNING = 'Going back is running. Try again when it is done.'
 
 const KNOWN_FAILURES: readonly ManualFailure[] = ['scan_blocked', 'no_git', 'download_failed', 'enable_refused']
 
@@ -249,20 +250,23 @@ class SetupRun {
   }
 
   /**
-   * Points the pending setup at the commit the answering code was loaded
-   * from, so that the flag names code that can load: the plugin already on the
-   * server may be another commit than this build's. Code that is older than
-   * the files on the server is left alone, because the setup belongs to the
-   * commit that loads after the restart.
+   * Points the pending setup at the commit whose setup the plugin on the
+   * server can run, so that the flag names code that can load: the plugin
+   * already there may be another commit than this build's. That is the commit
+   * the answering code was loaded from, or, when the files changed under it
+   * and Hermes has to restart, the commit of the files, which loads then.
    */
   private follow(probe: PluginProbe): void {
-    if (probe.state !== 'answered' || waitsForRestart(probe.health, this.build)) {
+    if (probe.state !== 'answered') {
       return
     }
     const { install } = probe.health
-    const loaded = install?.kind === 'git install' ? install.loaded_commit : undefined
-    if (typeof loaded === 'string' && COMMIT_PATTERN.test(loaded)) {
-      markPendingSetup(this.connectionId, loaded)
+    if (install?.kind !== 'git install') {
+      return
+    }
+    const commit = waitsForRestart(probe.health, this.build) ? install.commit : install.loaded_commit
+    if (typeof commit === 'string' && COMMIT_PATTERN.test(commit)) {
+      markPendingSetup(this.connectionId, commit)
     }
   }
 
@@ -338,11 +342,11 @@ class SetupRun {
     this.begin('start')
     const found = await waitForRoutes(this.port)
     if (found.state === 'answered') {
+      this.follow(found)
       // The files changed under the running code: its setup is not the new code's.
       if (waitsForRestart(found.health, this.build)) {
         return { kind: 'restart' }
       }
-      this.follow(found)
       this.end('start', 'done')
       return null
     }
@@ -392,8 +396,8 @@ function rememberManual(connectionId: string, outcome: SetupOutcome): SetupOutco
  * it (the port and build of the call are not used): `onStep` first gets the
  * latest status of every step that has reported, then every later transition,
  * and the promise settles with the same outcome. The call after the run ended
- * starts a new one. A call while an update is going touches nothing and fails
- * with a message that says so.
+ * starts a new one. A call while an update or going back is running touches
+ * nothing and fails with a message that names that run.
  */
 export function runSetup(deps: SetupDeps, onStep: (step: SetupStep, status: StepStatus) => void): Promise<SetupOutcome> {
   const joined = flights.join(deps.connectionId, onStep)
@@ -401,7 +405,7 @@ export function runSetup(deps: SetupDeps, onStep: (step: SetupStep, status: Step
     return joined
   }
   if (runningKind(deps.connectionId) !== null) {
-    return Promise.resolve({ kind: 'failed', step: 'install', message: UPDATE_RUNNING })
+    return Promise.resolve({ kind: 'failed', step: 'install', message: isGoingBack(deps.connectionId) ? GOING_BACK_RUNNING : UPDATE_RUNNING })
   }
   manualOutcomes.delete(deps.connectionId)
   const { commit } = deps.build.requiredPlugin

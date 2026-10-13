@@ -132,9 +132,9 @@ function run(gateway: FakeGateway, overrides?: Partial<UpdateDeps>): Promise<Run
   return start(gateway, overrides).finish()
 }
 
-/** The check of a plugin whose answering code was loaded from `loaded`. */
-function readyAt(loaded: string): ServerCheck {
-  const install = { kind: 'git install', commit: TARGET, loaded_commit: loaded, catalog_name: null } as const
+/** The check of a plugin whose answering code was loaded from `loaded`, with the files of `commit` on the server. */
+function readyAt(loaded: string, commit = TARGET): ServerCheck {
+  const install = { kind: 'git install', commit, loaded_commit: loaded, catalog_name: null } as const
   return { kind: 'ready', health: { ...FAKE_PLUGIN_HEALTH, install }, update: null, hermesVersion: null }
 }
 
@@ -912,6 +912,36 @@ describe('a setup after an update that waits for Hermes to restart', () => {
   })
 })
 
+describe('a setup while going back waits for Hermes to restart', () => {
+  it('leaves the pending setup on the commit that loads after the restart, so the setup runs then', async () => {
+    const gateway = runningServer()
+    const failed = { target: TARGET, previous: OLD, previousSchema: 1 }
+    // The update put TARGET on the server and its code runs, but it did not start well: going back installs OLD.
+    gateway.plugins.installedCommit = TARGET
+    gateway.ergates.loadedCommit = TARGET
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: failed })
+
+    const back = await run(gateway, { target: OLD, previous: TARGET, goingBack: true })
+    expect(back.outcome).toEqual({ kind: 'restart' })
+    expect(stored().pendingPluginSetup).toBe(OLD)
+
+    const setup = await runSetup({ port: gateway, build: buildRecord(), connectionId: connection.id }, () => undefined)
+
+    expect(setup).toEqual({ kind: 'restart' })
+    expect(gateway.ergates.setupCalls).toBe(0)
+    expect(stored().pendingPluginSetup).toBe(OLD)
+    expect(stored().pluginUpdate).toEqual(failed)
+
+    gateway.ergates.loadedCommit = OLD
+    const afterRestart = await finishPendingSetup(gateway, stored(), readyAt(OLD, OLD))
+
+    expect(afterRestart).toEqual(FAKE_SETUP)
+    expect(gateway.ergates.setupCalls).toBe(1)
+    expect(stored().pendingPluginSetup).toBeUndefined()
+    expect(stored().pluginUpdate).toBeUndefined()
+  })
+})
+
 describe('runUpdate: the connection changes while the plugin\'s setup runs', () => {
   const NEWER = 'e'.repeat(40)
   const next = { target: NEWER, previous: TARGET, previousSchema: 2 }
@@ -983,6 +1013,23 @@ describe('runUpdate: one run per connection', () => {
     ])
     expect(gateway.plugins.disabled).toHaveLength(1)
     expect(gateway.plugins.installs).toHaveLength(1)
+  })
+
+  it('refuses a setup while going back is running, and says so', async () => {
+    const gateway = runningServer()
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: { target: TARGET, previous: OLD, previousSchema: 1 } })
+    gateway.plugins.fail('install', networkError())
+    const going = start(gateway, { target: OLD, previous: TARGET, goingBack: true })
+    await vi.advanceTimersByTimeAsync(1_000)
+    const health = vi.spyOn(gateway.ergates, 'health')
+
+    const refused = await runSetup({ port: gateway, build: buildRecord(), connectionId: connection.id }, () => undefined)
+
+    expect(refused).toEqual({ kind: 'failed', step: 'install', message: 'Going back is running. Try again when it is done.' })
+    expect(health).not.toHaveBeenCalled()
+    gateway.plugins.installedCommit = OLD
+    gateway.plugins.rows[0].runtime_status = 'enabled'
+    await going.finish()
   })
 
   it('refuses a call for another target while an update is going, instead of giving it the outcome of the other', async () => {

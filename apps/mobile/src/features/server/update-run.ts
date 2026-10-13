@@ -23,7 +23,7 @@ import { useDeviceStore } from '@/state/device-store'
 
 import { COMMIT_PATTERN, PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
 import { parseHermesVersion } from './hermes-version'
-import { clearPendingSetupIfUnchanged, markPendingSetup, pendingSnapshot, runningKind } from './pending-setup'
+import { clearPendingSetupIfUnchanged, isGoingBack, markPendingSetup, pendingSnapshot, runningKind } from './pending-setup'
 import { Flights } from './run-flights'
 import { hermesVersionOf, hubRow } from './server-check'
 import { installAndWait, manualFailure, NOT_LOADED, probeHealth, waitForRoutes, type ManualOutcome, type StepStatus } from './setup-run'
@@ -295,8 +295,8 @@ function installable({ build, connectionId, target, goingBack }: UpdateDeps): bo
   return goingBack ? pendingSnapshot(connectionId).update?.previous === target : target === build.requiredPlugin.commit
 }
 
-/** What the connection's latest update run installs. Read only while that run is going, so an old entry is never taken for the current one. */
-const latest = new Map<string, { target: string; goingBack: boolean }>()
+/** The commit the connection's latest update run installs. Read only while that run is going, so an old entry is never taken for the current one. */
+const latest = new Map<string, string>()
 
 /**
  * Replaces the plugin on the server with `target` and says how it went.
@@ -320,9 +320,8 @@ export function runUpdate(deps: UpdateDeps, onStep: (step: UpdateStep, status: S
     return Promise.resolve({ kind: 'failed', step: 'pause', message: SETUP_RUNNING })
   }
   if (kind === 'update') {
-    const going = latest.get(connectionId)
-    if (going === undefined || going.target !== target || going.goingBack !== goingBack) {
-      return Promise.resolve({ kind: 'failed', step: 'pause', message: going?.goingBack ? GOING_BACK_RUNNING : UPDATE_RUNNING })
+    if (latest.get(connectionId) !== target || isGoingBack(connectionId) !== goingBack) {
+      return Promise.resolve({ kind: 'failed', step: 'pause', message: isGoingBack(connectionId) ? GOING_BACK_RUNNING : UPDATE_RUNNING })
     }
     return flights.join(connectionId, onStep) ?? Promise.resolve({ kind: 'failed', step: 'pause', message: UPDATE_RUNNING })
   }
@@ -330,7 +329,7 @@ export function runUpdate(deps: UpdateDeps, onStep: (step: UpdateStep, status: S
   if (!installable(deps)) {
     return Promise.resolve(remember(connectionId, { kind: 'manual', failure: 'refused', detail: null }))
   }
-  latest.set(connectionId, { target, goingBack })
+  latest.set(connectionId, target)
   // Remembered before the outcome reaches anything that waits for it, so a screen opened by it finds it.
-  return flights.start(connectionId, onStep, report => new UpdateRun(deps, report).execute().then(outcome => remember(connectionId, outcome)))
+  return flights.start(connectionId, onStep, report => new UpdateRun(deps, report).execute().then(outcome => remember(connectionId, outcome)), goingBack)
 }

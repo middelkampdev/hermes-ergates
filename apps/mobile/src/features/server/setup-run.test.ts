@@ -603,15 +603,28 @@ describe('runSetup: the code that answers', () => {
     expect(flag()).toBe(COMMIT)
   })
 
-  it('leaves the pending setup to the commit the files name, so the setup that follows the restart runs on the new code', async () => {
+  it('points the pending setup at the commit the files name, so the setup that follows the restart runs on the new code', async () => {
     const gateway = serverListing('enabled')
     gateway.ergates.setHealth({ state: 'answered', health: healthAt(OTHER, OLD_CODE) })
+    const update = { target: OTHER, previous: OLD_CODE, previousSchema: 1 }
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: update })
 
-    await run(gateway)
-    const onOldCode = await finishPendingSetup(gateway, useDeviceStore.getState().connections[0], readyCheck(healthAt(OTHER, OLD_CODE)))
+    const result = await run(gateway)
+    const pending = useDeviceStore.getState().connections[0]
+    const onOldCode = await finishPendingSetup(gateway, pending, readyCheck(healthAt(OTHER, OLD_CODE)))
 
+    expect(result.outcome).toEqual({ kind: 'restart' })
     expect(onOldCode).toBeNull()
-    expect(flag()).toBe(COMMIT)
+    expect(gateway.ergates.setupCalls).toBe(0)
+    expect(flag()).toBe(OTHER)
+    expect(useDeviceStore.getState().connections[0].pluginUpdate).toEqual(update)
+
+    const afterRestart = await finishPendingSetup(gateway, useDeviceStore.getState().connections[0], readyCheck(healthAt(OTHER)))
+
+    expect(afterRestart).toEqual(FAKE_SETUP)
+    expect(gateway.ergates.setupCalls).toBe(1)
+    expect(flag()).toBeUndefined()
+    expect(useDeviceStore.getState().connections[0].pluginUpdate).toBeUndefined()
   })
 
   it('does not ask for a restart for a plugin that cannot read its own record', async () => {
@@ -653,7 +666,7 @@ describe('runSetup: the code that answers', () => {
   it.each<[string, ErgatesHealth]>([
     ['no commit it reports', healthAt(OTHER, 'unreported')],
     ['a commit it could not read', healthAt(OTHER, null)],
-    ['something that is not a full commit', healthAt(OTHER, 'main')],
+    ['a commit that is not a full hash', healthAt('main', 'main')],
     ['a deployment', { ...FAKE_PLUGIN_HEALTH, install: { kind: 'deployment', commit: null, loaded_commit: null, catalog_name: null } }],
     ['a plugin that says nothing about its install', { ...FAKE_PLUGIN_HEALTH, install: undefined }]
   ])('keeps the build\'s commit in the pending setup for %s', async (_title, health) => {
