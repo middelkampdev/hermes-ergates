@@ -24,7 +24,8 @@ import { PLUGIN_INSTALL_TIMEOUT_MS, type GatewayPort } from '@/gateway/port'
 import type { PluginInstallCode, PluginInstallResult, PluginProbe, SetupState } from '@/gateway/types'
 
 import { PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
-import { clearPendingSetup, isSetupRunning, markPendingSetup, trackSetupRun } from './pending-setup'
+import { clearPendingSetup, isSetupRunning, markPendingSetup, runningKind } from './pending-setup'
+import { Flights } from './run-flights'
 import { hubRow, pluginPresence } from './server-check'
 
 /** Whether a run is going for the connection; `pending-setup.ts` owns the answer so that it can check it without importing this module. */
@@ -63,6 +64,7 @@ const LOST_CONNECTION = 'Lost the connection to your server during setup.'
 /** What a run says when the plugin is installed and enabled but Hermes never serves it. */
 export const NOT_LOADED = 'Hermes did not load the plugin.'
 const UNEXPECTED = 'Something went wrong during setup.'
+const UPDATE_RUNNING = 'The plugin is being updated. Try again when it is done.'
 
 const KNOWN_FAILURES: readonly ManualFailure[] = ['scan_blocked', 'no_git', 'download_failed', 'enable_refused']
 
@@ -329,15 +331,7 @@ class SetupRun {
   }
 }
 
-interface Flight {
-  promise: Promise<SetupOutcome>
-  /** The latest status of each step that has reported, in the order the steps first reported. */
-  statuses: Map<SetupStep, StepStatus>
-  listeners: ((step: SetupStep, status: StepStatus) => void)[]
-}
-
-/** The run that is going for each connection. */
-const flights = new Map<string, Flight>()
+const flights = new Flights<SetupStep, StepStatus, SetupOutcome>('setup')
 
 /** How the last run of each connection ended when it ended in the manual path. Kept in memory only. */
 const manualOutcomes = new Map<string, ManualOutcome>()
@@ -366,38 +360,28 @@ function rememberManual(connectionId: string, outcome: SetupOutcome): SetupOutco
  * the run returns. The build must carry a commit to install: a build without
  * one is answered with the manual path before anything else happens.
  *
- * One run goes at a time per connection. A call while one is going joins it
- * (the port and build of the call are not used): `onStep` first gets the
+ * One run goes at a time per connection. A call while a setup is going joins
+ * it (the port and build of the call are not used): `onStep` first gets the
  * latest status of every step that has reported, then every later transition,
  * and the promise settles with the same outcome. The call after the run ended
- * starts a new one.
+ * starts a new one. A call while an update is going touches nothing and fails
+ * with a message that says so.
  */
-export async function runSetup(deps: SetupDeps, onStep: (step: SetupStep, status: StepStatus) => void): Promise<SetupOutcome> {
-  const going = flights.get(deps.connectionId)
-  if (going) {
-    going.statuses.forEach((status, step) => onStep(step, status))
-    going.listeners.push(onStep)
-    return going.promise
+export function runSetup(deps: SetupDeps, onStep: (step: SetupStep, status: StepStatus) => void): Promise<SetupOutcome> {
+  const joined = flights.join(deps.connectionId, onStep)
+  if (joined !== null) {
+    return joined
+  }
+  if (runningKind(deps.connectionId) !== null) {
+    return Promise.resolve({ kind: 'failed', step: 'install', message: UPDATE_RUNNING })
   }
   manualOutcomes.delete(deps.connectionId)
   const { commit } = deps.build.requiredPlugin
   if (commit === null) {
-    return rememberManual(deps.connectionId, { kind: 'manual', failure: 'refused', detail: null })
+    return Promise.resolve(rememberManual(deps.connectionId, { kind: 'manual', failure: 'refused', detail: null }))
   }
-  const statuses = new Map<SetupStep, StepStatus>()
-  const listeners = [onStep]
   // Remembered before the outcome reaches anything that waits for it, so a screen opened by it finds it.
-  const promise = new SetupRun(deps, commit, (step, status) => {
-    statuses.set(step, status)
-    listeners.forEach(listener => listener(step, status))
-  })
-    .execute()
-    .then(outcome => rememberManual(deps.connectionId, outcome))
-  flights.set(deps.connectionId, { promise, statuses, listeners })
-  trackSetupRun(deps.connectionId, promise)
-  const forget = () => {
-    flights.delete(deps.connectionId)
-  }
-  void promise.then(forget, forget)
-  return promise
+  return flights.start(deps.connectionId, onStep, report =>
+    new SetupRun(deps, commit, report).execute().then(outcome => rememberManual(deps.connectionId, outcome))
+  )
 }

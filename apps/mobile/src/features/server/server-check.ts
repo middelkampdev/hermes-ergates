@@ -67,7 +67,7 @@ export function pluginFits(health: ErgatesHealth, appLevel: number): PluginFit {
 }
 
 /** Hermes's version as `status` reports it, or null when `status` fails: a failed read never stops the check. */
-async function hermesVersionOf(port: GatewayPort): Promise<string | null> {
+export async function hermesVersionOf(port: GatewayPort): Promise<string | null> {
   try {
     return (await port.status()).version
   } catch {

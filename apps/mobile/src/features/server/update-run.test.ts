@@ -1,0 +1,1009 @@
+/**
+ * The update run replaces the plugin on a server with the build's commit:
+ * turn it off, install over it, check what answers, run the plugin's setup.
+ * The tests drive it with FakeGateway, which refuses a forced install over a
+ * plugin that is turned on and keeps the old code mounted after a
+ * replacement, as Hermes does until it restarts.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
+
+import { GatewayError, mapHttpError } from '@/gateway/errors'
+import { PLUGIN_INSTALL_TIMEOUT_MS } from '@/gateway/port'
+import { mapPluginInstallError } from '@/gateway/real/plugins-api'
+import type { PluginInstallCode } from '@/gateway/types'
+import { useDeviceStore, type Connection } from '@/state/device-store'
+import { FAKE_PLUGIN_COMMIT, FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-gateway/fake-ergates'
+import { FakeGateway } from '@test/fake-gateway/fake-gateway'
+
+import { PLUGIN_IDENTIFIER, type BuildRecord } from './build-record'
+import { finishPendingSetup, markPendingSetup } from './pending-setup'
+import type { ServerCheck } from './server-check'
+import { INSTALL_RACE_AFTER_MS, isSetupRunning, runSetup, type StepStatus } from './setup-run'
+import { lastUpdateOutcome, runUpdate, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
+
+const OLD = FAKE_PLUGIN_COMMIT
+const TARGET = 'b'.repeat(40)
+const LOST = 'Lost the connection to your server during the update.'
+const NOT_LOADED = 'Hermes did not load the plugin.'
+
+const connection: Connection = { id: 'c-1', label: 'Home server', baseUrl: 'http://100.64.0.1:9119', authMode: 'token', primary: true, createdAt: 1 }
+
+function buildRecord(commit: string | null = TARGET): BuildRecord {
+  return { requiredPlugin: { version: '0.3.0', apiLevel: 2, commit }, hermesRange: { oldest: '0.21.6', newestMinor: '0.21' } }
+}
+
+/** A server that runs the plugin at OLD, with the version that answers `status`. */
+function runningServer(hermes = '0.21.7'): FakeGateway {
+  const gateway = new FakeGateway()
+  gateway.plugins.rows = [{ name: 'ergates', version: '0.2.0', runtime_status: 'enabled' }]
+  gateway.setHermesVersion(hermes)
+  return gateway
+}
+
+/** A server without the plugin whose health follows the plugin list, as a Hermes that mounts a plugin when it is enabled does. */
+function emptyServer(): FakeGateway {
+  const gateway = new FakeGateway()
+  gateway.plugins.rows = []
+  gateway.ergates.setHealth(() => (gateway.plugins.rows.some(found => found.name === 'ergates' && found.runtime_status === 'enabled') ? { state: 'answered', health: FAKE_PLUGIN_HEALTH } : { state: 'absent' }))
+  return gateway
+}
+
+/** What the server holds when the install went through although the answer never came. */
+function installedOnServer(gateway: FakeGateway, status: 'enabled' | 'disabled' = 'enabled'): void {
+  gateway.plugins.installedCommit = TARGET
+  gateway.plugins.rows[0].runtime_status = status
+  gateway.ergates.loadedCommit = TARGET
+}
+
+/** Makes the server mount the new code at once when an install replaces the plugin, as a Hermes that remounts routes would. */
+function remounting(gateway: FakeGateway): void {
+  const install = gateway.plugins.install.bind(gateway.plugins)
+  gateway.plugins.install = async req => {
+    const result = await install(req)
+    gateway.ergates.loadedCommit = req.ref
+    return result
+  }
+}
+
+/** Records the order of the calls that change the server. */
+function watch(gateway: FakeGateway): { order: () => string[] } {
+  const spies: [string, MockInstance][] = [
+    ['disable', vi.spyOn(gateway.plugins, 'disable')],
+    ['install', vi.spyOn(gateway.plugins, 'install')],
+    ['enable', vi.spyOn(gateway.plugins, 'enable')],
+    ['setup', vi.spyOn(gateway.ergates, 'setup')]
+  ]
+  return {
+    order: () =>
+      spies
+        .flatMap(([name, spy]) => spy.mock.invocationCallOrder.map(at => [at, name] as const))
+        .sort(([a], [b]) => a - b)
+        .map(([, name]) => name)
+  }
+}
+
+function stored(id = connection.id): Connection {
+  const found = useDeviceStore.getState().connections.find(each => each.id === id)
+  if (!found) {
+    throw new Error(`no connection ${id}`)
+  }
+  return found
+}
+
+function rowStatus(gateway: FakeGateway): string | undefined {
+  return gateway.plugins.rows.find(found => found.name === 'ergates')?.runtime_status
+}
+
+type Transition = [UpdateStep, StepStatus]
+
+interface Run {
+  outcome: UpdateOutcome
+  transitions: Transition[]
+  /** The last status each step reported. */
+  last: Partial<Record<UpdateStep, StepStatus>>
+}
+
+/** Starts a run; `finish` lets every wait elapse and settles it. */
+function start(gateway: FakeGateway, overrides: Partial<UpdateDeps> = {}) {
+  const transitions: Transition[] = []
+  const promise = runUpdate(
+    { port: gateway, build: buildRecord(), connectionId: connection.id, target: TARGET, previous: OLD, previousSchema: 1, goingBack: false, ...overrides },
+    (step, status) => transitions.push([step, status])
+  )
+  let outcome: UpdateOutcome | null = null
+  void promise.then(settled => {
+    outcome = settled
+  })
+  return {
+    transitions,
+    promise,
+    /** The outcome once the run has ended, null while it is still going. */
+    get settled(): UpdateOutcome | null {
+      return outcome
+    },
+    async finish(): Promise<Run> {
+      await vi.runAllTimersAsync()
+      return { outcome: await promise, transitions, last: Object.fromEntries(transitions) }
+    }
+  }
+}
+
+function run(gateway: FakeGateway, overrides?: Partial<UpdateDeps>): Promise<Run> {
+  return start(gateway, overrides).finish()
+}
+
+/** The check of a plugin whose answering code was loaded from `loaded`. */
+function readyAt(loaded: string): ServerCheck {
+  const install = { kind: 'git install', commit: TARGET, loaded_commit: loaded, catalog_name: null } as const
+  return { kind: 'ready', health: { ...FAKE_PLUGIN_HEALTH, install }, update: null, hermesVersion: null }
+}
+
+const networkError = () => new GatewayError('network', 'Could not reach the gateway.')
+const signInRequired = () => new GatewayError('unauthorized', 'Sign-in required.', { status: 401 })
+
+beforeEach(() => {
+  vi.useFakeTimers()
+  useDeviceStore.setState({ connections: [{ ...connection }] })
+})
+
+afterEach(async () => {
+  // A run that a test left waiting would otherwise be joined by the next test's run.
+  await vi.runAllTimersAsync()
+  vi.useRealTimers()
+})
+
+describe('runUpdate: the update', () => {
+  it('turns the plugin off, installs the target over it, starts it and runs the setup', async () => {
+    const gateway = runningServer()
+    remounting(gateway)
+    const calls = watch(gateway)
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'done', setup: FAKE_SETUP })
+    expect(result.transitions).toEqual([
+      ['pause', 'active'],
+      ['pause', 'done'],
+      ['install', 'active'],
+      ['install', 'done'],
+      ['start', 'active'],
+      ['start', 'done'],
+      ['setup', 'active'],
+      ['setup', 'done']
+    ])
+    expect(calls.order()).toEqual(['disable', 'install', 'setup'])
+    expect(gateway.plugins.disabled).toEqual(['ergates'])
+    expect(gateway.plugins.installs).toEqual([{ identifier: PLUGIN_IDENTIFIER, ref: TARGET, enable: true, force: true }])
+    expect(gateway.plugins.enabled).toEqual([])
+    expect(gateway.plugins.installedCommit).toBe(TARGET)
+    expect(rowStatus(gateway)).toBe('enabled')
+  })
+
+  it('installs only while the plugin is turned off, so Hermes does not decline the replacement', async () => {
+    const gateway = runningServer()
+    const install = gateway.plugins.install.bind(gateway.plugins)
+    const statusAtInstall: (string | undefined)[] = []
+    gateway.plugins.install = req => {
+      statusAtInstall.push(rowStatus(gateway))
+      return install(req)
+    }
+
+    const result = await run(gateway)
+
+    expect(statusAtInstall).toEqual(['disabled'])
+    expect(result.outcome).toEqual({ kind: 'restart' })
+  })
+
+  it('records the update and the pending setup before it changes anything on the server, and clears both when the setup ran', async () => {
+    const gateway = runningServer()
+    remounting(gateway)
+    const running = start(gateway, { previousSchema: null })
+
+    expect(stored().pendingPluginSetup).toBe(TARGET)
+    expect(stored().pluginUpdate).toEqual({ target: TARGET, previous: OLD, previousSchema: null })
+    expect(gateway.plugins.disabled).toEqual([])
+
+    await running.finish()
+
+    expect(stored().pendingPluginSetup).toBeUndefined()
+    expect(stored().pluginUpdate).toBeUndefined()
+  })
+
+  it('learns from which Hermes version a new plugin starts without a restart', async () => {
+    const gateway = runningServer('0.21.9')
+    remounting(gateway)
+
+    await run(gateway)
+
+    expect(stored().pluginRemountsFrom).toBe('0.21.9')
+  })
+
+  it('keeps the version it learned earlier', async () => {
+    useDeviceStore.getState().updateConnection(connection.id, { pluginRemountsFrom: '0.21.6' })
+    const gateway = runningServer('0.21.9')
+    remounting(gateway)
+
+    await run(gateway)
+
+    expect(stored().pluginRemountsFrom).toBe('0.21.6')
+  })
+
+  it.each([
+    ['a version it cannot place', 'unknown'],
+    ['a version with a suffix', '0.21.9rc1'],
+    ['a short version', '0.21']
+  ])('learns nothing when Hermes reports %s', async (_title, version) => {
+    const gateway = runningServer(version)
+    remounting(gateway)
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(stored().pluginRemountsFrom).toBeUndefined()
+  })
+
+  it('learns nothing, and still finishes, when Hermes does not report its version', async () => {
+    const gateway = runningServer()
+    gateway.setHermesVersion(networkError())
+    remounting(gateway)
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(stored().pluginRemountsFrom).toBeUndefined()
+  })
+
+  it('learns nothing when no routes were mounted before the update, since the new code may have been mounted for the first time', async () => {
+    const gateway = runningServer()
+    remounting(gateway)
+    let reads = 0
+    gateway.ergates.setHealth(() => {
+      reads += 1
+      return reads === 1 ? { state: 'absent' } : { state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: TARGET, loaded_commit: TARGET, catalog_name: null } } }
+    })
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(stored().pluginRemountsFrom).toBeUndefined()
+  })
+
+  it('learns nothing when the target was already the code that answered', async () => {
+    const gateway = runningServer()
+    gateway.ergates.loadedCommit = TARGET
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(stored().pluginRemountsFrom).toBeUndefined()
+  })
+})
+
+describe('runUpdate: Hermes has to restart first', () => {
+  it('asks for a restart when the old code still answers, and keeps the update and the pending setup', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'restart' })
+    expect(result.last).toEqual({ pause: 'done', install: 'done', start: 'failed' })
+    expect(calls.order()).toEqual(['disable', 'install'])
+    expect(gateway.ergates.setupCalls).toBe(0)
+    expect(gateway.plugins.installedCommit).toBe(TARGET)
+    expect(rowStatus(gateway)).toBe('enabled')
+    expect(stored().pendingPluginSetup).toBe(TARGET)
+    expect(stored().pluginUpdate).toEqual({ target: TARGET, previous: OLD, previousSchema: 1 })
+    expect(stored().pluginRemountsFrom).toBeUndefined()
+  })
+
+  it('asks for a restart when a plugin from before it named its loaded commit answers', async () => {
+    const gateway = runningServer()
+    gateway.ergates.setHealth(() => ({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: gateway.plugins.installedCommit, catalog_name: null } } }))
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'restart' })
+  })
+
+  it('asks for a restart when Hermes enabled the plugin but does not serve its routes', async () => {
+    const gateway = runningServer()
+    gateway.ergates.setHealth({ state: 'not_loaded' })
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'restart' })
+    expect(result.last).toMatchObject({ install: 'done', start: 'failed' })
+    expect(gateway.plugins.enabled).toEqual([])
+  })
+
+  it('fails when Hermes never serves the plugin, leaving the new plugin turned on', async () => {
+    const gateway = runningServer()
+    let reads = 0
+    gateway.ergates.setHealth(() => {
+      reads += 1
+      return reads === 1 ? { state: 'answered', health: FAKE_PLUGIN_HEALTH } : { state: 'absent' }
+    })
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'failed', step: 'start', message: NOT_LOADED })
+    expect(result.last).toMatchObject({ install: 'done', start: 'failed' })
+    expect(gateway.plugins.enabled).toEqual([])
+    expect(gateway.ergates.setupCalls).toBe(0)
+    expect(stored().pendingPluginSetup).toBe(TARGET)
+  })
+})
+
+describe('runUpdate: an update that fails half-way turns the old plugin back on', () => {
+  it.each<PluginInstallCode>(['scan_blocked', 'no_git', 'download_failed', 'enable_refused'])('after Hermes refuses with %s', async code => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.plugins.nextInstall(new GatewayError('unknown', 'Hermes words this its own way.', { code, status: 400 }))
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'manual', failure: code, detail: null })
+    expect(result.last).toEqual({ pause: 'done', install: 'failed' })
+    expect(calls.order()).toEqual(['disable', 'install', 'enable'])
+    expect(rowStatus(gateway)).toBe('enabled')
+    expect(gateway.plugins.installedCommit).toBe(OLD)
+    expect(gateway.ergates.setupCalls).toBe(0)
+  })
+
+  it('after a 400 without a code, with Hermes\'s own text', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    const detail = "Plugin 'ergates' was not published: Reinstall declined: dependency install skipped (non-interactive). The installed plugin and active environment are unchanged."
+    gateway.plugins.nextInstall(mapPluginInstallError(400, { detail }))
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'manual', failure: 'refused', detail })
+    expect(calls.order()).toEqual(['disable', 'install', 'enable'])
+    expect(rowStatus(gateway)).toBe('enabled')
+  })
+
+  it('after an answer that is neither a refusal nor a lost request', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.plugins.nextInstall(mapHttpError(403, { detail: 'Not allowed.' }))
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'failed', step: 'install', message: 'Not allowed.' })
+    expect(result.last).toEqual({ pause: 'done', install: 'failed' })
+    expect(calls.order()).toEqual(['disable', 'install', 'enable'])
+    expect(rowStatus(gateway)).toBe('enabled')
+  })
+
+  it('after a lost request once the install time has passed with nothing new on the server', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.plugins.fail('install', networkError())
+    const running = start(gateway)
+
+    await vi.advanceTimersByTimeAsync(PLUGIN_INSTALL_TIMEOUT_MS - 1)
+    expect(running.settled).toBeNull()
+    expect(calls.order()).toEqual(['disable', 'install'])
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(running.settled).toEqual({ kind: 'failed', step: 'install', message: LOST })
+    const result = await running.finish()
+    expect(result.last).toEqual({ pause: 'done', install: 'failed' })
+    expect(calls.order()).toEqual(['disable', 'install', 'enable'])
+    expect(rowStatus(gateway)).toBe('enabled')
+    expect(gateway.plugins.installs).toHaveLength(1)
+    expect(stored().pendingPluginSetup).toBe(TARGET)
+  })
+
+  it('after a request that never answers, once the install time has passed', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.plugins.fail('install', 'hang')
+    const running = start(gateway)
+
+    await vi.advanceTimersByTimeAsync(PLUGIN_INSTALL_TIMEOUT_MS)
+
+    expect(running.settled).toEqual({ kind: 'failed', step: 'install', message: LOST })
+    expect(calls.order()).toEqual(['disable', 'install', 'enable'])
+    expect(rowStatus(gateway)).toBe('enabled')
+  })
+
+  it('still says what went wrong when turning the plugin back on fails too', async () => {
+    const gateway = runningServer()
+    gateway.plugins.nextInstall(new GatewayError('unknown', 'Hermes words this its own way.', { code: 'scan_blocked', status: 400 }))
+    gateway.plugins.fail('enable', networkError())
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'manual', failure: 'scan_blocked', detail: null })
+    expect(result.last).toEqual({ pause: 'done', install: 'failed' })
+    expect(gateway.plugins.enabled).toEqual(['ergates'])
+    expect(rowStatus(gateway)).toBe('disabled')
+  })
+
+  it('after the turning off itself fails, since the request may have got through', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.plugins.fail('disable', new GatewayError('network', 'Could not reach the gateway.'), 'after')
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'failed', step: 'pause', message: 'Could not reach the gateway.' })
+    expect(result.last).toEqual({ pause: 'failed' })
+    expect(calls.order()).toEqual(['disable', 'enable'])
+    expect(gateway.plugins.installs).toEqual([])
+    expect(rowStatus(gateway)).toBe('enabled')
+  })
+
+  it('after an error the app does not know, without its text', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.plugins.disable = () => {
+      throw new TypeError('x is not a function')
+    }
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'failed', step: 'pause', message: 'Something went wrong during the update.' })
+    expect(calls.order()).toEqual(['enable'])
+  })
+
+  it('and asks to sign in again when the install answers 401', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.plugins.nextInstall(signInRequired())
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'sign_in' })
+    expect(result.last).toEqual({ pause: 'done', install: 'failed' })
+    expect(calls.order()).toEqual(['disable', 'install', 'enable'])
+    expect(rowStatus(gateway)).toBe('enabled')
+  })
+
+  it('and asks to sign in again when turning the plugin off answers 401', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.plugins.fail('disable', signInRequired())
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'sign_in' })
+    expect(result.last).toEqual({ pause: 'failed' })
+    expect(calls.order()).toEqual(['disable', 'enable'])
+  })
+
+  it('and asks to sign in again, touching nothing, when the first look at the plugin answers 401', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.ergates.fail('health', signInRequired())
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'sign_in' })
+    expect(result.last).toEqual({ pause: 'failed' })
+    expect(calls.order()).toEqual([])
+    expect(rowStatus(gateway)).toBe('enabled')
+  })
+
+  it('enables the new plugin when the install says it left it off', async () => {
+    const gateway = runningServer()
+    remounting(gateway)
+    const calls = watch(gateway)
+    gateway.plugins.nextInstall({ plugin_name: 'ergates', enabled: false })
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(calls.order()).toEqual(['disable', 'install', 'enable', 'setup'])
+    expect(rowStatus(gateway)).toBe('enabled')
+  })
+
+  it('ends in the manual path with Hermes\'s text when it refuses to enable the new plugin, and tries once more to turn it on', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.plugins.nextInstall({ plugin_name: 'ergates', enabled: false })
+    gateway.plugins.fail('enable', mapHttpError(400, { detail: 'Not allowed.' }))
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'manual', failure: 'enable_refused', detail: 'Not allowed.' })
+    expect(result.last).toEqual({ pause: 'done', install: 'failed' })
+    expect(calls.order()).toEqual(['disable', 'install', 'enable', 'enable'])
+    expect(rowStatus(gateway)).toBe('enabled')
+  })
+
+  it('leaves the update and the pending setup in place for a later try', async () => {
+    const gateway = runningServer()
+    gateway.plugins.nextInstall(new GatewayError('unknown', 'Hermes words this its own way.', { code: 'no_git', status: 400 }))
+
+    await run(gateway)
+
+    expect(stored().pendingPluginSetup).toBe(TARGET)
+    expect(stored().pluginUpdate).toEqual({ target: TARGET, previous: OLD, previousSchema: 1 })
+  })
+})
+
+describe('runUpdate: the install request is lost or does not answer', () => {
+  it('goes on when the install went through and only its answer was lost', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.plugins.fail('install', networkError(), 'after')
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'restart' })
+    expect(result.last).toEqual({ pause: 'done', install: 'done', start: 'failed' })
+    expect(calls.order()).toEqual(['disable', 'install'])
+    expect(gateway.plugins.installs).toHaveLength(1)
+  })
+
+  it('looks only after a minute for an install that does not answer, then every 5 seconds', async () => {
+    const gateway = runningServer()
+    gateway.plugins.fail('install', 'hang')
+    const health = vi.spyOn(gateway.ergates, 'health')
+    const running = start(gateway)
+
+    // The first look at the plugin is the one before it is turned off.
+    await vi.advanceTimersByTimeAsync(INSTALL_RACE_AFTER_MS - 1)
+    expect(health).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(health).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(health).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(health).toHaveBeenCalledTimes(3)
+    expect(running.settled).toBeNull()
+    installedOnServer(gateway)
+    await running.finish()
+  })
+
+  it('goes on as soon as the target is in the record and the plugin is on, and sends no second install', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    gateway.plugins.fail('install', 'hang')
+    const running = start(gateway)
+    await vi.advanceTimersByTimeAsync(66_000)
+    installedOnServer(gateway)
+
+    await vi.advanceTimersByTimeAsync(3_999)
+    expect(running.settled).toBeNull()
+    expect(running.transitions).toEqual([
+      ['pause', 'active'],
+      ['pause', 'done'],
+      ['install', 'active']
+    ])
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(running.settled).toMatchObject({ kind: 'done' })
+    expect(calls.order()).toEqual(['disable', 'install', 'setup'])
+    expect(stored().pendingPluginSetup).toBeUndefined()
+  })
+
+  it('keeps waiting while the record names the target but the plugin is still off', async () => {
+    const gateway = runningServer()
+    gateway.plugins.fail('install', 'hang')
+    const running = start(gateway)
+    await vi.advanceTimersByTimeAsync(66_000)
+    installedOnServer(gateway, 'disabled')
+
+    await vi.advanceTimersByTimeAsync(14_000)
+    expect(running.settled).toBeNull()
+    gateway.plugins.rows[0].runtime_status = 'enabled'
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(running.settled).toMatchObject({ kind: 'done' })
+    expect(gateway.plugins.installs).toHaveLength(1)
+  })
+
+  it('keeps waiting while the plugin does not answer, since the record cannot be read then', async () => {
+    const gateway = runningServer()
+    gateway.plugins.fail('install', 'hang')
+    gateway.ergates.setHealth(() => ({ state: 'not_loaded' }))
+    const running = start(gateway)
+    await vi.advanceTimersByTimeAsync(66_000)
+    installedOnServer(gateway)
+
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    expect(running.settled).toBeNull()
+    await vi.advanceTimersByTimeAsync(PLUGIN_INSTALL_TIMEOUT_MS)
+    expect(running.settled).toEqual({ kind: 'failed', step: 'install', message: LOST })
+  })
+
+  it('ignores what the abandoned request says when it answers later', async () => {
+    const gateway = runningServer()
+    gateway.plugins.install = async () => {
+      await new Promise(resolve => setTimeout(resolve, 120_000))
+      throw new GatewayError('unknown', 'Hermes words this its own way.', { code: 'scan_blocked', status: 400 })
+    }
+    const running = start(gateway)
+    await vi.advanceTimersByTimeAsync(61_000)
+    installedOnServer(gateway)
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(running.settled).toMatchObject({ kind: 'done' })
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(gateway.plugins.enabled).toEqual([])
+    expect(stored().pluginUpdate).toBeUndefined()
+  })
+
+  it.each([
+    ['times out', new GatewayError('timeout', 'The gateway took too long to answer.')],
+    ['is answered 502 by a proxy', new GatewayError('unknown', 'The gateway had an internal problem.', { status: 502 })]
+  ])('treats an install that %s as lost, not refused', async (_title, error) => {
+    const gateway = runningServer()
+    gateway.plugins.fail('install', error)
+    const running = start(gateway)
+    await vi.advanceTimersByTimeAsync(5_000)
+    installedOnServer(gateway)
+
+    const result = await running.finish()
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(gateway.plugins.installs).toHaveLength(1)
+    expect(gateway.plugins.enabled).toEqual([])
+  })
+})
+
+describe('runUpdate: going back', () => {
+  const FAILED_UPDATE = { target: TARGET, previous: OLD, previousSchema: 1 }
+
+  /** A server whose new plugin did not start: the update left its record, flag and pending setup behind. */
+  function serverAfterFailedUpdate(): FakeGateway {
+    const gateway = runningServer()
+    gateway.plugins.installedCommit = TARGET
+    gateway.ergates.setHealth({ state: 'not_loaded' })
+    markPendingSetup(connection.id, TARGET)
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: FAILED_UPDATE })
+    return gateway
+  }
+
+  it('installs the previous commit the same way and clears the update when the setup ran', async () => {
+    const gateway = serverAfterFailedUpdate()
+    const calls = watch(gateway)
+    const running = start(gateway, { target: OLD, previous: TARGET, goingBack: true })
+
+    // The update stays what it was until the run is over; the pending setup now waits for the commit that goes back on.
+    expect(stored().pluginUpdate).toEqual(FAILED_UPDATE)
+    expect(stored().pendingPluginSetup).toBe(OLD)
+    gateway.ergates.setHealth(() => ({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD, loaded_commit: OLD, catalog_name: null } } }))
+    const result = await running.finish()
+
+    expect(result.outcome).toEqual({ kind: 'done', setup: FAKE_SETUP })
+    expect(gateway.plugins.installs).toEqual([{ identifier: PLUGIN_IDENTIFIER, ref: OLD, enable: true, force: true }])
+    expect(calls.order()).toEqual(['disable', 'install', 'setup'])
+    expect(stored().pluginUpdate).toBeUndefined()
+    expect(stored().pendingPluginSetup).toBeUndefined()
+  })
+
+  it('keeps the update when Hermes has to restart before the old code answers', async () => {
+    const gateway = serverAfterFailedUpdate()
+    gateway.ergates.setHealth({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD, loaded_commit: TARGET, catalog_name: null } } })
+
+    const result = await run(gateway, { target: OLD, previous: TARGET, goingBack: true })
+
+    expect(result.outcome).toEqual({ kind: 'restart' })
+    expect(stored().pluginUpdate).toEqual(FAILED_UPDATE)
+    expect(stored().pendingPluginSetup).toBe(OLD)
+  })
+
+  it('turns the plugin back on when the install is refused, as an update does', async () => {
+    const gateway = serverAfterFailedUpdate()
+    const calls = watch(gateway)
+    gateway.plugins.nextInstall(new GatewayError('unknown', 'Hermes words this its own way.', { code: 'download_failed', status: 400 }))
+
+    const result = await run(gateway, { target: OLD, previous: TARGET, goingBack: true })
+
+    expect(result.outcome).toEqual({ kind: 'manual', failure: 'download_failed', detail: null })
+    expect(calls.order()).toEqual(['disable', 'install', 'enable'])
+    expect(stored().pluginUpdate).toEqual(FAILED_UPDATE)
+  })
+})
+
+describe('runUpdate: what it installs', () => {
+  it.each<[string, Partial<UpdateDeps>]>([
+    ['a target that is not a full commit', { target: 'main' }],
+    ['a commit that is not this build\'s', { target: 'c'.repeat(40) }],
+    ['a going back to something that is not a full commit', { target: 'v0.2.0', goingBack: true }]
+  ])('leaves %s to the guide, touching nothing', async (_title, overrides) => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+
+    const result = await run(gateway, overrides)
+
+    expect(result.outcome).toEqual({ kind: 'manual', failure: 'refused', detail: null })
+    expect(result.transitions).toEqual([])
+    expect(calls.order()).toEqual([])
+    expect(gateway.ergates.calls).toEqual([])
+    expect(stored()).toEqual(connection)
+  })
+
+  it('leaves a build without a commit to the guide', async () => {
+    const gateway = runningServer()
+
+    const result = await run(gateway, { build: buildRecord(null) })
+
+    expect(result.outcome).toEqual({ kind: 'manual', failure: 'refused', detail: null })
+    expect(gateway.plugins.disabled).toEqual([])
+  })
+
+  it('goes back to a commit that is not the build\'s', async () => {
+    const gateway = runningServer()
+    remounting(gateway)
+    const other = 'c'.repeat(40)
+
+    const result = await run(gateway, { target: other, goingBack: true })
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(gateway.plugins.installs).toEqual([{ identifier: PLUGIN_IDENTIFIER, ref: other, enable: true, force: true }])
+  })
+})
+
+describe('runUpdate: sign-in and the steps after the install', () => {
+  it('asks to sign in again when the start answers 401, without turning anything on', async () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    let reads = 0
+    gateway.ergates.setHealth(() => {
+      reads += 1
+      return reads === 1 ? { state: 'answered', health: FAKE_PLUGIN_HEALTH } : signInRequired()
+    })
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'sign_in' })
+    expect(result.last).toMatchObject({ install: 'done', start: 'failed' })
+    expect(calls.order()).toEqual(['disable', 'install'])
+  })
+
+  it('fails the setup step and keeps the update and the pending setup when the setup does not run', async () => {
+    const gateway = runningServer()
+    remounting(gateway)
+    const calls = watch(gateway)
+    gateway.ergates.fail('setup', new GatewayError('unknown', 'The request could not be completed.', { status: 500 }))
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'failed', step: 'setup', message: 'The request could not be completed.' })
+    expect(result.last).toMatchObject({ start: 'done', setup: 'failed' })
+    expect(calls.order()).toEqual(['disable', 'install', 'setup'])
+    expect(stored().pendingPluginSetup).toBe(TARGET)
+    expect(stored().pluginUpdate).toEqual({ target: TARGET, previous: OLD, previousSchema: 1 })
+  })
+
+  it('finishes the setup after the sign-in when the setup answered 401', async () => {
+    const gateway = runningServer()
+    remounting(gateway)
+    gateway.ergates.fail('setup', signInRequired())
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'sign_in' })
+    const report = await finishPendingSetup(gateway, stored(), readyAt(TARGET))
+    expect(report).toEqual(FAKE_SETUP)
+    expect(stored().pendingPluginSetup).toBeUndefined()
+    expect(stored().pluginUpdate).toBeUndefined()
+  })
+})
+
+describe('the pending setup after an update', () => {
+  it('does not run the setup on the old code, and runs it once Hermes restarted', async () => {
+    const gateway = runningServer()
+    await run(gateway)
+    expect(stored().pendingPluginSetup).toBe(TARGET)
+
+    const onOldCode = await finishPendingSetup(gateway, stored(), readyAt(OLD))
+    expect(onOldCode).toBeNull()
+    expect(gateway.ergates.setupCalls).toBe(0)
+
+    const afterRestart = await finishPendingSetup(gateway, stored(), readyAt(TARGET))
+
+    expect(afterRestart).toEqual(FAKE_SETUP)
+    expect(gateway.ergates.setupCalls).toBe(1)
+    expect(stored().pendingPluginSetup).toBeUndefined()
+    expect(stored().pluginUpdate).toBeUndefined()
+  })
+})
+
+describe('runUpdate: one run per connection', () => {
+  it('joins an update that is going instead of starting another', async () => {
+    const gateway = runningServer()
+    gateway.plugins.fail('install', networkError())
+    const first = start(gateway)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(first.transitions).toEqual([
+      ['pause', 'active'],
+      ['pause', 'done'],
+      ['install', 'active']
+    ])
+
+    const joined: Transition[] = []
+    const second = runUpdate({ port: gateway, build: buildRecord(), connectionId: connection.id, target: TARGET, previous: OLD, previousSchema: 1, goingBack: false }, (step, status) => joined.push([step, status]))
+
+    // The joiner is told where the run is at once.
+    expect(joined).toEqual([
+      ['pause', 'done'],
+      ['install', 'active']
+    ])
+    installedOnServer(gateway)
+    const result = await first.finish()
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    await expect(second).resolves.toEqual(result.outcome)
+    expect(joined).toEqual([
+      ['pause', 'done'],
+      ['install', 'active'],
+      ['install', 'done'],
+      ['start', 'active'],
+      ['start', 'done'],
+      ['setup', 'active'],
+      ['setup', 'done']
+    ])
+    expect(gateway.plugins.disabled).toHaveLength(1)
+    expect(gateway.plugins.installs).toHaveLength(1)
+  })
+
+  it('refuses an update while a setup is going, and the setup goes on', async () => {
+    const gateway = emptyServer()
+    gateway.plugins.fail('install', networkError())
+    const setup = runSetup({ port: gateway, build: buildRecord(), connectionId: connection.id }, () => undefined)
+    await vi.advanceTimersByTimeAsync(1_000)
+    const before = gateway.ergates.calls.length
+
+    const refused = await runUpdate({ port: gateway, build: buildRecord(), connectionId: connection.id, target: TARGET, previous: OLD, previousSchema: 1, goingBack: false }, () => undefined)
+
+    expect(refused).toEqual({ kind: 'failed', step: 'pause', message: 'Setting up this server is running. Try again when it is done.' })
+    expect(gateway.plugins.disabled).toEqual([])
+    expect(gateway.ergates.calls).toHaveLength(before)
+    expect(stored().pluginUpdate).toBeUndefined()
+    gateway.plugins.rows = [{ name: 'ergates', version: '0.3.0', runtime_status: 'enabled' }]
+    await vi.runAllTimersAsync()
+    await expect(setup).resolves.toMatchObject({ kind: 'done' })
+  })
+
+  it('refuses a setup while an update is going, and the update goes on', async () => {
+    const gateway = runningServer()
+    gateway.plugins.fail('install', networkError())
+    const update = start(gateway)
+    await vi.advanceTimersByTimeAsync(1_000)
+    const health = vi.spyOn(gateway.ergates, 'health')
+
+    const refused = await runSetup({ port: gateway, build: buildRecord(), connectionId: connection.id }, () => undefined)
+
+    expect(refused).toEqual({ kind: 'failed', step: 'install', message: 'The plugin is being updated. Try again when it is done.' })
+    expect(health).not.toHaveBeenCalled()
+    installedOnServer(gateway)
+    const result = await update.finish()
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(gateway.ergates.setupCalls).toBe(1)
+  })
+
+  it('starts a setup, and an update, once the other kind of run has ended', async () => {
+    const gateway = runningServer()
+    remounting(gateway)
+    await run(gateway)
+
+    const setup = await runSetup({ port: gateway, build: buildRecord(), connectionId: connection.id }, () => undefined)
+    const update = await run(gateway)
+
+    expect(setup).toMatchObject({ kind: 'done' })
+    expect(update.outcome).toMatchObject({ kind: 'done' })
+  })
+
+  it('says a run is going while an update runs, for its connection only, and leaves the pending setup to it', async () => {
+    useDeviceStore.setState({ connections: [{ ...connection }, { ...connection, id: 'c-2' }] })
+    const gateway = runningServer()
+    gateway.plugins.fail('install', networkError())
+    const running = start(gateway)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(isSetupRunning(connection.id)).toBe(true)
+    expect(isSetupRunning('c-2')).toBe(false)
+    await expect(finishPendingSetup(gateway, stored(), readyAt(TARGET))).resolves.toBeNull()
+    expect(gateway.ergates.setupCalls).toBe(0)
+
+    installedOnServer(gateway)
+    await running.finish()
+    expect(isSetupRunning(connection.id)).toBe(false)
+    expect(gateway.ergates.setupCalls).toBe(1)
+  })
+
+  it('does not join the update of another connection', async () => {
+    useDeviceStore.setState({ connections: [{ ...connection }, { ...connection, id: 'c-2' }] })
+    const gateway = runningServer()
+    gateway.plugins.fail('install', networkError())
+    const first = start(gateway)
+    await vi.advanceTimersByTimeAsync(1_000)
+    const other = runningServer()
+    remounting(other)
+
+    const second = await runUpdate({ port: other, build: buildRecord(), connectionId: 'c-2', target: TARGET, previous: OLD, previousSchema: 1, goingBack: false }, () => undefined)
+
+    expect(second).toMatchObject({ kind: 'done' })
+    expect(first.settled).toBeNull()
+    installedOnServer(gateway)
+    await first.finish()
+  })
+})
+
+describe('lastUpdateOutcome: what the Finish screen shows of an update that ended', () => {
+  const OTHER = 'c-9'
+
+  it('is null for a connection that has not run an update', () => {
+    expect(lastUpdateOutcome(OTHER)).toBeNull()
+  })
+
+  it.each<[string, (gateway: FakeGateway) => void, UpdateOutcome]>([
+    ['a restart', () => undefined, { kind: 'restart' }],
+    ['a refusal', gateway => gateway.plugins.nextInstall(new GatewayError('unknown', 'Hermes words this its own way.', { code: 'no_git', status: 400 })), { kind: 'manual', failure: 'no_git', detail: null }],
+    ['a failed step', gateway => gateway.plugins.nextInstall(mapHttpError(403, { detail: 'Not allowed.' })), { kind: 'failed', step: 'install', message: 'Not allowed.' }],
+    ['a sign-in', gateway => gateway.plugins.nextInstall(signInRequired()), { kind: 'sign_in' }]
+  ])('holds the outcome of %s', async (_title, scripted, expected) => {
+    const gateway = runningServer()
+    scripted(gateway)
+
+    await run(gateway)
+
+    expect(lastUpdateOutcome(connection.id)).toEqual(expected)
+  })
+
+  it('holds an update that finished', async () => {
+    const gateway = runningServer()
+    remounting(gateway)
+
+    await run(gateway)
+
+    expect(lastUpdateOutcome(connection.id)).toEqual({ kind: 'done', setup: FAKE_SETUP })
+  })
+
+  it('is there when the run settles, before anything that waited on it continues', async () => {
+    const gateway = runningServer()
+    let seen: unknown = 'not read'
+    const running = start(gateway)
+    void running.promise.then(() => {
+      seen = lastUpdateOutcome(connection.id)
+    })
+
+    await running.finish()
+
+    expect(seen).toEqual({ kind: 'restart' })
+  })
+
+  it('is cleared when the next run starts', async () => {
+    await run(runningServer())
+    expect(lastUpdateOutcome(connection.id)).toEqual({ kind: 'restart' })
+    const gateway = runningServer()
+    remounting(gateway)
+
+    const running = start(gateway)
+    expect(lastUpdateOutcome(connection.id)).toBeNull()
+    await running.finish()
+
+    expect(lastUpdateOutcome(connection.id)).toMatchObject({ kind: 'done' })
+  })
+
+  it('is kept per connection', async () => {
+    await run(runningServer())
+
+    expect(lastUpdateOutcome(OTHER)).toBeNull()
+  })
+
+  it('stays when a call is refused or only joins the run that is going', async () => {
+    await run(runningServer())
+    const gateway = emptyServer()
+    gateway.plugins.fail('install', networkError())
+    const setup = runSetup({ port: gateway, build: buildRecord(), connectionId: connection.id }, () => undefined)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    await runUpdate({ port: gateway, build: buildRecord(), connectionId: connection.id, target: TARGET, previous: OLD, previousSchema: 1, goingBack: false }, () => undefined)
+
+    expect(lastUpdateOutcome(connection.id)).toEqual({ kind: 'restart' })
+    gateway.plugins.rows = [{ name: 'ergates', version: '0.3.0', runtime_status: 'enabled' }]
+    await vi.runAllTimersAsync()
+    await setup
+  })
+})

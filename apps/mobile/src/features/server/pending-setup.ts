@@ -5,6 +5,9 @@
  * server restart in between never skips it. Without the flag the app never
  * calls `/setup` on its own: each call enables the plugin in every profile
  * again, which undoes a profile the owner turned off (ADR-042).
+ *
+ * The runs that put a plugin on a server (setup, update and going back) are
+ * tracked here too: a connection has at most one of them going.
  */
 
 import type { GatewayPort } from '@/gateway/port'
@@ -16,17 +19,25 @@ import type { ServerCheck } from './server-check'
 /** The setup that is going for each connection. */
 const finishing = new Map<string, Promise<SetupState>>()
 
-/** The connections with a setup run going (`runSetup`), until the run ends. */
-const runs = new Set<string>()
+/** `update` is an update or going back: the same run with another commit. */
+export type RunKind = 'setup' | 'update'
 
-/** Whether a setup run is going for the connection. */
+/** The runs going, by connection, until each ends. */
+const runs = new Map<string, RunKind>()
+
+/** Which run is going for the connection, or null. */
+export function runningKind(connectionId: string): RunKind | null {
+  return runs.get(connectionId) ?? null
+}
+
+/** Whether a run (setup, update or going back) is going for the connection. Each of them runs the plugin's setup itself. */
 export function isSetupRunning(connectionId: string): boolean {
   return runs.has(connectionId)
 }
 
-/** Records that a setup run is going for the connection until `run` settles. Kept here, not in `setup-run.ts`, because that module imports this one. */
-export function trackSetupRun(connectionId: string, run: Promise<unknown>): void {
-  runs.add(connectionId)
+/** Records that a run is going for the connection until `run` settles. Kept here, not in the run modules, because they import this one. */
+export function trackRun(connectionId: string, kind: RunKind, run: Promise<unknown>): void {
+  runs.set(connectionId, kind)
   const forget = () => {
     runs.delete(connectionId)
   }
@@ -47,13 +58,15 @@ function pendingCommitOf(connectionId: string): string | undefined {
 
 async function runPendingSetup(port: GatewayPort, connectionId: string): Promise<SetupState> {
   const report = await port.ergates.setup()
-  clearPendingSetup(connectionId)
+  // An update the app started is over once the setup of the code it installed ran.
+  useDeviceStore.getState().updateConnection(connectionId, { pendingPluginSetup: undefined, pluginUpdate: undefined })
   return report
 }
 
 /**
  * Runs the plugin's setup when the check finds the plugin ready and the
- * connection has a pending setup, then clears the flag and returns the report.
+ * connection has a pending setup, then clears the flag (and the update it
+ * belonged to) and returns the report.
  *
  * It answers null and calls nothing for any other check, for a connection
  * without the flag, and for a connection whose run is going: the run runs the

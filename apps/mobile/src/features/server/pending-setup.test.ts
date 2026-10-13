@@ -155,6 +155,28 @@ describe('finishPendingSetup', () => {
     expect(gateway.ergates.setupCalls).toBe(2)
   })
 
+  it('clears the update the app started when the setup of its target finishes', async () => {
+    const gateway = new FakeGateway()
+    markPendingSetup('c-1', COMMIT)
+    useDeviceStore.getState().updateConnection('c-1', { pluginUpdate: { target: COMMIT, previous: OLD_COMMIT, previousSchema: 1 } })
+
+    await finishPendingSetup(gateway, stored('c-1'), ready)
+
+    expect(stored('c-1')).toEqual(first)
+  })
+
+  it('keeps the update when the setup fails', async () => {
+    const gateway = new FakeGateway()
+    gateway.ergates.fail('setup', new GatewayError('unknown', 'The request could not be completed.', { status: 500 }))
+    markPendingSetup('c-1', COMMIT)
+    const update = { target: COMMIT, previous: OLD_COMMIT, previousSchema: 1 }
+    useDeviceStore.getState().updateConnection('c-1', { pluginUpdate: update })
+
+    await expect(finishPendingSetup(gateway, stored('c-1'), ready)).rejects.toThrow()
+
+    expect(stored('c-1').pluginUpdate).toEqual(update)
+  })
+
   it('does not share the setup between connections', async () => {
     const gateway = new FakeGateway()
     markPendingSetup('c-1', COMMIT)
