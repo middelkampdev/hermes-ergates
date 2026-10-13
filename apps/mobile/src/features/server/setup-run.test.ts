@@ -35,9 +35,16 @@ function flag(): string | undefined {
   return useDeviceStore.getState().connections.find(found => found.id === connection.id)?.pendingPluginSetup
 }
 
-/** What Hermes answers for the plugin's health: it serves the plugin once the plugin list shows it enabled. */
-function mountsWhenEnabled(gateway: FakeGateway, whenEnabled: PluginProbe = { state: 'answered', health: FAKE_PLUGIN_HEALTH }): () => PluginProbe {
-  return () => (gateway.plugins.rows.some(found => found.name === 'ergates' && found.runtime_status === 'enabled') ? whenEnabled : { state: 'absent' })
+/**
+ * What Hermes answers for the plugin's health: it serves the plugin once the plugin list shows it enabled,
+ * and answers `whenOff` until then.
+ */
+function mountsWhenEnabled(
+  gateway: FakeGateway,
+  whenEnabled: PluginProbe = { state: 'answered', health: FAKE_PLUGIN_HEALTH },
+  whenOff: PluginProbe = { state: 'absent' }
+): () => PluginProbe {
+  return () => (gateway.plugins.rows.some(found => found.name === 'ergates' && found.runtime_status === 'enabled') ? whenEnabled : whenOff)
 }
 
 /** A server without the plugin. */
@@ -231,6 +238,67 @@ describe('runSetup: a server that already has some of it', () => {
     expect(result.outcome).toEqual({ kind: 'restart' })
     expect(result.last).toMatchObject({ install: 'skipped', enable: 'skipped' })
     expect(gateway.plugins.installs).toEqual([])
+  })
+})
+
+describe('runSetup: Hermes finds no routes for the plugin', () => {
+  it('installs when the plugin list does not hold the plugin, as when its folder is gone but its name is still enabled', async () => {
+    const gateway = freshServer()
+    gateway.ergates.setHealth(mountsWhenEnabled(gateway, { state: 'answered', health: FAKE_PLUGIN_HEALTH }, { state: 'not_loaded' }))
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(result.last).toEqual({ install: 'done', enable: 'skipped', start: 'done', setup: 'done' })
+    expect(gateway.plugins.installs).toHaveLength(1)
+  })
+
+  it('does not install over a listed plugin, and enables it when the list shows it off', async () => {
+    const gateway = serverListing('disabled')
+    gateway.ergates.setHealth({ state: 'not_loaded' })
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'restart' })
+    expect(result.last).toMatchObject({ install: 'skipped', enable: 'done', start: 'failed' })
+    expect(gateway.plugins.installs).toEqual([])
+    expect(gateway.plugins.enabled).toEqual(['ergates'])
+  })
+
+  it('does not install when the plugin list cannot be read: the health read says the plugin is there', async () => {
+    const gateway = freshServer()
+    gateway.ergates.setHealth({ state: 'not_loaded' })
+    gateway.plugins.fail('hub', networkError())
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual({ kind: 'restart' })
+    expect(result.last).toMatchObject({ install: 'skipped', enable: 'skipped', start: 'failed' })
+    expect(gateway.plugins.installs).toEqual([])
+    expect(gateway.plugins.enabled).toEqual([])
+  })
+
+  it('installs when the health read finds the plugin absent and the plugin list cannot be read', async () => {
+    const gateway = freshServer()
+    gateway.plugins.fail('hub', networkError())
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    expect(gateway.plugins.installs).toHaveLength(1)
+  })
+
+  it('does not count a lost install as arrived while the list does not hold the plugin', async () => {
+    const gateway = freshServer()
+    gateway.ergates.setHealth({ state: 'not_loaded' })
+    gateway.plugins.fail('install', networkError())
+    const running = start(gateway)
+
+    await vi.advanceTimersByTimeAsync(PLUGIN_INSTALL_TIMEOUT_MS)
+
+    expect(running.settled).toEqual({ kind: 'failed', step: 'install', message: LOST })
+    expect(gateway.plugins.installs).toHaveLength(1)
+    await running.finish()
   })
 })
 

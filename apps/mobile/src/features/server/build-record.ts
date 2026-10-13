@@ -32,7 +32,8 @@ export interface BuildRecord {
 
 const VERSION = /^\d+\.\d+\.\d+$/
 const MINOR = /^\d+\.\d+$/
-const COMMIT = /^[0-9a-f]{40}$/
+/** A full commit hash: 40 lower-case hex digits. */
+export const COMMIT_PATTERN = /^[0-9a-f]{40}$/
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -64,7 +65,7 @@ export function parseBuildRecord(extra: unknown): BuildRecord | null {
     return null
   }
   return {
-    requiredPlugin: { version, apiLevel, commit: matching(requiredPlugin.commit, COMMIT) },
+    requiredPlugin: { version, apiLevel, commit: matching(requiredPlugin.commit, COMMIT_PATTERN) },
     hermesRange: { oldest, newestMinor }
   }
 }

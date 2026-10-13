@@ -75,16 +75,46 @@ async function hermesVersionOf(port: GatewayPort): Promise<string | null> {
   }
 }
 
-/** The plugin's own row in Hermes's plugin list. A failed list counts as no row; a 401 is the caller's to handle. */
-export async function hubRow(port: GatewayPort): Promise<HermesPluginRow | undefined> {
+/** Hermes's plugin list, or null when it cannot be read; a 401 is the caller's to handle. */
+async function hubRows(port: GatewayPort): Promise<HermesPluginRow[] | null> {
   try {
-    return (await port.plugins.hub()).find(row => row.name === PLUGIN_NAME)
+    return await port.plugins.hub()
   } catch (error) {
     if (isGatewayError(error) && error.kind === 'unauthorized') {
       throw error
     }
-    return undefined
+    return null
   }
+}
+
+/** The plugin's own row in Hermes's plugin list. A failed list counts as no row; a 401 is the caller's to handle. */
+export async function hubRow(port: GatewayPort): Promise<HermesPluginRow | undefined> {
+  return (await hubRows(port))?.find(row => row.name === PLUGIN_NAME)
+}
+
+/** `enabled` is whether the plugin list shows it enabled, or null when that list could not be read. */
+export type PluginPresence = { there: false } | { there: true; enabled: boolean | null }
+
+/**
+ * Whether the server has the plugin, given what its health read found. An
+ * answer means it is there. When Hermes found no routes for it (`absent`, or
+ * `not_loaded`, which Hermes also answers when the plugin is enabled in its
+ * config but its folder is gone), Hermes's plugin list decides: a row means
+ * it is there, no row means it is not. A list that cannot be read decides
+ * nothing: a `not_loaded` read then still counts as there, because it says
+ * the plugin is enabled, and an `absent` read counts as not there. A 401 is
+ * the caller's to handle. The check and the setup run both ask this.
+ */
+export async function pluginPresence(port: GatewayPort, probe: PluginProbe): Promise<PluginPresence> {
+  if (probe.state === 'answered') {
+    return { there: true, enabled: true }
+  }
+  const rows = await hubRows(port)
+  if (rows === null) {
+    return probe.state === 'not_loaded' ? { there: true, enabled: null } : { there: false }
+  }
+  const row = rows.find(found => found.name === PLUGIN_NAME)
+  return row === undefined ? { there: false } : { there: true, enabled: row.runtime_status === 'enabled' }
 }
 
 async function outdated(port: GatewayPort, health: ErgatesHealth, build: BuildRecord | null): Promise<ServerCheck> {
@@ -102,9 +132,10 @@ async function ready(port: GatewayPort, health: ErgatesHealth, build: BuildRecor
  * install record names another commit than the one the answering code was
  * loaded from. A plugin from before it reported the loaded commit says
  * nothing, so it counts when the record already names this build's commit,
- * which only a reinstall by this app or by hand puts there. A plugin that
- * reports no loaded commit for a git install could not read one: that is not
- * a restart to ask for.
+ * which only a reinstall by this app or by hand puts there. A `null` loaded
+ * commit on a git install is not a restart to ask for: the plugin could not
+ * read its record when Hermes imported it, or a read during an install saw
+ * the mount first, so `null` does not say the files differ from the code.
  */
 function waitsForRestart(health: ErgatesHealth, build: BuildRecord | null): boolean {
   const { install } = health
@@ -165,12 +196,12 @@ export async function checkServer(port: GatewayPort, build: BuildRecord | null):
     return fit === 'plugin_too_old' ? outdated(port, health, build) : ready(port, health, build)
   }
 
-  // A 404 that is not worded as "plugin not found" reads as not mounted, but the plugin may not be there at all: the hub list says whether it is.
-  const row = await hubRow(port)
-  if (row === undefined) {
+  // Hermes found no routes. Its plugin list says whether the plugin is there at all: a name that is still enabled after its folder is gone reads as not mounted.
+  const presence = await pluginPresence(port, probe)
+  if (!presence.there) {
     return missing(port, build)
   }
   // The hub lists it as enabled although the health read did not find it: it was enabled in between, and its routes are not mounted yet.
-  const enabled = probe.state === 'not_loaded' || row.runtime_status === 'enabled'
+  const enabled = probe.state === 'not_loaded' || presence.enabled === true
   return { kind: enabled ? 'not_loaded' : 'disabled', hermesVersion: await hermesVersionOf(port) }
 }

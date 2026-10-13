@@ -116,6 +116,29 @@ describe('updateOffer: a plugin the app does not manage', () => {
 
     expect(updateOffer(health, buildRecord(), 'required')).toBeNull()
   })
+
+  it.each(['optional', 'required'] as const)('leaves a git install from the Hermes catalog alone until catalog updates exist (%s)', need => {
+    const health = installedHealth({ install: { kind: 'git install', commit: INSTALLED_COMMIT, loaded_commit: INSTALLED_COMMIT, catalog_name: 'ergates' } })
+
+    expect(updateOffer(health, buildRecord(), need)).toBeNull()
+  })
+})
+
+describe('updateOffer: an install record the app does not trust as a commit', () => {
+  it.each([
+    ['upper case', 'A'.repeat(40)],
+    ['too short', 'abc123'],
+    ['too long', 'a'.repeat(41)],
+    ['not hex', 'g'.repeat(40)],
+    ['a branch name', 'main'],
+    ['blank', ''],
+    ['a number', 12345],
+    ['an object', { sha: 'a'.repeat(40) }]
+  ])('offers nothing when the recorded commit is %s, because going back would install it', (_title, commit) => {
+    const install = { kind: 'git install', commit, catalog_name: null } as unknown as ErgatesHealth['install']
+
+    expect(updateOffer(installedHealth({ install }), buildRecord(), 'required')).toBeNull()
+  })
 })
 
 describe('updateOffer: nothing to install', () => {

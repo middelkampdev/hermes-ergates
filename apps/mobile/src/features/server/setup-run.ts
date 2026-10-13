@@ -22,7 +22,7 @@ import type { PluginInstallCode, PluginProbe, SetupState } from '@/gateway/types
 
 import { PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
 import { clearPendingSetup, isSetupRunning, markPendingSetup, trackSetupRun } from './pending-setup'
-import { hubRow } from './server-check'
+import { hubRow, pluginPresence } from './server-check'
 
 /** Whether a run is going for the connection; `pending-setup.ts` owns the answer so that it can check it without importing this module. */
 export { isSetupRunning }
@@ -128,16 +128,9 @@ class SetupRun {
   /** Each step returns the outcome that ends the run, or null to go on to the next. */
   private async install(): Promise<SetupOutcome | null> {
     this.begin('install')
-    const probe = await this.port.ergates.health()
-    if (probe.state !== 'absent') {
-      // Hermes serves the plugin, or has it enabled and has not mounted it yet.
-      this.needsEnable = false
-      this.end('install', 'skipped')
-      return null
-    }
-    const row = await hubRow(this.port)
-    if (row) {
-      this.needsEnable = row.runtime_status !== 'enabled'
+    const presence = await pluginPresence(this.port, await this.port.ergates.health())
+    if (presence.there) {
+      this.needsEnable = presence.enabled === false
       this.end('install', 'skipped')
       return null
     }
@@ -192,17 +185,11 @@ class SetupRun {
 
   /** Whether the server has the plugin now. A read that fails counts as not yet; only a 401 stops the wait. */
   private async arrived(): Promise<boolean> {
-    const probe = await this.probe()
-    if (probe.state !== 'absent') {
-      this.needsEnable = false
-      return true
+    const presence = await pluginPresence(this.port, await this.probe())
+    if (presence.there) {
+      this.needsEnable = presence.enabled === false
     }
-    const row = await hubRow(this.port)
-    if (!row) {
-      return false
-    }
-    this.needsEnable = row.runtime_status !== 'enabled'
-    return true
+    return presence.there
   }
 
   private async probe(): Promise<PluginProbe> {

@@ -5,7 +5,7 @@ import type { ErgatesHealth, HermesPluginRow, PluginProbe } from '@/gateway/type
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
 import type { BuildRecord } from './build-record'
-import { checkServer, isSignedOut, pluginFits, pollInterval } from './server-check'
+import { checkServer, isSignedOut, pluginFits, pluginPresence, pollInterval } from './server-check'
 
 const COMMIT = 'b'.repeat(40)
 const OLD_COMMIT = 'a'.repeat(40)
@@ -199,6 +199,26 @@ describe('checkServer: a plugin that is not there', () => {
     await checkServer(gateway, buildRecord())
 
     expect(hub).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([['disabled'], ['inactive']] as const)('is still not_loaded when Hermes found no routes and the hub lists the plugin as %s', async status => {
+    const check = await checkServer(serverWith({ health: { state: 'not_loaded' }, rows: [row(status)] }), buildRecord())
+
+    expect(check).toEqual({ kind: 'not_loaded', hermesVersion: '0.21.6' })
+  })
+
+  it('is still not_loaded when Hermes found no routes and the hub list cannot be read, because that read says the plugin is there', async () => {
+    const gateway = serverWith({ health: { state: 'not_loaded' } })
+    gateway.plugins.fail('hub', new GatewayError('network', 'No connection.'))
+
+    expect(await checkServer(gateway, buildRecord())).toEqual({ kind: 'not_loaded', hermesVersion: '0.21.6' })
+  })
+
+  it('rejects when the hub list needs a sign-in after Hermes found no routes', async () => {
+    const gateway = serverWith({ health: { state: 'not_loaded' } })
+    gateway.plugins.fail('hub', mapHttpError(401))
+
+    await expect(checkServer(gateway, buildRecord())).rejects.toMatchObject({ kind: 'unauthorized' })
   })
 
   it('treats the plugin as missing when the hub list cannot be read', async () => {
@@ -423,6 +443,47 @@ describe('checkServer: a build without a record', () => {
     const health = currentHealth({ api_level: 0 })
 
     expect(await checkServer(serverWith({ health: answered(health) }), null)).toMatchObject({ kind: 'ready' })
+  })
+})
+
+describe('pluginPresence', () => {
+  const probes: Record<'absent' | 'not_loaded', PluginProbe> = { absent: { state: 'absent' }, not_loaded: { state: 'not_loaded' } }
+
+  it('has the plugin when it answered, and does not read the hub list', async () => {
+    const gateway = serverWith()
+    const hub = vi.spyOn(gateway.plugins, 'hub')
+
+    expect(await pluginPresence(gateway, answered(currentHealth()))).toEqual({ there: true, enabled: true })
+    expect(hub).not.toHaveBeenCalled()
+  })
+
+  it.each(['absent', 'not_loaded'] as const)('has no plugin when Hermes found none (%s) and the hub does not list it', async state => {
+    const gateway = serverWith({ rows: [row('enabled', 'other')] })
+
+    expect(await pluginPresence(gateway, probes[state])).toEqual({ there: false })
+  })
+
+  it.each(['absent', 'not_loaded'] as const)('has the plugin as the hub lists it when Hermes found none (%s)', async state => {
+    expect(await pluginPresence(serverWith({ rows: [row('enabled')] }), probes[state])).toEqual({ there: true, enabled: true })
+    expect(await pluginPresence(serverWith({ rows: [row('disabled')] }), probes[state])).toEqual({ there: true, enabled: false })
+  })
+
+  it('trusts a not_loaded read over an unreadable hub list, and an absent read not at all', async () => {
+    const unreadable = () => {
+      const gateway = serverWith()
+      gateway.plugins.fail('hub', new GatewayError('timeout', 'Timed out.'))
+      return gateway
+    }
+
+    expect(await pluginPresence(unreadable(), probes.not_loaded)).toEqual({ there: true, enabled: null })
+    expect(await pluginPresence(unreadable(), probes.absent)).toEqual({ there: false })
+  })
+
+  it('rejects when the hub list needs a sign-in', async () => {
+    const gateway = serverWith()
+    gateway.plugins.fail('hub', mapHttpError(401))
+
+    await expect(pluginPresence(gateway, probes.not_loaded)).rejects.toMatchObject({ kind: 'unauthorized' })
   })
 })
 

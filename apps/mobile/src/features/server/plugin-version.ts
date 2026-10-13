@@ -8,7 +8,7 @@
 import type { ErgatesHealth } from '@/gateway/types'
 import type { Connection } from '@/state/device-store'
 
-import type { BuildRecord } from './build-record'
+import { COMMIT_PATTERN, type BuildRecord } from './build-record'
 import { parseHermesVersion } from './hermes-version'
 
 /** The plugin this build would put on the server in place of the one it has. */
@@ -42,31 +42,34 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 | null {
 
 /**
  * The update this build offers for the plugin a health read describes, or
- * null. Only a git install with a known commit can be replaced and put back;
- * a deployment, a manual copy and a plugin that reports no install belong to
- * whoever put them there. Nothing is offered when the build has no commit, is
- * at the installed commit, or when either version cannot be read. A plugin
- * with a higher version is never replaced, so a phone with an older app never
- * undoes a newer one. `need` is `required` when the plugin cannot serve this
- * app (its API level or store) and `optional` when it works. An equal version
- * is replaced only when the update is `required`: for a working plugin it
- * would let two phones on different builds of one version swap the server back
- * and forth.
+ * null. Only a git install with a known commit can be replaced and put back.
+ * A deployment, a manual copy and a plugin that reports no install belong to
+ * whoever put them there, and an install from the Hermes catalog is updated
+ * through the catalog, not from here. The recorded commit becomes the commit
+ * that going back installs, so it must be a full lower-case hash. Nothing is
+ * offered when the build has no commit, is at the installed commit, or when
+ * either version cannot be read. A plugin with a higher version is never
+ * replaced, so a phone with an older app never undoes a newer one. `need` is
+ * `required` when the plugin cannot serve this app (its API level or store)
+ * and `optional` when it works. An equal version is replaced only when the
+ * update is `required`: for a working plugin it would let two phones on
+ * different builds of one version swap the server back and forth.
  */
 export function updateOffer(health: ErgatesHealth, build: BuildRecord | null, need: 'optional' | 'required'): UpdateOffer | null {
   const { install } = health
-  if (build === null || build.requiredPlugin.commit === null || install?.kind !== 'git install' || !install.commit) {
+  if (build === null || build.requiredPlugin.commit === null || install?.kind !== 'git install' || (install.catalog_name ?? null) !== null) {
     return null
   }
+  const previous: unknown = install.commit
   const { version, commit } = build.requiredPlugin
-  if (install.commit === commit) {
+  if (typeof previous !== 'string' || !COMMIT_PATTERN.test(previous) || previous === commit) {
     return null
   }
   const order = compareVersions(health.plugin_version, version)
   if (order === null || order === 1 || (order === 0 && need === 'optional')) {
     return null
   }
-  return { from: health.plugin_version, to: version, commit, previous: install.commit, previousSchema: health.store?.plugin_schema_version ?? null }
+  return { from: health.plugin_version, to: version, commit, previous, previousSchema: health.store?.plugin_schema_version ?? null }
 }
 
 /** Whether the connection keeps its server plugin up to date by itself: on until the user turns it off. */
