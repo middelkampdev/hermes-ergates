@@ -72,6 +72,9 @@ export function updateOffer(health: ErgatesHealth, build: BuildRecord | null, ne
   return { from: health.plugin_version, to: version, commit, previous, previousSchema: health.store?.plugin_schema_version ?? null }
 }
 
+/** The label of the switch for `autoUpdate`, wherever it is shown. */
+export const AUTO_UPDATE_LABEL = 'Keep it up to date automatically'
+
 /** Whether the connection keeps its server plugin up to date by itself: on until the user turns it off. */
 export function autoUpdate(connection: Connection): boolean {
   return connection.autoUpdatePlugin !== false

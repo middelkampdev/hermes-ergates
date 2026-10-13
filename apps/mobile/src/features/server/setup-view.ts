@@ -6,6 +6,8 @@
  * Pure: no React, no gateway.
  */
 
+import type { SetupState } from '@/gateway/types'
+
 import type { BuildRecord } from './build-record'
 import { parseHermesVersion } from './hermes-version'
 import { isSignedOut, type ServerCheck } from './server-check'
@@ -22,6 +24,8 @@ export interface SetupView {
   source: string | null
   /** The paragraph below the source line: what Hermes says about the source, or why one tap is not offered. */
   note: string | null
+  /** True when the screen draws the switch for keeping the plugin up to date under the source line: it shows wherever the source line does. */
+  autoUpdateSwitch: boolean
   primary: { label: string; action: SetupAction } | null
   secondary: { label: string; action: 'not_now' } | null
   /** The four steps of a run, in order; null before a run starts. */
@@ -42,8 +46,8 @@ const UNREVIEWED =
   "Hermes calls this an unreviewed source, because the plugin is not in the Hermes plugin catalog yet. Your server downloads it from GitHub and runs Hermes's security check before it installs it."
 const TURNED_OFF = 'The Ergates plugin is on your server but turned off.'
 const READY = 'Your server is ready.'
-const SIGN_IN = 'Your server asked you to sign in again.'
-const UNREACHABLE = 'Could not reach your server.'
+export const SIGN_IN = 'Your server asked you to sign in again.'
+export const UNREACHABLE = 'Could not reach your server.'
 const NO_COMMIT = 'This build of Ergates does not know which plugin version to install.'
 const UNKNOWN_VERSION = "Ergates could not read your server's Hermes version, so you finish setup on the server."
 
@@ -71,8 +75,9 @@ export function stepStatusWord(status: StepStatus): string {
   return STEP_WORDS[status]
 }
 
-function view(parts: Partial<SetupView> = {}): SetupView {
-  return { title: SETUP_TITLE, body: [], source: null, note: null, primary: null, secondary: null, steps: null, ...parts }
+/** The switch sits under the source line, so a view has it exactly when it names a source. */
+function view(parts: Partial<Omit<SetupView, 'autoUpdateSwitch'>> = {}): SetupView {
+  return { title: SETUP_TITLE, body: [], source: null, note: null, autoUpdateSwitch: Boolean(parts.source), primary: null, secondary: null, steps: null, ...parts }
 }
 
 function signInView(steps: SetupView['steps']): SetupView {
@@ -98,7 +103,7 @@ function minorOf(version: string | null): string {
 function manualNote(check: Extract<ServerCheck, { kind: 'missing' }>, build: BuildRecord): string {
   switch (check.reason) {
     case 'too_old':
-      return `Your server runs Hermes ${check.hermesVersion ?? 'unknown'}. One-tap setup needs Hermes ${build.hermesRange.oldest} or newer, so you finish it on the server.`
+      return `Your server runs Hermes ${check.hermesVersion ?? 'unknown'}. Update Hermes first (hermes update): one-tap setup needs Hermes ${build.hermesRange.oldest} or newer. You can also finish setup on the server.`
     case 'untested':
       return `Ergates is not tested with Hermes ${minorOf(check.hermesVersion)} yet, so you finish setup on the server.`
     default:
@@ -131,8 +136,9 @@ function disabledView(build: BuildRecord | null): SetupView {
   return view({ body: [TURNED_OFF], primary: { label: 'Turn it on', action: 'turn_on' }, secondary: NOT_NOW })
 }
 
-function failedProfiles(outcome: Extract<SetupOutcome, { kind: 'done' }>): string[] {
-  const names = outcome.setup.profiles.filter(profile => !profile.enabled).map(profile => profile.name)
+/** The line that names the agents the plugin's setup could not turn Ergates on for, or none. */
+export function failedProfiles(setup: SetupState): string[] {
+  const names = setup.profiles.filter(profile => !profile.enabled).map(profile => profile.name)
   return names.length > 0 ? [`Ergates could not be turned on for: ${names.join(', ')}.`] : []
 }
 
@@ -144,7 +150,7 @@ function runView(run: SetupRunState): SetupView {
   }
   switch (outcome.kind) {
     case 'done':
-      return view({ body: [READY, ...failedProfiles(outcome)], primary: DONE, steps })
+      return view({ body: [READY, ...failedProfiles(outcome.setup)], primary: DONE, steps })
     case 'manual':
     case 'restart':
       return view({ primary: SHOW_ME_HOW, secondary: NOT_NOW, steps })

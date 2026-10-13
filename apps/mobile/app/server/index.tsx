@@ -14,14 +14,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
 import {
-  isSetupRunning,
   opensFinish,
   routeAfterCheck,
+  runningKind,
   runSetup,
   SETUP_TITLE,
   serverCheckKey,
   setupScreenView,
-  stepStatusWord,
   useServerCheck,
   type SetupAction,
   type SetupRunState,
@@ -34,22 +33,12 @@ import { buildRecord } from '@/lib/build-info'
 import type { Connection } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
 import { LEADING, SPACE, TYPE } from '@/theme/tokens'
+import { AutoUpdateSwitch } from '@/ui/AutoUpdateSwitch'
 import { Button } from '@/ui/Button'
-import { Group } from '@/ui/Group'
-import type { IconName } from '@/ui/icons'
-import { ListRow } from '@/ui/ListRow'
 import { Page } from '@/ui/Page'
+import { StepList } from '@/ui/StepList'
 
 const PENDING_STEPS: Record<SetupStep, StepStatus> = { install: 'pending', enable: 'pending', start: 'pending', setup: 'pending' }
-
-// The active step keeps the open circle: its row shows the one spinner on the right. A skipped step gets a bare check, set apart from a step that ran.
-const STEP_ICON: Record<StepStatus, IconName> = {
-  pending: 'circle',
-  active: 'circle',
-  done: 'check-circle',
-  skipped: 'check',
-  failed: 'x-circle'
-}
 
 export default function ServerSetupScreen() {
   const connection = usePrimaryConnection()
@@ -66,8 +55,8 @@ function ServerSetup({ connection }: { connection: Connection }) {
   const gateway = useGateway(connection)
   const build = useMemo(() => buildRecord(), [])
   const check = useServerCheck(connection, build)
-  // A run that is already going (the user left this screen and came back) is joined, not offered again.
-  const rejoin = useRef(isSetupRunning(connection.id))
+  // A setup that is already going (the user left this screen and came back) is joined, not offered again. An update going is not this screen's to join.
+  const rejoin = useRef(runningKind(connection.id) === 'setup')
   const [run, setRun] = useState<SetupRunState | null>(() => (rejoin.current ? { steps: PENDING_STEPS, outcome: null } : null))
   // The run keeps reporting after this screen is gone; only a mounted screen draws it.
   const mounted = useRef(true)
@@ -172,21 +161,9 @@ function ServerSetup({ connection }: { connection: Connection }) {
         ))}
         {view.source ? <Text style={[styles.detail, { color: theme.colors.mutedForeground }]}>{view.source}</Text> : null}
         {view.note ? <Text style={[styles.detail, { color: theme.colors.mutedForeground }]}>{view.note}</Text> : null}
+        {view.autoUpdateSwitch ? <AutoUpdateSwitch connection={connection} /> : null}
       </View>
-      {view.steps ? (
-        <Group>
-          {view.steps.map(step => (
-            <ListRow
-              key={step.label}
-              title={step.label}
-              icon={STEP_ICON[step.status]}
-              destructive={step.status === 'failed'}
-              right={step.status === 'active' ? <ActivityIndicator accessibilityLabel={stepStatusWord('active')} /> : undefined}
-              accessibilityLabel={`${step.label}, ${stepStatusWord(step.status)}`}
-            />
-          ))}
-        </Group>
-      ) : null}
+      {view.steps ? <StepList steps={view.steps} /> : null}
     </Page>
   )
 }

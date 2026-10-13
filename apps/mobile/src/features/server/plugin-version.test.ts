@@ -4,7 +4,7 @@ import type { ErgatesHealth } from '@/gateway/types'
 import type { Connection } from '@/state/device-store'
 
 import type { BuildRecord } from './build-record'
-import { autoUpdate, compareVersions, updateOffer } from './plugin-version'
+import { AUTO_UPDATE_LABEL, autoUpdate, compareVersions, updateOffer } from './plugin-version'
 
 const BUILD_COMMIT = 'b'.repeat(40)
 const INSTALLED_COMMIT = 'a'.repeat(40)
@@ -172,5 +172,9 @@ describe('autoUpdate', () => {
     expect(autoUpdate(connection)).toBe(true)
     expect(autoUpdate({ ...connection, autoUpdatePlugin: true })).toBe(true)
     expect(autoUpdate({ ...connection, autoUpdatePlugin: false })).toBe(false)
+  })
+
+  it('has one label on every screen that shows the switch', () => {
+    expect(AUTO_UPDATE_LABEL).toBe('Keep it up to date automatically')
   })
 })

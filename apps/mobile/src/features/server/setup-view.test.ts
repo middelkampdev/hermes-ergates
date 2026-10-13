@@ -44,6 +44,7 @@ describe('setupView: a server without the plugin', () => {
       body: [INTRO],
       source: SOURCE,
       note: UNREVIEWED,
+      autoUpdateSwitch: true,
       primary: { label: 'Set up this server', action: 'run' },
       secondary: NOT_NOW,
       steps: null
@@ -60,7 +61,7 @@ describe('setupView: a server without the plugin', () => {
     [
       'older than the oldest supported',
       { kind: 'missing', hermesVersion: '0.20.1', oneTap: false, reason: 'too_old' },
-      'Your server runs Hermes 0.20.1. One-tap setup needs Hermes 0.21.6 or newer, so you finish it on the server.'
+      'Your server runs Hermes 0.20.1. Update Hermes first (hermes update): one-tap setup needs Hermes 0.21.6 or newer. You can also finish setup on the server.'
     ],
     [
       'newer than the newest tested',
@@ -78,6 +79,7 @@ describe('setupView: a server without the plugin', () => {
       body: [INTRO],
       source: SOURCE,
       note,
+      autoUpdateSwitch: true,
       primary: SHOW_ME_HOW,
       secondary: NOT_NOW,
       steps: null
@@ -95,10 +97,19 @@ describe('setupView: a server without the plugin', () => {
       body: [INTRO],
       source: null,
       note: 'This build of Ergates does not know which plugin version to install.',
+      autoUpdateSwitch: false,
       primary: null,
       secondary: NOT_NOW,
       steps: null
     })
+  })
+
+  it('puts the update switch under the source line, and nowhere the source line is missing', () => {
+    expect(setupView(oneTap, buildRecord(), null).autoUpdateSwitch).toBe(true)
+    expect(setupView({ kind: 'missing', hermesVersion: '0.20.1', oneTap: false, reason: 'too_old' }, buildRecord(), null).autoUpdateSwitch).toBe(true)
+    expect(setupView(oneTap, buildRecord(null), null).autoUpdateSwitch).toBe(false)
+    expect(setupView({ kind: 'disabled', hermesVersion: '0.21.6' }, buildRecord(), null).autoUpdateSwitch).toBe(false)
+    expect(setupView(oneTap, buildRecord(), runWith(null, { install: 'active' })).autoUpdateSwitch).toBe(false)
   })
 
   it('does not offer one tap without a commit, whatever the check says', () => {
@@ -116,6 +127,7 @@ describe('setupView: the other checks', () => {
       body: ['The Ergates plugin is on your server but turned off.'],
       source: null,
       note: null,
+      autoUpdateSwitch: false,
       primary: { label: 'Turn it on', action: 'turn_on' },
       secondary: NOT_NOW,
       steps: null
@@ -136,6 +148,7 @@ describe('setupView: the other checks', () => {
       body: ['Your server is ready.'],
       source: null,
       note: null,
+      autoUpdateSwitch: false,
       primary: { label: 'Done', action: 'done' },
       secondary: null,
       steps: null
@@ -160,6 +173,7 @@ describe('setupView: the other checks', () => {
       body: [],
       source: null,
       note: null,
+      autoUpdateSwitch: false,
       primary: null,
       secondary: NOT_NOW,
       steps: null
@@ -172,6 +186,7 @@ describe('setupView: the other checks', () => {
       body: ['Could not reach your server.'],
       source: null,
       note: null,
+      autoUpdateSwitch: false,
       primary: { label: 'Try again', action: 'check_again' },
       secondary: NOT_NOW,
       steps: null
@@ -196,6 +211,7 @@ describe('setupView: while a run is going', () => {
       body: [],
       source: null,
       note: null,
+      autoUpdateSwitch: false,
       primary: null,
       secondary: null,
       steps: [
@@ -274,6 +290,7 @@ describe('signedOutView', () => {
       body: ['Your server asked you to sign in again.'],
       source: null,
       note: null,
+      autoUpdateSwitch: false,
       primary: { label: 'Sign in again', action: 'sign_in' },
       secondary: NOT_NOW,
       steps: null
