@@ -16,10 +16,12 @@ import { FAKE_PLUGIN_COMMIT, FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-g
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
 import { PLUGIN_IDENTIFIER, type BuildRecord } from './build-record'
+import { finishUpdateOf, finishVariant, finishView } from './finish-view'
 import { finishPendingSetup, markPendingSetup, runningKind } from './pending-setup'
+import { NOT_WATCHED } from './restart-watch'
 import type { ServerCheck } from './server-check'
 import { INSTALL_RACE_AFTER_MS, isSetupRunning, runSetup, type StepStatus } from './setup-run'
-import { joinUpdate, lastUpdateOutcome, runUpdate, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
+import { joinUpdate, lastUpdateOutcome, lastUpdateRun, restartWatchOf, runUpdate, watchUpdateRestart, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
 
 const OLD = FAKE_PLUGIN_COMMIT
 const TARGET = 'b'.repeat(40)
@@ -1320,5 +1322,137 @@ describe('joinUpdate: joining a run that is going, and never starting one', () =
     gateway.plugins.rows = [{ name: 'ergates', version: '0.3.0', runtime_status: 'enabled' }]
     await vi.runAllTimersAsync()
     await setup
+  })
+})
+
+describe('lastUpdateRun: whether the last run was a going back', () => {
+  const FAILED_UPDATE = { target: TARGET, previous: OLD, previousSchema: 1 }
+
+  it('is null for a connection that has not run an update', () => {
+    expect(lastUpdateRun('c-9')).toBeNull()
+  })
+
+  it('holds the outcome of an update, and says it was not a going back', async () => {
+    await run(runningServer())
+
+    expect(lastUpdateRun(connection.id)).toEqual({ outcome: { kind: 'restart' }, goingBack: false })
+    expect(lastUpdateRun(connection.id)?.outcome).toBe(lastUpdateOutcome(connection.id))
+  })
+
+  it('says the last run was a going back', async () => {
+    const gateway = runningServer()
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: FAILED_UPDATE })
+
+    await run(gateway, { target: OLD, previous: TARGET, goingBack: true })
+
+    expect(lastUpdateRun(connection.id)).toMatchObject({ goingBack: true })
+  })
+
+  it('says a run the app refuses to start was not a going back, or was one when it was asked for one', async () => {
+    await run(runningServer(), { target: 'v0.2.0', goingBack: true })
+
+    expect(lastUpdateRun(connection.id)).toEqual({ outcome: { kind: 'manual', failure: 'refused', detail: null }, goingBack: true })
+  })
+})
+
+describe('restartWatchOf: the restart signs the Finish page keeps beyond one mount', () => {
+  it('has seen nothing for a connection that never folded a poll', () => {
+    expect(restartWatchOf('c-8')).toBe(NOT_WATCHED)
+  })
+
+  it('folds each poll in and keeps what the polls showed', () => {
+    watchUpdateRestart('c-7', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: null }, false)
+    expect(restartWatchOf('c-7')).toEqual({ oldCodeAnswered: true, seen: false })
+
+    const after = watchUpdateRestart('c-7', { kind: 'not_loaded', hermesVersion: null }, false)
+
+    expect(after).toEqual({ oldCodeAnswered: true, seen: true })
+    expect(restartWatchOf('c-7')).toBe(after)
+  })
+
+  it('is kept per connection', () => {
+    watchUpdateRestart('c-6', null, true)
+
+    expect(restartWatchOf('c-5')).toBe(NOT_WATCHED)
+  })
+
+  it('starts again when a new update run starts', async () => {
+    watchUpdateRestart(connection.id, null, true)
+    expect(restartWatchOf(connection.id).seen).toBe(true)
+
+    const running = start(runningServer())
+    expect(restartWatchOf(connection.id)).toBe(NOT_WATCHED)
+    await running.finish()
+  })
+
+  it('stays when a call only joins the run that is going', async () => {
+    const gateway = runningServer()
+    gateway.plugins.fail('install', networkError())
+    const first = start(gateway)
+    await vi.advanceTimersByTimeAsync(2_000)
+    watchUpdateRestart(connection.id, null, true)
+
+    void joinUpdate(connection.id, false, () => undefined)
+
+    expect(restartWatchOf(connection.id).seen).toBe(true)
+    installedOnServer(gateway)
+    await first.finish()
+  })
+})
+
+describe('the Finish page after it mounts again', () => {
+  const FAILED_UPDATE = { target: TARGET, previous: OLD, previousSchema: 1 }
+  const notLoaded: ServerCheck = { kind: 'not_loaded', hermesVersion: '0.21.7' }
+
+  /** What a Finish page that mounts now builds from what the update run and the polls left in memory. */
+  function freshPage(check: ServerCheck) {
+    const update = finishUpdateOf({ started: stored().pluginUpdate, schemaSeen: null, last: lastUpdateRun(connection.id), restartSeen: restartWatchOf(connection.id).seen })
+    return finishView(finishVariant(check, null, update), buildRecord(), check)
+  }
+
+  it('keeps the sign of the restart, so a plugin that does not come up is a new version that did not start', async () => {
+    await run(runningServer())
+    expect(freshPage(notLoaded).intro).toEqual(['The update is installed. Restart Hermes to start the new version.'])
+
+    // The earlier page saw the server refuse the session after the restart, then the user signed in again and the page mounted anew.
+    watchUpdateRestart(connection.id, null, true)
+
+    expect(freshPage(notLoaded)).toMatchObject({ intro: ['The new version did not start.', expect.any(String)], primary: { label: 'Go back to the previous version', action: 'go_back' } })
+  })
+
+  it('does not offer to go back after a new update run started, until a new sign shows', async () => {
+    await run(runningServer())
+    watchUpdateRestart(connection.id, null, true)
+
+    await run(runningServer())
+
+    expect(freshPage(notLoaded).intro).toEqual(['The update is installed. Restart Hermes to start the new version.'])
+  })
+
+  it('asks for the restart of the previous version when the going back ended asking for it', async () => {
+    const gateway = runningServer()
+    gateway.plugins.installedCommit = TARGET
+    markPendingSetup(connection.id, TARGET)
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: FAILED_UPDATE })
+    gateway.ergates.setHealth({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD, loaded_commit: TARGET, catalog_name: null } } })
+
+    const result = await run(gateway, { target: OLD, previous: TARGET, goingBack: true })
+
+    expect(result.outcome).toEqual({ kind: 'restart' })
+    expect(freshPage(notLoaded)).toMatchObject({ intro: ['The previous version is installed. Restart Hermes to start it.'], primary: { label: 'Check now', action: 'check' } })
+  })
+
+  it('still knows the previous version is back after a going back that went through', async () => {
+    const gateway = runningServer()
+    gateway.plugins.installedCommit = TARGET
+    markPendingSetup(connection.id, TARGET)
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: FAILED_UPDATE })
+    gateway.ergates.setHealth(() => ({ state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install: { kind: 'git install', commit: OLD, loaded_commit: OLD, catalog_name: null } } }))
+
+    const result = await run(gateway, { target: OLD, previous: TARGET, goingBack: true })
+
+    expect(result.outcome).toMatchObject({ kind: 'done' })
+    const update = finishUpdateOf({ started: stored().pluginUpdate, schemaSeen: null, last: lastUpdateRun(connection.id), restartSeen: false })
+    expect(update.wentBack).toBe(true)
   })
 })

@@ -26,9 +26,8 @@ import {
   highestSchema,
   isSignedOut,
   lastManualOutcome,
-  lastUpdateOutcome,
+  lastUpdateRun,
   markPendingSetup,
-  NOT_WATCHED,
   pendingCommit,
   PENDING_UPDATE_RUN,
   RESTART_HEADING,
@@ -38,11 +37,10 @@ import {
   setupProblem,
   updateStillOpen,
   useServerCheck,
-  watchRestart,
+  watchUpdateRestart,
   type FinishAction,
   type FinishUpdate,
   type FinishVariant,
-  type RestartWatch,
   type SetupProgress,
   type UpdateRunState
 } from '@/features/server'
@@ -74,8 +72,6 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   const build = useMemo(() => buildRecord(), [])
   // Why the install is by hand comes from the run that ended that way, not from the route: the text of a route is anyone's to write.
   const [manual] = useState(() => lastManualOutcome(connection.id))
-  // How the update run that sent the user here ended: by hand, the plugin still works and the update is left to do on the server; with a restart, the page waits for it.
-  const [ended] = useState(() => lastUpdateOutcome(connection.id))
   const focused = useIsFocused()
   // True once the plugin answered and its setup went through: nothing is left to wait for.
   const [finished, setFinished] = useState(false)
@@ -85,8 +81,6 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   const [run, setRun] = useState<UpdateRunState | null>(null)
   // The highest store version any health read on this page asked for: going back is not offered past the one the previous version knows.
   const [schemaSeen, setSchemaSeen] = useState<number | null>(null)
-  // What the polls showed of the restart the update asked for: only after a sign of it is a plugin that does not come up a new version that failed to start.
-  const [restartWatch, setRestartWatch] = useState<RestartWatch>(NOT_WATCHED)
   // The setup call outlives this screen; only a mounted screen draws what it reports.
   const mounted = useRef(true)
 
@@ -107,13 +101,12 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   if (seen !== schemaSeen) {
     setSchemaSeen(seen)
   }
-  const watch = watchRestart(restartWatch, data ?? null, signedOut)
-  if (watch !== restartWatch) {
-    setRestartWatch(watch)
-  }
+  // The update run keeps, per connection, how it ended and what the polls showed of the restart it asked for, so this page knows the same after it mounts again (a sign-in replaces it, or the user leaves and comes back). Every poll is folded in here.
+  const restartSeen = watchUpdateRestart(connection.id, data ?? null, signedOut).seen
+  const last = lastUpdateRun(connection.id)
   const update = useMemo<FinishUpdate>(
-    () => finishUpdateOf({ started: connection.pluginUpdate, schemaSeen: seen, run, ended, restartSeen: watch.seen }),
-    [connection.pluginUpdate, seen, run, ended, watch.seen]
+    () => finishUpdateOf({ started: connection.pluginUpdate, schemaSeen: seen, last, restartSeen }),
+    [connection.pluginUpdate, seen, last, restartSeen]
   )
   const goingBack = runIsGoing(run)
 

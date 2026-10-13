@@ -18,7 +18,6 @@ import {
   goBackTarget,
   highestSchema,
   NO_UPDATE,
-  NOT_WATCHED,
   pendingCommit,
   RESTART_HEADING,
   runIsGoing,
@@ -26,16 +25,16 @@ import {
   setupProblem,
   SIGNED_OUT_HINT,
   updateStillOpen,
-  watchRestart,
   type FinishManual,
   type FinishUpdate,
   type FinishVariant,
   type SetupProgress
 } from './finish-view'
 import type { UpdateOffer } from './plugin-version'
+import { NOT_WATCHED, watchRestart } from './restart-watch'
 import type { InstallKind, ServerCheck } from './server-check'
 import type { StepStatus } from './setup-run'
-import type { UpdateOutcome, UpdateStep } from './update-run'
+import type { LastUpdateRun, UpdateOutcome, UpdateStep } from './update-run'
 import type { UpdateRunState } from './update-view'
 
 const COMMIT = 'abcdef0123456789abcdef0123456789abcdef01'
@@ -133,18 +132,18 @@ describe('finishVariant: what the check says the user has to do', () => {
   })
 
   it('asks for a restart when Hermes has the plugin but has not loaded it', () => {
-    expect(finishVariant(waiting, null)).toEqual({ kind: 'restart', update: false })
+    expect(finishVariant(waiting, null)).toEqual({ kind: 'restart', after: null })
   })
 
   it('asks for a restart when the update is installed and Hermes still runs the old code', () => {
     const restartNeeded: ServerCheck = { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }
 
-    expect(finishVariant(restartNeeded, null)).toEqual({ kind: 'restart', update: false })
-    expect(finishVariant(restartNeeded, { failure: 'scan_blocked', detail: null })).toEqual({ kind: 'restart', update: false })
+    expect(finishVariant(restartNeeded, null)).toEqual({ kind: 'restart', after: null })
+    expect(finishVariant(restartNeeded, { failure: 'scan_blocked', detail: null })).toEqual({ kind: 'restart', after: null })
   })
 
   it('lets the server win over an old failure once the plugin is installed', () => {
-    expect(finishVariant(waiting, { failure: 'scan_blocked', detail: null })).toEqual({ kind: 'restart', update: false })
+    expect(finishVariant(waiting, { failure: 'scan_blocked', detail: null })).toEqual({ kind: 'restart', after: null })
     expect(finishVariant(outdated('git install'), { failure: 'scan_blocked', detail: null })).toEqual({ kind: 'update' })
   })
 
@@ -231,7 +230,7 @@ describe('finishView: the instructions for each variant', () => {
   })
 
   it('asks for a restart when Hermes has not loaded the plugin, with no command', () => {
-    const view = finishView({ kind: 'restart', update: false }, buildRecord(), waiting)
+    const view = finishView({ kind: 'restart', after: null }, buildRecord(), waiting)
 
     expect(view.title).toBe('Finish on your server')
     expect(view.intro).toEqual(['Hermes has not loaded the Ergates plugin yet.'])
@@ -381,7 +380,7 @@ describe('finishView: the status line and the button', () => {
     ['unknown', { kind: 'unknown' }],
     ['missing', missing(null)]
   ])('keeps waiting while the check is %s', (_title, check) => {
-    const view = finishView({ kind: 'restart', update: false }, buildRecord(), check)
+    const view = finishView({ kind: 'restart', after: null }, buildRecord(), check)
 
     expect(view.status).toBe('Waiting for your server…')
     expect(view.done).toBe(false)
@@ -395,7 +394,7 @@ describe('finishView: the status line and the button', () => {
   })
 
   it('reads a ready server as checking when no setup state is given', () => {
-    expect(finishView({ kind: 'restart', update: false }, buildRecord(), ready)).toMatchObject({ status: 'Checking…', done: false })
+    expect(finishView({ kind: 'restart', after: null }, buildRecord(), ready)).toMatchObject({ status: 'Checking…', done: false })
   })
 
   it('says the server is ready and leaves with Done once the setup has settled, without the instructions it no longer needs', () => {
@@ -410,7 +409,7 @@ describe('finishView: the status line and the button', () => {
     ['a check that could not tell', { kind: 'unknown' }],
     ['a refused session', 'sign_in']
   ])('stays done whatever a later check says: %s', (_title, check) => {
-    const view = finishView({ kind: 'restart', update: false }, buildRecord(), check, settled)
+    const view = finishView({ kind: 'restart', after: null }, buildRecord(), check, settled)
 
     expect(view).toMatchObject({ status: 'Your server is ready.', done: true, primary: { label: 'Done', action: 'done' }, intro: [], command: null, restartLines: null })
   })
@@ -420,7 +419,7 @@ describe('finishView: the status line and the button', () => {
   })
 
   it('shows what went wrong with the setup of a ready server, and waits for the next check to try again', () => {
-    const view = finishView({ kind: 'restart', update: false }, buildRecord(), ready, { state: 'failed', message: 'The plugin could not set up your agents.' })
+    const view = finishView({ kind: 'restart', after: null }, buildRecord(), ready, { state: 'failed', message: 'The plugin could not set up your agents.' })
 
     expect(view.status).toBe('The plugin could not set up your agents.')
     expect(view.done).toBe(false)
@@ -428,11 +427,11 @@ describe('finishView: the status line and the button', () => {
   })
 
   it('ignores a setup problem while the server is not ready', () => {
-    expect(finishView({ kind: 'restart', update: false }, buildRecord(), waiting, { state: 'failed', message: 'Old problem' }).status).toBe('Waiting for your server…')
+    expect(finishView({ kind: 'restart', after: null }, buildRecord(), waiting, { state: 'failed', message: 'Old problem' }).status).toBe('Waiting for your server…')
   })
 
   it('asks to sign in again after a restart, with the way to stay signed in', () => {
-    const view = finishView({ kind: 'restart', update: false }, buildRecord(), 'sign_in')
+    const view = finishView({ kind: 'restart', after: null }, buildRecord(), 'sign_in')
 
     expect(view.status).toBe(`Your server restarted. Sign in again to continue. ${SIGNED_OUT_HINT.text}`)
     expect(view.guide).toEqual({ label: 'How to stay signed in', url: `${SERVER_GUIDE_URL}#stay-signed-in` })
@@ -450,7 +449,7 @@ describe('finishView: the status line and the button', () => {
   })
 
   it('lets a sign-in win over a setup problem', () => {
-    expect(finishView({ kind: 'restart', update: false }, buildRecord(), 'sign_in', { state: 'failed', message: 'A problem' }).status).toContain('Sign in again to continue.')
+    expect(finishView({ kind: 'restart', after: null }, buildRecord(), 'sign_in', { state: 'failed', message: 'A problem' }).status).toContain('Sign in again to continue.')
   })
 
   it('shows only the title, the status and the guide before a variant is known', () => {
@@ -536,11 +535,11 @@ function healthWithSchema(minSchema: number): ServerCheck {
 
 describe('finishVariant: an update the app started', () => {
   it('asks for the restart that starts the new version when the update is installed and the old code still answers', () => {
-    expect(finishVariant(restartNeeded, null, updating())).toEqual({ kind: 'restart', update: true })
+    expect(finishVariant(restartNeeded, null, updating())).toEqual({ kind: 'restart', after: 'update' })
   })
 
   it('asks for a plain restart when nothing started the update', () => {
-    expect(finishVariant(restartNeeded, null, NO_UPDATE)).toEqual({ kind: 'restart', update: false })
+    expect(finishVariant(restartNeeded, null, NO_UPDATE)).toEqual({ kind: 'restart', after: null })
   })
 
   it.each<[string, ServerCheck]>([
@@ -552,7 +551,7 @@ describe('finishVariant: an update the app started', () => {
 
   it('leaves an unavailable plugin outside an update to the status line', () => {
     expect(finishVariant(unavailable, null, NO_UPDATE)).toBeNull()
-    expect(finishVariant(waiting, null, NO_UPDATE)).toEqual({ kind: 'restart', update: false })
+    expect(finishVariant(waiting, null, NO_UPDATE)).toEqual({ kind: 'restart', after: null })
   })
 
   it.each<[string, number | null, number | null, boolean]>([
@@ -574,9 +573,9 @@ describe('finishVariant: an update the app started', () => {
   })
 
   it('asks for a restart, not a second go back, once the previous version is back on the server', () => {
-    expect(finishVariant(waiting, null, updating({ wentBack: true }))).toEqual({ kind: 'restart', update: false })
-    expect(finishVariant(unavailable, null, updating({ wentBack: true }))).toEqual({ kind: 'restart', update: false })
-    expect(finishVariant(restartNeeded, null, updating({ wentBack: true }))).toEqual({ kind: 'restart', update: false })
+    expect(finishVariant(waiting, null, updating({ wentBack: true }))).toEqual({ kind: 'restart', after: 'go_back' })
+    expect(finishVariant(unavailable, null, updating({ wentBack: true }))).toEqual({ kind: 'restart', after: 'go_back' })
+    expect(finishVariant(restartNeeded, null, updating({ wentBack: true }))).toEqual({ kind: 'restart', after: 'go_back' })
   })
 
   /** The variant of each poll in turn, for an update run that ended asking for a restart. */
@@ -584,32 +583,38 @@ describe('finishVariant: an update the app started', () => {
     let watch = NOT_WATCHED
     return polls.map(poll => {
       watch = watchRestart(watch, poll, false)
-      return finishVariant(poll, null, finishUpdateOf({ started, schemaSeen: null, run: null, ended: { kind: 'restart' }, restartSeen: watch.seen }))
+      return finishVariant(poll, null, finishUpdateOf({ started, schemaSeen: null, last: { outcome: { kind: 'restart' }, goingBack: false }, restartSeen: watch.seen }))
     })
   }
 
   it('keeps asking for the restart while the update run waits for it, and after a poll that could not reach the server reads a plugin that does not come up as a new version that did not start', () => {
-    expect(variantsAfterRestartRun([waiting, { kind: 'unknown' }, waiting])).toEqual([{ kind: 'restart', update: true }, null, { kind: 'not_started', previous: PREVIOUS, goBack: true }])
+    expect(variantsAfterRestartRun([waiting, { kind: 'unknown' }, waiting])).toEqual([{ kind: 'restart', after: 'update' }, null, { kind: 'not_started', previous: PREVIOUS, goBack: true }])
   })
 
   it('reads the old code that stopped answering as a restart too, without any poll that could not reach the server', () => {
-    expect(variantsAfterRestartRun([restartNeeded, waiting])).toEqual([{ kind: 'restart', update: true }, { kind: 'not_started', previous: PREVIOUS, goBack: true }])
-    expect(variantsAfterRestartRun([restartNeeded, unavailable])).toEqual([{ kind: 'restart', update: true }, { kind: 'not_started', previous: PREVIOUS, goBack: true }])
+    expect(variantsAfterRestartRun([restartNeeded, waiting])).toEqual([{ kind: 'restart', after: 'update' }, { kind: 'not_started', previous: PREVIOUS, goBack: true }])
+    expect(variantsAfterRestartRun([restartNeeded, unavailable])).toEqual([{ kind: 'restart', after: 'update' }, { kind: 'not_started', previous: PREVIOUS, goBack: true }])
   })
 
   it('keeps asking for the restart while the old code still answers', () => {
-    expect(variantsAfterRestartRun([restartNeeded, restartNeeded, restartNeeded])).toEqual(Array(3).fill({ kind: 'restart', update: true }))
+    expect(variantsAfterRestartRun([restartNeeded, restartNeeded, restartNeeded])).toEqual(Array(3).fill({ kind: 'restart', after: 'update' }))
   })
 
   it.each<[string, ServerCheck]>([
     ['Hermes has not loaded the plugin', waiting],
     ['the plugin cannot open its data', unavailable]
   ])('asks for the restart, not for going back, while the update run waits for it and %s', (_title, check) => {
-    expect(finishVariant(check, null, updating({ awaitingRestart: true }))).toEqual({ kind: 'restart', update: true })
+    expect(finishVariant(check, null, updating({ awaitingRestart: true }))).toEqual({ kind: 'restart', after: 'update' })
   })
 
   it('lets the previous version being back win over a restart the update run waits for', () => {
-    expect(finishVariant(waiting, null, updating({ awaitingRestart: true, wentBack: true }))).toEqual({ kind: 'restart', update: false })
+    expect(finishVariant(waiting, null, updating({ awaitingRestart: true, wentBack: true }))).toEqual({ kind: 'restart', after: 'go_back' })
+  })
+
+  it('says the previous version is back when the go back ended asking for a restart, whichever way the plugin answers', () => {
+    for (const check of [waiting, unavailable, restartNeeded]) {
+      expect(finishVariant(check, null, updating({ wentBack: true }))).toEqual({ kind: 'restart', after: 'go_back' })
+    }
   })
 
   it('updates by hand when the app could not and the plugin still works', () => {
@@ -657,95 +662,64 @@ describe('highestSchema: the oldest store version any health read since the upda
 })
 
 describe('finishUpdateOf: what the screen knows about the update', () => {
-  const run = (outcome: UpdateOutcome | null): UpdateRunState => ({ steps: { pause: 'done', install: 'done', start: 'failed', setup: 'pending' }, outcome })
-  const base = { started, schemaSeen: null, run: null, ended: null, restartSeen: false }
+  const ranUpdate = (outcome: UpdateOutcome): LastUpdateRun => ({ outcome, goingBack: false })
+  const wentBack = (outcome: UpdateOutcome): LastUpdateRun => ({ outcome, goingBack: true })
+  const base = { started, schemaSeen: null, last: null, restartSeen: false }
 
   it('carries the record of the update and the store version seen', () => {
     expect(finishUpdateOf({ ...base, schemaSeen: 2 })).toEqual({ started, schemaSeen: 2, wentBack: false, byHand: false, awaitingRestart: false })
     expect(finishUpdateOf({ ...base, started: undefined })).toEqual(NO_UPDATE)
   })
 
-  it('says the previous version is back only when the go back ended with the restart that starts it', () => {
-    expect(finishUpdateOf({ ...base, run: run({ kind: 'restart' }) }).wentBack).toBe(true)
-    expect(finishUpdateOf({ ...base, run: run(null) }).wentBack).toBe(false)
-    expect(finishUpdateOf({ ...base, run: run({ kind: 'failed', step: 'install', message: 'Lost it.' }) }).wentBack).toBe(false)
-    expect(finishUpdateOf({ ...base, run: run({ kind: 'manual', failure: 'refused', detail: null }) }).wentBack).toBe(false)
-    expect(finishUpdateOf({ ...base, run: run({ kind: 'sign_in' }) }).wentBack).toBe(false)
+  it.each<[string, UpdateOutcome]>([
+    ['asked for the restart that starts it', { kind: 'restart' }],
+    ['went through', { kind: 'done', setup: FAKE_SETUP }]
+  ])('says the previous version is back when a going back %s, however long ago the page was opened', (_title, outcome) => {
+    expect(finishUpdateOf({ ...base, last: wentBack(outcome) }).wentBack).toBe(true)
   })
 
-  it('says the update was left to the user only when the update run ended by hand', () => {
-    expect(finishUpdateOf({ ...base, ended: { kind: 'manual', failure: 'scan_blocked', detail: null } }).byHand).toBe(true)
-    expect(finishUpdateOf({ ...base, ended: { kind: 'restart' } }).byHand).toBe(false)
+  it.each<[string, LastUpdateRun | null]>([
+    ['no run in memory', null],
+    ['a going back that failed', wentBack({ kind: 'failed', step: 'install', message: 'Lost it.' })],
+    ['a going back that Hermes refused', wentBack({ kind: 'manual', failure: 'refused', detail: null })],
+    ['a going back that needs a new sign-in', wentBack({ kind: 'sign_in' })],
+    ['an update that asked for a restart', ranUpdate({ kind: 'restart' })],
+    ['an update that went through', ranUpdate({ kind: 'done', setup: FAKE_SETUP })]
+  ])('does not say the previous version is back for %s', (_title, last) => {
+    expect(finishUpdateOf({ ...base, last }).wentBack).toBe(false)
+  })
+
+  it('says the update was left to the user only when an update run, not a going back, ended by hand', () => {
+    const manual: UpdateOutcome = { kind: 'manual', failure: 'scan_blocked', detail: null }
+
+    expect(finishUpdateOf({ ...base, last: ranUpdate(manual) }).byHand).toBe(true)
+    expect(finishUpdateOf({ ...base, last: wentBack(manual) }).byHand).toBe(false)
+    expect(finishUpdateOf({ ...base, last: ranUpdate({ kind: 'restart' }) }).byHand).toBe(false)
     expect(finishUpdateOf(base).byHand).toBe(false)
   })
 
-  it('waits for the restart the update run asked for until a poll showed the server going away', () => {
-    expect(finishUpdateOf({ ...base, ended: { kind: 'restart' } }).awaitingRestart).toBe(true)
-    expect(finishUpdateOf({ ...base, ended: { kind: 'restart' }, restartSeen: true }).awaitingRestart).toBe(false)
+  it('waits for the restart the update run asked for until a poll showed a sign of it', () => {
+    expect(finishUpdateOf({ ...base, last: ranUpdate({ kind: 'restart' }) }).awaitingRestart).toBe(true)
+    expect(finishUpdateOf({ ...base, last: ranUpdate({ kind: 'restart' }), restartSeen: true }).awaitingRestart).toBe(false)
   })
 
-  it.each<[string, UpdateOutcome | null]>([
+  it.each<[string, LastUpdateRun | null]>([
     ['after a relaunch, with no outcome in memory', null],
-    ['when the update run ended by hand', { kind: 'manual', failure: 'refused', detail: null }],
-    ['when the update run failed', { kind: 'failed', step: 'install', message: 'Lost it.' }]
-  ])('waits for no restart %s', (_title, ended) => {
-    expect(finishUpdateOf({ ...base, ended }).awaitingRestart).toBe(false)
-  })
-
-  it('knows a go back is going until it has an outcome', () => {
-    expect(runIsGoing(null)).toBe(false)
-    expect(runIsGoing(run(null))).toBe(true)
-    expect(runIsGoing(run({ kind: 'restart' }))).toBe(false)
+    ['when the update run ended by hand', ranUpdate({ kind: 'manual', failure: 'refused', detail: null })],
+    ['when the update run failed', ranUpdate({ kind: 'failed', step: 'install', message: 'Lost it.' })],
+    ['when a going back asked for the restart, which is its own', wentBack({ kind: 'restart' })]
+  ])('waits for no update restart %s', (_title, last) => {
+    expect(finishUpdateOf({ ...base, last }).awaitingRestart).toBe(false)
   })
 })
 
-describe('watchRestart: the first sign that the server restarted', () => {
-  const after = (checks: (ServerCheck | null)[], signedOut = false) => checks.reduce((watch, check) => watchRestart(watch, check, signedOut), NOT_WATCHED)
+describe('runIsGoing: a go back that has no outcome yet', () => {
+  const run = (outcome: UpdateOutcome | null): UpdateRunState => ({ steps: { pause: 'done', install: 'done', start: 'failed', setup: 'pending' }, outcome })
 
-  it.each<[string, ServerCheck | null, boolean]>([
-    ['a poll that could not reach the server', { kind: 'unknown' }, true],
-    ['a poll that answered the old code', restartNeeded, false],
-    ['a plugin Hermes has not loaded', waiting, false],
-    ['an unavailable plugin', unavailable, false],
-    ['a working plugin', ready, false],
-    ['no answer yet', null, false]
-  ])('reads %s on its own', (_title, check, seen) => {
-    expect(after([check]).seen).toBe(seen)
-  })
-
-  it('reads a refused session as the server having restarted', () => {
-    expect(after([restartNeeded], true).seen).toBe(true)
-  })
-
-  it.each<[string, ServerCheck]>([
-    ['Hermes has not loaded the plugin', waiting],
-    ['the plugin cannot open its data', unavailable]
-  ])('reads the old code answering and then %s as the server having restarted', (_title, check) => {
-    expect(after([restartNeeded, check]).seen).toBe(true)
-    expect(after([restartNeeded, restartNeeded, check]).seen).toBe(true)
-  })
-
-  it('does not read a plugin that never answered with the old code as a restart', () => {
-    expect(after([waiting, waiting, unavailable]).seen).toBe(false)
-  })
-
-  it('remembers that the old code answered across polls that say nothing', () => {
-    expect(after([restartNeeded, null, waiting]).seen).toBe(true)
-  })
-
-  it('keeps the sign once seen, whatever the next poll says', () => {
-    const seen = after([{ kind: 'unknown' }])
-
-    expect(watchRestart(seen, waiting, false).seen).toBe(true)
-    expect(watchRestart(seen, restartNeeded, false).seen).toBe(true)
-    expect(watchRestart(seen, null, false).seen).toBe(true)
-  })
-
-  it('answers the watch it was given when a poll changes nothing, so a screen can tell', () => {
-    const watching = after([restartNeeded])
-
-    expect(watchRestart(watching, restartNeeded, false)).toBe(watching)
-    expect(watchRestart(NOT_WATCHED, waiting, false)).toBe(NOT_WATCHED)
+  it('is true until the go back has an outcome', () => {
+    expect(runIsGoing(null)).toBe(false)
+    expect(runIsGoing(run(null))).toBe(true)
+    expect(runIsGoing(run({ kind: 'restart' }))).toBe(false)
   })
 })
 
@@ -760,7 +734,7 @@ describe('updateStillOpen: an update the user finishes by hand on a server that 
     expect(updateStillOpen({ kind: 'update' }, readyWithUpdate)).toBe(true)
     expect(updateStillOpen({ kind: 'update' }, ready)).toBe(false)
     expect(updateStillOpen({ kind: 'update' }, outdated('git install'))).toBe(false)
-    expect(updateStillOpen({ kind: 'restart', update: true }, readyWithUpdate)).toBe(false)
+    expect(updateStillOpen({ kind: 'restart', after: 'update' }, readyWithUpdate)).toBe(false)
     expect(updateStillOpen(null, readyWithUpdate)).toBe(false)
     expect(updateStillOpen({ kind: 'update' }, null)).toBe(false)
   })
@@ -768,7 +742,7 @@ describe('updateStillOpen: an update the user finishes by hand on a server that 
 
 describe('finishView: after the update was installed', () => {
   it('tells the user to restart Hermes to start the new version, with the restart lines and no command', () => {
-    const view = finishView({ kind: 'restart', update: true }, buildRecord(), restartNeeded)
+    const view = finishView({ kind: 'restart', after: 'update' }, buildRecord(), restartNeeded)
 
     expect(view).toEqual({
       title: 'Finish on your server',
@@ -783,8 +757,21 @@ describe('finishView: after the update was installed', () => {
     })
   })
 
+  it('tells the user to restart Hermes to start the previous version once the app put it back', () => {
+    const view = finishView({ kind: 'restart', after: 'go_back' }, buildRecord(), waiting)
+
+    expect(view).toMatchObject({
+      intro: ['The previous version is installed. Restart Hermes to start it.'],
+      command: null,
+      restartLines: RESTART_LINES,
+      guide: { label: 'Open the guide', url: `${SERVER_GUIDE_URL}#restart` },
+      status: 'Waiting for your server…',
+      primary: { label: 'Check now', action: 'check' }
+    })
+  })
+
   it('says the server is ready once the new code answered and its setup went through', () => {
-    const view = finishView({ kind: 'restart', update: true }, buildRecord(), ready, { state: 'done' })
+    const view = finishView({ kind: 'restart', after: 'update' }, buildRecord(), ready, { state: 'done' })
 
     expect(view).toMatchObject({ status: 'Your server is ready.', done: true, primary: { label: 'Done', action: 'done' }, intro: [], command: null, restartLines: null })
   })
@@ -894,9 +881,9 @@ describe('finishView: going back', () => {
   it('keeps the steps next to the restart a finished run asks for', () => {
     const run = runWith({ kind: 'restart' }, { pause: 'done', install: 'done', start: 'failed' })
 
-    const view = finishView({ kind: 'restart', update: false }, buildRecord(), waiting, { state: 'pending' }, run)
+    const view = finishView({ kind: 'restart', after: 'go_back' }, buildRecord(), waiting, { state: 'pending' }, run)
 
-    expect(view.intro).toEqual(['Hermes has not loaded the Ergates plugin yet.'])
+    expect(view.intro).toEqual(['The previous version is installed. Restart Hermes to start it.'])
     expect(view.restartLines).toEqual(RESTART_LINES)
     expect(view.status).toBe('Waiting for your server…')
     expect(view.steps?.map(step => step.status)).toEqual(['done', 'done', 'failed', 'pending'])
@@ -927,11 +914,11 @@ describe('finishView: an update the user finishes by hand on a plugin that works
 describe('finishView: what the status line says when the plugin cannot serve the app', () => {
   it('shows the notice of an unavailable plugin instead of waiting', () => {
     expect(finishView(null, buildRecord(), unavailable).status).toBe('The Ergates plugin cannot open its data on this server: The store is busy.')
-    expect(finishView({ kind: 'restart', update: false }, buildRecord(), unavailable).status).toBe('The Ergates plugin cannot open its data on this server: The store is busy.')
+    expect(finishView({ kind: 'restart', after: null }, buildRecord(), unavailable).status).toBe('The Ergates plugin cannot open its data on this server: The store is busy.')
   })
 
   it('keeps waiting while an update the app installed waits for its restart, where the page already says what to do', () => {
-    expect(finishView({ kind: 'restart', update: true }, buildRecord(), unavailable).status).toBe('Waiting for your server…')
+    expect(finishView({ kind: 'restart', after: 'update' }, buildRecord(), unavailable).status).toBe('Waiting for your server…')
   })
 
   it('shows the notice of a plugin that is newer than the app instead of waiting', () => {

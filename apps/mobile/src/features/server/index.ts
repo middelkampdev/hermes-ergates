@@ -9,7 +9,6 @@ export {
   goBackTarget,
   highestSchema,
   NO_UPDATE,
-  NOT_WATCHED,
   pendingCommit,
   RESTART_HEADING,
   runIsGoing,
@@ -17,13 +16,11 @@ export {
   setupProblem,
   SIGNED_OUT_HINT,
   updateStillOpen,
-  watchRestart,
   type FinishAction,
   type FinishManual,
   type FinishUpdate,
   type FinishVariant,
   type FinishView,
-  type RestartWatch,
   type SetupProgress
 } from './finish-view'
 export { hermesFit, parseHermesVersion, type HermesFit } from './hermes-version'
@@ -33,7 +30,7 @@ export { AUTO_UPDATE_LABEL, autoUpdate, type UpdateOffer } from './plugin-versio
 export { checkServer, isSignedOut, pluginFits, type InstallKind, type PluginFit, type ServerCheck } from './server-check'
 export { isSetupRunning, joinSetup, lastManualOutcome, runSetup, type ManualFailure, type ManualOutcome, type SetupDeps, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
 export { SETUP_TITLE, opensFinish, setupScreenView, setupView, stepStatusWord, type HeldCheck, type SetupAction, type SetupRunState, type SetupView } from './setup-view'
-export { joinUpdate, lastUpdateOutcome, runUpdate, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
+export { joinUpdate, lastUpdateOutcome, lastUpdateRun, runUpdate, watchUpdateRestart, type LastUpdateRun, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
 export { askedUpdateFor, offerOf, PENDING_UPDATE_RUN, retryTarget, targetOf, updateScreenView, updateSteps, updateView, type UpdateAction, type UpdateRunState, type UpdateTarget, type UpdateView } from './update-view'
 export { usePluginNotice } from './use-plugin-notice'
 export { serverCheckKey, useServerCheck } from './use-server-check'

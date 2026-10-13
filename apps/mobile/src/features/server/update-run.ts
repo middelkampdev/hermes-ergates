@@ -24,8 +24,9 @@ import { useDeviceStore } from '@/state/device-store'
 import { COMMIT_PATTERN, PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
 import { parseHermesVersion } from './hermes-version'
 import { clearPendingSetupIfUnchanged, isGoingBack, markPendingSetup, pendingSnapshot, runningKind } from './pending-setup'
+import { NOT_WATCHED, watchRestart, type RestartWatch } from './restart-watch'
 import { Flights } from './run-flights'
-import { hermesVersionOf, hubRow } from './server-check'
+import { hermesVersionOf, hubRow, type ServerCheck } from './server-check'
 import { installAndWait, manualFailure, NOT_LOADED, probeHealth, waitForRoutes, type ManualOutcome, type StepStatus } from './setup-run'
 
 export type UpdateStep = 'pause' | 'install' | 'start' | 'setup'
@@ -265,21 +266,50 @@ class UpdateRun {
 
 const flights = new Flights<UpdateStep, StepStatus, UpdateOutcome>('update')
 
-/** How the last run of each connection ended. Kept in memory only. */
-const outcomes = new Map<string, UpdateOutcome>()
+/** How a connection's last update run ended, and whether it was a going back. */
+export interface LastUpdateRun {
+  outcome: UpdateOutcome
+  goingBack: boolean
+}
 
 /**
- * The outcome of the connection's last update run, or null: no run has gone
- * since the app started, or a new run has begun. The Finish screen reads it to
- * say why the update stopped. It is not in the route, because the text of a
- * route is anyone's to write.
+ * What the Finish screen reads of each connection's last run, and of the
+ * restart it asked for. Kept in memory only, beside each other, so a screen
+ * that mounts again (a sign-in replaces it, or the user leaves and comes
+ * back) finds both. A new run starts both afresh.
  */
-export function lastUpdateOutcome(connectionId: string): UpdateOutcome | null {
+const outcomes = new Map<string, LastUpdateRun>()
+const watches = new Map<string, RestartWatch>()
+
+/**
+ * The connection's last update run, or null: no run has gone since the app
+ * started, or a new run has begun. The Finish screen reads it to say why the
+ * update stopped and whether the previous version is back. It is not in the
+ * route, because the text of a route is anyone's to write.
+ */
+export function lastUpdateRun(connectionId: string): LastUpdateRun | null {
   return outcomes.get(connectionId) ?? null
 }
 
-function remember(connectionId: string, outcome: UpdateOutcome): UpdateOutcome {
-  outcomes.set(connectionId, outcome)
+/** How the connection's last update run ended, or null (see `lastUpdateRun`). */
+export function lastUpdateOutcome(connectionId: string): UpdateOutcome | null {
+  return lastUpdateRun(connectionId)?.outcome ?? null
+}
+
+/** What the polls showed of the restart the connection's last update run asked for; nothing seen before any poll, and after a new run starts. */
+export function restartWatchOf(connectionId: string): RestartWatch {
+  return watches.get(connectionId) ?? NOT_WATCHED
+}
+
+/** Folds one poll into the connection's restart watch (`watchRestart`), keeps the result and answers it. Safe to call again with the same poll. */
+export function watchUpdateRestart(connectionId: string, check: ServerCheck | null, signedOut: boolean): RestartWatch {
+  const watch = watchRestart(restartWatchOf(connectionId), check, signedOut)
+  watches.set(connectionId, watch)
+  return watch
+}
+
+function remember(connectionId: string, outcome: UpdateOutcome, goingBack: boolean): UpdateOutcome {
+  outcomes.set(connectionId, { outcome, goingBack })
   return outcome
 }
 
@@ -337,10 +367,11 @@ export function runUpdate(deps: UpdateDeps, onStep: (step: UpdateStep, status: S
     return flights.join(connectionId, onStep) ?? Promise.resolve({ kind: 'failed', step: 'pause', message: UPDATE_RUNNING })
   }
   outcomes.delete(connectionId)
+  watches.delete(connectionId)
   if (!installable(deps)) {
-    return Promise.resolve(remember(connectionId, { kind: 'manual', failure: 'refused', detail: null }))
+    return Promise.resolve(remember(connectionId, { kind: 'manual', failure: 'refused', detail: null }, goingBack))
   }
   latest.set(connectionId, target)
   // Remembered before the outcome reaches anything that waits for it, so a screen opened by it finds it.
-  return flights.start(connectionId, onStep, report => new UpdateRun(deps, report).execute().then(outcome => remember(connectionId, outcome)), goingBack)
+  return flights.start(connectionId, onStep, report => new UpdateRun(deps, report).execute().then(outcome => remember(connectionId, outcome, goingBack)), goingBack)
 }
