@@ -154,7 +154,7 @@ describe('runSetup: a server without the plugin', () => {
     expect(flag()).toBeUndefined()
   })
 
-  it('marks the pending setup before it asks the server anything', async () => {
+  it('marks the pending setup once the first look at the server worked, before it installs anything', async () => {
     const gateway = freshServer()
     const seen: (string | undefined)[] = []
     const probe = mountsWhenEnabled(gateway)
@@ -162,10 +162,31 @@ describe('runSetup: a server without the plugin', () => {
       seen.push(flag())
       return probe()
     })
+    const install = gateway.plugins.install.bind(gateway.plugins)
+    const atInstall: (string | undefined)[] = []
+    gateway.plugins.install = req => {
+      atInstall.push(flag())
+      return install(req)
+    }
 
     await run(gateway)
 
-    expect(seen[0]).toBe(COMMIT)
+    expect(seen[0]).toBeUndefined()
+    expect(atInstall).toEqual([COMMIT])
+  })
+
+  it.each([
+    ['refuses the session', () => new GatewayError('unauthorized', 'Sign-in required.', { status: 401 }), { kind: 'sign_in' }],
+    ['cannot be reached', () => new GatewayError('network', 'Could not reach the gateway.'), { kind: 'failed', step: 'install', message: 'Could not reach the gateway.' }]
+  ])('marks no pending setup when the server %s at the first look', async (_title, error, outcome) => {
+    const gateway = freshServer()
+    gateway.ergates.fail('health', error())
+
+    const result = await run(gateway)
+
+    expect(result.outcome).toEqual(outcome)
+    expect(flag()).toBeUndefined()
+    expect(gateway.plugins.installs).toEqual([])
   })
 
   it('looks for the plugin up to three times, 2 seconds apart, before it runs the setup', async () => {
@@ -934,12 +955,12 @@ describe('runSetup: one run per connection', () => {
 })
 
 describe('runSetup: sign-in and the build', () => {
-  it.each<[string, (gateway: FakeGateway) => void, SetupStep]>([
-    ['the first health read', gateway => gateway.ergates.fail('health', new GatewayError('unauthorized', 'Sign-in required.')), 'install'],
-    ['the plugin list', gateway => gateway.plugins.fail('hub', new GatewayError('unauthorized', 'Sign-in required.')), 'install'],
-    ['the install', gateway => gateway.plugins.nextInstall(new GatewayError('unauthorized', 'Sign-in required.', { status: 401 })), 'install'],
-    ['the enable', gateway => gateway.plugins.fail('enable', new GatewayError('unauthorized', 'Sign-in required.', { status: 401 })), 'enable']
-  ])('asks to sign in again when %s answers 401', async (_where, scripted, step) => {
+  it.each<[string, (gateway: FakeGateway) => void, SetupStep, string | undefined]>([
+    ['the first health read', gateway => gateway.ergates.fail('health', new GatewayError('unauthorized', 'Sign-in required.')), 'install', undefined],
+    ['the plugin list', gateway => gateway.plugins.fail('hub', new GatewayError('unauthorized', 'Sign-in required.')), 'install', COMMIT],
+    ['the install', gateway => gateway.plugins.nextInstall(new GatewayError('unauthorized', 'Sign-in required.', { status: 401 })), 'install', COMMIT],
+    ['the enable', gateway => gateway.plugins.fail('enable', new GatewayError('unauthorized', 'Sign-in required.', { status: 401 })), 'enable', COMMIT]
+  ])('asks to sign in again when %s answers 401', async (_where, scripted, step, pending) => {
     const gateway = step === 'enable' ? serverListing('disabled') : freshServer()
     scripted(gateway)
 
@@ -947,7 +968,7 @@ describe('runSetup: sign-in and the build', () => {
 
     expect(result.outcome).toEqual({ kind: 'sign_in' })
     expect(result.last[step]).toBe('failed')
-    expect(flag()).toBe(COMMIT)
+    expect(flag()).toBe(pending)
   })
 
   it('keeps the pending setup when the setup answers 401, and finishes it after the next sign-in', async () => {

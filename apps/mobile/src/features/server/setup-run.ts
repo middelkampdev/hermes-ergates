@@ -15,8 +15,9 @@
  *
  * Plain async code over the gateway port, no React: screens call it and draw
  * the steps from `onStep`. The pending setup (see `pending-setup.ts`) is set
- * first and cleared only when the plugin's setup succeeded, so every way out
- * of the run but `done` leaves the setup to be finished later.
+ * once the first look at the server worked, before anything changes there,
+ * and cleared only when the plugin's setup succeeded, so every way out of the
+ * run after that look but `done` leaves the setup to be finished later.
  */
 
 import { isGatewayError, type GatewayError } from '@/gateway/errors'
@@ -211,7 +212,6 @@ class SetupRun {
   }
 
   async execute(): Promise<SetupOutcome> {
-    markPendingSetup(this.connectionId, this.commit)
     let outcome: SetupOutcome
     try {
       outcome = (await this.install()) ?? (await this.enable()) ?? (await this.start()) ?? (await this.setup())
@@ -240,7 +240,7 @@ class SetupRun {
   private async install(): Promise<SetupOutcome | null> {
     this.begin('install')
     const probe = await this.port.ergates.health()
-    this.follow(probe)
+    this.recordPending(probe)
     const presence = await pluginPresence(this.port, probe)
     if (presence.there) {
       this.needsEnable = presence.enabled === false
@@ -251,24 +251,38 @@ class SetupRun {
   }
 
   /**
+   * Records the pending setup once the server answered the first look, so a
+   * run that cannot even look leaves nothing behind: the commit `follow` names
+   * for a plugin already there, else this build's, which the run installs.
+   */
+  private recordPending(probe: PluginProbe): void {
+    if (!this.follow(probe)) {
+      markPendingSetup(this.connectionId, this.commit)
+    }
+  }
+
+  /**
    * Points the pending setup at the commit whose setup the plugin on the
    * server can run, so that the flag names code that can load: the plugin
    * already there may be another commit than this build's. That is the commit
    * the answering code was loaded from, or, when the files changed under it
    * and Hermes has to restart, the commit of the files, which loads then.
+   * Answers whether it recorded one.
    */
-  private follow(probe: PluginProbe): void {
+  private follow(probe: PluginProbe): boolean {
     if (probe.state !== 'answered') {
-      return
+      return false
     }
     const { install } = probe.health
     if (install?.kind !== 'git install') {
-      return
+      return false
     }
     const commit = waitsForRestart(probe.health, this.build) ? install.commit : install.loaded_commit
     if (typeof commit === 'string' && COMMIT_PATTERN.test(commit)) {
       markPendingSetup(this.connectionId, commit)
+      return true
     }
+    return false
   }
 
   private async requestInstall(): Promise<SetupOutcome | null> {
