@@ -152,7 +152,7 @@ integrations/ergates/
     proposals.py       # ergates.agent-proposal.v1 validation, hash, ProposalService
     templates.py       # proposal templates under <root>/ergates/templates/
     setup.py           # installs the shipped templates there, enables the plugin in every profile
-    install_info.py    # how the plugin got onto the server (git install, deployment, manual copy), for `health`
+    install_info.py    # how the plugin got onto the server (git install, deployment, manual copy) and the commit its running code came from, for `health`
     attention.py       # AttentionService: events, outbox rows, prefs, expiry, retention
     delivery.py        # DeliveryWorker: leased outbox delivery to ntfy, deep link
     settings.py        # the install-wide push and sweep settings in the root's config.yaml
@@ -495,12 +495,16 @@ from a git commit, with the setup finished:
   or a path.
 
   `loaded_commit` is the commit the record named when Hermes imported the
-  plugin's routes, so it names the code that is answering. `commit` is read at
-  every call. A reinstall replaces the files and the record, while a running
-  Hermes keeps the routes it mounted. After a reinstall `commit` is the new
-  commit and `loaded_commit` is still the old one: restart Hermes to run the
-  new code. `loaded_commit` is `null` for a manual copy and a deployment, and
-  a plugin from before API level 2 does not report it.
+  plugin's package code (`ergates/install_info.py` reads it once, at its own
+  import), so it names the commit of the package code that answers. `commit`
+  is read at every call. A reinstall replaces the files and the record, while
+  a running Hermes keeps the modules it imported. After a reinstall `commit`
+  is the new commit and `loaded_commit` is still the old one: restart Hermes
+  to run the new code. The same holds when Hermes mounts the routes of a new
+  install over package modules that an earlier, failed mount left behind.
+  `loaded_commit` is `null` for a manual copy and a deployment, and when the
+  read at import failed, which never stops the import. A plugin from before
+  API level 2 does not report it.
 - `setup` is the report `POST /setup` would give now, read without writing.
   `finished` is true only when `templates` is `installed`, there is at least
   one profile and every profile is enabled. `templates` is `installed`,
@@ -539,7 +543,7 @@ of their own. Checking the plugin in every profile and parsing `config.yaml`
 is slow, so `setup` and `push` are reused for 10 seconds (`POST /setup` and
 `POST /profiles/{profile}/plugin` drop them at once); `store`, `install` and
 `sweep` are read at every call, except `install.loaded_commit`, which is read
-once when the routes are imported.
+once when the package is imported.
 
 ## Tools and the tool gate
 

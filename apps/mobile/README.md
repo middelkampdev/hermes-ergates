@@ -38,7 +38,7 @@ ERGATES_PLUGIN_COMMIT=<40-hex commit> npx expo start
 
 A build made without git and without `ERGATES_PLUGIN_COMMIT` has no commit. Its setup screen says that this build does not know which plugin version to install, and offers no install. An `ERGATES_PLUGIN_COMMIT` that is set but is not a full commit of 40 lowercase hex characters stops the build. The release workflows set it to the commit of the tag they build. The one tap also needs a Hermes between the oldest and the newest tested version. Hermes 0.21.6, the pin, is inside that range.
 
-The same commit drives updates (ADR-044). A server whose plugin is a git install with a lower version than the build's, or with an API level or store the build cannot use, is offered the update; an equal version is replaced only in the second case. To try it, install the plugin at an earlier commit on a throwaway Hermes, start Metro with `ERGATES_PLUGIN_COMMIT` set to a later pushed commit, and connect. Hermes does not load the new code into a running server, so restart the throwaway server to finish the update.
+The same commit drives updates (ADR-044). A server whose plugin is a git install with a lower version than the build's, or with an API level or store the build cannot use, is offered the update. An equal version is replaced only when its API level is below the build's. To try it, install the plugin at an earlier commit on a throwaway Hermes, start Metro with `ERGATES_PLUGIN_COMMIT` set to a later pushed commit, and connect. Hermes does not load the new code into a running server, so restart the throwaway server to finish the update.
 
 ## Commands
 
