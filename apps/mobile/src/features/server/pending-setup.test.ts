@@ -11,7 +11,7 @@ import { useDeviceStore, type Connection } from '@/state/device-store'
 import { FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-gateway/fake-ergates'
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
-import { clearPendingSetup, finishPendingSetup, markPendingSetup } from './pending-setup'
+import { clearPendingSetup, finishPendingSetup, markPendingSetup, trackRun } from './pending-setup'
 import type { ServerCheck } from './server-check'
 
 const COMMIT = 'd'.repeat(40)
@@ -59,20 +59,49 @@ describe('finishPendingSetup', () => {
     const gateway = new FakeGateway()
     markPendingSetup('c-1', COMMIT)
 
-    const report = await finishPendingSetup(gateway, stored('c-1'), ready)
+    const result = await finishPendingSetup(gateway, stored('c-1'), ready)
 
-    expect(report).toEqual(FAKE_SETUP)
+    expect(result).toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(1)
     expect(stored('c-1').pendingPluginSetup).toBeUndefined()
   })
 
-  it('does nothing without a pending setup', async () => {
+  it('says there is none, and calls nothing, without a pending setup', async () => {
     const gateway = new FakeGateway()
 
-    const report = await finishPendingSetup(gateway, stored('c-1'), ready)
+    const result = await finishPendingSetup(gateway, stored('c-1'), ready)
 
-    expect(report).toBeNull()
+    expect(result).toEqual({ kind: 'none' })
     expect(gateway.ergates.setupCalls).toBe(0)
+  })
+
+  it.each<[string, ServerCheck]>([
+    ['missing', { kind: 'missing', hermesVersion: '0.21.6', oneTap: true, reason: null }],
+    ['waiting for a restart', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }],
+    ['unknown', { kind: 'unknown' }]
+  ])('says there is none without a pending setup while the plugin is %s', async (_title, check) => {
+    const gateway = new FakeGateway()
+
+    const result = await finishPendingSetup(gateway, stored('c-1'), check)
+
+    expect(result).toEqual({ kind: 'none' })
+    expect(gateway.ergates.setupCalls).toBe(0)
+  })
+
+  it('says it waits while a run is going for the connection, because the run runs the setup itself', async () => {
+    const gateway = new FakeGateway()
+    markPendingSetup('c-1', COMMIT)
+    let end: () => void = () => undefined
+    trackRun('c-1', 'update', false, new Promise<void>(resolve => {
+      end = resolve
+    }))
+
+    const result = await finishPendingSetup(gateway, stored('c-1'), ready)
+    end()
+
+    expect(result).toEqual({ kind: 'waiting' })
+    expect(gateway.ergates.setupCalls).toBe(0)
+    expect(stored('c-1').pendingPluginSetup).toBe(COMMIT)
   })
 
   it.each<[string, ServerCheck]>([
@@ -86,9 +115,9 @@ describe('finishPendingSetup', () => {
     const gateway = new FakeGateway()
     markPendingSetup('c-1', COMMIT)
 
-    const report = await finishPendingSetup(gateway, stored('c-1'), check)
+    const result = await finishPendingSetup(gateway, stored('c-1'), check)
 
-    expect(report).toBeNull()
+    expect(result).toEqual({ kind: 'waiting' })
     expect(gateway.ergates.setupCalls).toBe(0)
     expect(stored('c-1').pendingPluginSetup).toBe(COMMIT)
   })
@@ -110,9 +139,9 @@ describe('finishPendingSetup', () => {
     const gateway = new FakeGateway()
     const stale = { ...first, pendingPluginSetup: COMMIT }
 
-    const report = await finishPendingSetup(gateway, stale, ready)
+    const result = await finishPendingSetup(gateway, stale, ready)
 
-    expect(report).toBeNull()
+    expect(result).toEqual({ kind: 'none' })
     expect(gateway.ergates.setupCalls).toBe(0)
   })
 
@@ -120,9 +149,9 @@ describe('finishPendingSetup', () => {
     const gateway = new FakeGateway()
     markPendingSetup('c-1', COMMIT)
 
-    const report = await finishPendingSetup(gateway, first, ready)
+    const result = await finishPendingSetup(gateway, first, ready)
 
-    expect(report).toEqual(FAKE_SETUP)
+    expect(result).toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(1)
   })
 
@@ -132,7 +161,10 @@ describe('finishPendingSetup', () => {
 
     const reports = await Promise.all([finishPendingSetup(gateway, stored('c-1'), ready), finishPendingSetup(gateway, stored('c-1'), ready)])
 
-    expect(reports).toEqual([FAKE_SETUP, FAKE_SETUP])
+    expect(reports).toEqual([
+      { kind: 'done', report: FAKE_SETUP },
+      { kind: 'done', report: FAKE_SETUP }
+    ])
     expect(gateway.ergates.setupCalls).toBe(1)
     expect(stored('c-1').pendingPluginSetup).toBeUndefined()
   })
@@ -151,7 +183,7 @@ describe('finishPendingSetup', () => {
     ])
     expect(gateway.ergates.setupCalls).toBe(1)
     expect(stored('c-1').pendingPluginSetup).toBe(COMMIT)
-    await expect(finishPendingSetup(gateway, stored('c-1'), ready)).resolves.toEqual(FAKE_SETUP)
+    await expect(finishPendingSetup(gateway, stored('c-1'), ready)).resolves.toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(2)
   })
 
@@ -206,7 +238,7 @@ describe('finishPendingSetup', () => {
       useDeviceStore.getState().updateConnection('c-1', { pluginUpdate: next })
       release()
 
-      await expect(finishing).resolves.toEqual(FAKE_SETUP)
+      await expect(finishing).resolves.toEqual({ kind: 'done', report: FAKE_SETUP })
       expect(stored('c-1').pendingPluginSetup).toBe(NEWER)
       expect(stored('c-1').pluginUpdate).toEqual(next)
     })
@@ -246,7 +278,7 @@ describe('finishPendingSetup', () => {
       useDeviceStore.setState({ connections: [{ ...second }] })
       release()
 
-      await expect(finishing).resolves.toEqual(FAKE_SETUP)
+      await expect(finishing).resolves.toEqual({ kind: 'done', report: FAKE_SETUP })
       expect(stored('c-2')).toEqual(second)
     })
   })
@@ -281,9 +313,9 @@ describe('finishPendingSetup: the code that answers', () => {
     const gateway = new FakeGateway()
     markPendingSetup('c-1', COMMIT)
 
-    const report = await finishPendingSetup(gateway, stored('c-1'), readyWith(install))
+    const result = await finishPendingSetup(gateway, stored('c-1'), readyWith(install))
 
-    expect(report).toBeNull()
+    expect(result).toEqual({ kind: 'waiting' })
     expect(gateway.ergates.setupCalls).toBe(0)
     expect(stored('c-1').pendingPluginSetup).toBe(COMMIT)
   })
@@ -295,9 +327,9 @@ describe('finishPendingSetup: the code that answers', () => {
 
     await finishPendingSetup(gateway, stored('c-1'), oldCode)
     expect(gateway.ergates.setupCalls).toBe(0)
-    const report = await finishPendingSetup(gateway, stored('c-1'), ready)
+    const result = await finishPendingSetup(gateway, stored('c-1'), ready)
 
-    expect(report).toEqual(FAKE_SETUP)
+    expect(result).toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(1)
     expect(stored('c-1').pendingPluginSetup).toBeUndefined()
   })
@@ -310,9 +342,9 @@ describe('finishPendingSetup: the code that answers', () => {
     const gateway = new FakeGateway()
     markPendingSetup('c-1', COMMIT)
 
-    const report = await finishPendingSetup(gateway, stored('c-1'), readyWith(install))
+    const result = await finishPendingSetup(gateway, stored('c-1'), readyWith(install))
 
-    expect(report).toEqual(FAKE_SETUP)
+    expect(result).toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(1)
   })
 })

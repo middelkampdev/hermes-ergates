@@ -17,7 +17,7 @@ import { useDeviceStore, type Connection } from '@/state/device-store'
 import type { ServerCheck } from './server-check'
 
 /** The setup that is going for each connection. */
-const finishing = new Map<string, Promise<SetupState>>()
+const finishing = new Map<string, Promise<PendingSetupResult>>()
 
 /** `update` is an update or going back: the same run with another commit. */
 export type RunKind = 'setup' | 'update'
@@ -97,26 +97,37 @@ export function clearPendingSetupIfUnchanged(connectionId: string, seen: Pending
   }
 }
 
-async function runPendingSetup(port: GatewayPort, connectionId: string, seen: PendingSnapshot): Promise<SetupState> {
+/**
+ * How asking to finish the pending setup ended: `none`, there is no pending
+ * setup; `waiting`, there is one, but not for the code that answers now (or
+ * the plugin is not ready, or a run that does the setup itself is going);
+ * `done`, the plugin's setup ran and `report` is what it did.
+ */
+export type PendingSetupResult = { kind: 'none' } | { kind: 'waiting' } | { kind: 'done'; report: SetupState }
+
+const NONE: PendingSetupResult = { kind: 'none' }
+const WAITING: PendingSetupResult = { kind: 'waiting' }
+
+async function runPendingSetup(port: GatewayPort, connectionId: string, seen: PendingSnapshot): Promise<PendingSetupResult> {
   const report = await port.ergates.setup()
   clearPendingSetupIfUnchanged(connectionId, seen)
-  return report
+  return { kind: 'done', report }
 }
 
 /**
  * Runs the plugin's setup when the check finds the plugin ready and the
  * connection has a pending setup, then clears the flag (and the update it
- * belonged to) and returns the report. A flag or update that changed while the
- * setup ran, because an update started meanwhile, stays.
+ * belonged to) and answers `done` with the report. A flag or update that
+ * changed while the setup ran, because an update started meanwhile, stays.
  *
- * It answers null and calls nothing for any other check, for a connection
- * without the flag, and for a connection whose run is going: the run runs the
- * setup itself, and a second one would enable the plugin in every profile
- * again. It also waits while a git install answers with other code than the
- * pending commit: after an update the old code keeps answering until Hermes
- * restarts, and the setup belongs to the new code. A deployment, a manual
- * copy and a plugin that says nothing about its install name no commit, so
- * they run.
+ * It calls nothing otherwise. A connection without the flag answers `none`.
+ * While a run is going for the connection it answers `waiting`: the run runs
+ * the setup itself, and a second one would enable the plugin in every profile
+ * again. It also answers `waiting` for a check that is not ready, and while a
+ * git install answers with other code than the pending commit: after an
+ * update the old code keeps answering until Hermes restarts, and the setup
+ * belongs to the new code. A deployment, a manual copy and a plugin that says
+ * nothing about its install name no commit, so they run.
  *
  * The flag is read from the device store by `connection.id`, so a connection
  * object that is out of date cannot start a second setup. Callers at the same
@@ -124,15 +135,21 @@ async function runPendingSetup(port: GatewayPort, connectionId: string, seen: Pe
  * rejects (a 401 too), so the caller can show the error and try again with
  * the next check.
  */
-export async function finishPendingSetup(port: GatewayPort, connection: Connection, check: ServerCheck): Promise<SetupState | null> {
-  if (check.kind !== 'ready' || isSetupRunning(connection.id)) {
-    return null
+export async function finishPendingSetup(port: GatewayPort, connection: Connection, check: ServerCheck): Promise<PendingSetupResult> {
+  if (isSetupRunning(connection.id)) {
+    return WAITING
   }
   const seen = pendingSnapshot(connection.id)
   const { pending } = seen
+  if (pending === undefined) {
+    return NONE
+  }
+  if (check.kind !== 'ready') {
+    return WAITING
+  }
   const { install } = check.health
-  if (pending === undefined || (install?.kind === 'git install' && install.loaded_commit !== pending)) {
-    return null
+  if (install?.kind === 'git install' && install.loaded_commit !== pending) {
+    return WAITING
   }
   const going = finishing.get(connection.id)
   if (going) {

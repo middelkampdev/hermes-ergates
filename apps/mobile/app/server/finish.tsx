@@ -18,6 +18,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Linking, Platform, StyleSheet, Text, View } from 'react-native'
 
 import {
+  finishDone,
   finishPendingSetup,
   finishUpdateOf,
   finishVariant,
@@ -32,6 +33,7 @@ import {
   PENDING_UPDATE_RUN,
   RESTART_HEADING,
   runIsGoing,
+  runningKind,
   runUpdate,
   serverCheckKey,
   setupProblem,
@@ -76,6 +78,8 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   // True once the plugin answered and its setup went through: nothing is left to wait for.
   const [finished, setFinished] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  // True when the last ready check left the pending setup waiting for other code than the code that answers: Hermes has to restart first.
+  const [setupWaits, setSetupWaits] = useState(false)
   const [checking, setChecking] = useState(false)
   // The go back the user started from this page; its steps show here.
   const [run, setRun] = useState<UpdateRunState | null>(null)
@@ -111,7 +115,7 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   const goingBack = runIsGoing(run)
 
   // The variant follows the server, except when a check names none (ready, or one poll that could not reach it): the page then stays as it was.
-  const live = useMemo(() => finishVariant(data ?? null, manual, update), [data, manual, update])
+  const live = useMemo(() => finishVariant(data ?? null, manual, update, setupWaits), [data, manual, update, setupWaits])
   const [held, setHeld] = useState<FinishVariant | null>(live)
   if (live !== null && live !== held) {
     setHeld(live)
@@ -127,18 +131,24 @@ function FinishOnServer({ connection }: { connection: Connection }) {
     }
   }, [commit, goingBack, connection.id])
 
-  // Each ready poll tries again until the setup went through: `dataUpdatedAt` moves with every poll, while the data stays the same object. A go back that runs does its own setup, and an update the user has yet to do is not finished by a ready answer.
+  // Each ready poll tries again until the setup went through: `dataUpdatedAt` moves with every poll, while the data stays the same object. A run that goes does its own setup (this page's go back, or one another screen started), and an update the user has yet to do is not finished by a ready answer.
   useEffect(() => {
-    if (data?.kind !== 'ready' || finished || signedOut || goingBack || updateOpen) {
+    if (data?.kind !== 'ready' || finished || signedOut || goingBack || updateOpen || runningKind(connection.id) !== null) {
       return
     }
     finishPendingSetup(gateway, connection, data).then(
-      () => {
-        // Home and the other screens read the same check: make them see the finished setup.
-        void queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
+      result => {
+        if (result.kind === 'done') {
+          // Home and the other screens read the same check: make them see the finished setup.
+          void queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
+        }
         if (mounted.current) {
           setProblem(null)
-          setFinished(true)
+          // A setup that waits for the new code keeps the page on the restart, although the old code answers ready.
+          setSetupWaits(result.kind === 'waiting')
+          if (finishDone(result, data)) {
+            setFinished(true)
+          }
         }
       },
       (error: unknown) => {
@@ -153,7 +163,7 @@ function FinishOnServer({ connection }: { connection: Connection }) {
     )
   }, [data, check.dataUpdatedAt, finished, signedOut, goingBack, updateOpen, gateway, connection, queryClient])
 
-  const setup: SetupProgress = finished ? { state: 'done' } : problem === null ? { state: 'pending' } : { state: 'failed', message: problem }
+  const setup: SetupProgress = finished ? { state: 'done' } : problem !== null ? { state: 'failed', message: problem } : setupWaits ? { state: 'waiting' } : { state: 'pending' }
   const view = finishView(variant, build, signedOut ? 'sign_in' : (data ?? null), setup, run)
 
   const goBack = async () => {

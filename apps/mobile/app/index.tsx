@@ -179,8 +179,8 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
       return
     }
     finishPendingSetup(gateway, connection, checked).then(
-      report => {
-        if (report !== null) {
+      result => {
+        if (result.kind === 'done') {
           void queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
         }
       },

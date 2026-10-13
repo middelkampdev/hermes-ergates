@@ -12,6 +12,7 @@ import { GatewayError } from '@/gateway/errors'
 import type { BuildRecord } from './build-record'
 import manualCommands from './manual-commands.json'
 import {
+  finishDone,
   finishUpdateOf,
   finishVariant,
   finishView,
@@ -30,6 +31,7 @@ import {
   type FinishVariant,
   type SetupProgress
 } from './finish-view'
+import type { PendingSetupResult } from './pending-setup'
 import type { UpdateOffer } from './plugin-version'
 import { NOT_WATCHED, watchRestart } from './restart-watch'
 import type { InstallKind, ServerCheck } from './server-check'
@@ -462,6 +464,54 @@ describe('finishView: the status line and the button', () => {
       status: 'Checking…',
       done: false,
       steps: null,
+      primary: { label: 'Check now', action: 'check' }
+    })
+  })
+})
+
+describe('finishDone: whether the page is done after it asked to finish the pending setup', () => {
+  const ran: PendingSetupResult = { kind: 'done', report: FAKE_SETUP }
+  const none: PendingSetupResult = { kind: 'none' }
+  const waits: PendingSetupResult = { kind: 'waiting' }
+  const restartNeededCheck: ServerCheck = { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }
+
+  it.each<[string, PendingSetupResult, ServerCheck, boolean]>([
+    ['the pending setup ran', ran, ready, true],
+    ['the pending setup ran, whatever the check says now', ran, waiting, true],
+    ['no setup is pending and the server is ready', none, ready, true],
+    ['no setup is pending but Hermes has not loaded the plugin', none, waiting, false],
+    ['no setup is pending but Hermes has to restart', none, restartNeededCheck, false],
+    ['no setup is pending but the server could not be reached', none, { kind: 'unknown' }, false],
+    ['the pending setup waits for the new code although the server is ready', waits, ready, false],
+    ['the pending setup waits while Hermes has to restart', waits, restartNeededCheck, false]
+  ])('%s', (_title, result, check, done) => {
+    expect(finishDone(result, check)).toBe(done)
+  })
+})
+
+describe('finishVariant and finishView: a ready server whose pending setup waits for the new code', () => {
+  const waits: SetupProgress = { state: 'waiting' }
+
+  it('keeps asking for the restart that starts the code the setup waits for, instead of reading the ready server as done', () => {
+    expect(finishVariant(ready, null, NO_UPDATE, true)).toEqual({ kind: 'restart', after: null })
+  })
+
+  it('names the update the app started in that restart', () => {
+    expect(finishVariant(ready, null, { ...NO_UPDATE, started: { target: COMMIT, previous: 'f'.repeat(40), previousSchema: 1 } }, true)).toEqual({ kind: 'restart', after: 'update' })
+  })
+
+  it('leaves a ready server to the setup when nothing waits', () => {
+    expect(finishVariant(ready, null, NO_UPDATE, false)).toBeNull()
+  })
+
+  it('keeps the restart lines and the intro on a ready server while the setup waits, and waits', () => {
+    const view = finishView({ kind: 'restart', after: 'update' }, buildRecord(), ready, waits)
+
+    expect(view).toMatchObject({
+      intro: ['The update is installed. Restart Hermes to start the new version.'],
+      restartLines: RESTART_LINES,
+      status: 'Waiting for your server…',
+      done: false,
       primary: { label: 'Check now', action: 'check' }
     })
   })

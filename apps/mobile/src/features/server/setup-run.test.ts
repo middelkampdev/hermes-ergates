@@ -635,14 +635,14 @@ describe('runSetup: the code that answers', () => {
     const onOldCode = await finishPendingSetup(gateway, pending, readyCheck(healthAt(OTHER, OLD_CODE)))
 
     expect(result.outcome).toEqual({ kind: 'restart' })
-    expect(onOldCode).toBeNull()
+    expect(onOldCode).toEqual({ kind: 'waiting' })
     expect(gateway.ergates.setupCalls).toBe(0)
     expect(flag()).toBe(OTHER)
     expect(useDeviceStore.getState().connections[0].pluginUpdate).toEqual(update)
 
     const afterRestart = await finishPendingSetup(gateway, useDeviceStore.getState().connections[0], readyCheck(healthAt(OTHER)))
 
-    expect(afterRestart).toEqual(FAKE_SETUP)
+    expect(afterRestart).toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(1)
     expect(flag()).toBeUndefined()
     expect(useDeviceStore.getState().connections[0].pluginUpdate).toBeUndefined()
@@ -668,7 +668,7 @@ describe('runSetup: the code that answers', () => {
     expect(result.last).toMatchObject({ install: 'skipped', enable: 'done', start: 'done', setup: 'failed' })
     expect(flag()).toBe(OTHER)
     const pending = useDeviceStore.getState().connections[0]
-    await expect(finishPendingSetup(gateway, pending, readyCheck(healthAt(OTHER)))).resolves.toEqual(FAKE_SETUP)
+    await expect(finishPendingSetup(gateway, pending, readyCheck(healthAt(OTHER)))).resolves.toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(2)
     expect(flag()).toBeUndefined()
   })
@@ -918,7 +918,7 @@ describe('runSetup: one run per connection', () => {
 
     const during = await finishPendingSetup(gateway, pending, readyCheck())
 
-    expect(during).toBeNull()
+    expect(during).toEqual({ kind: 'waiting' })
     expect(gateway.ergates.setupCalls).toBe(0)
     expect(flag()).toBe(COMMIT)
 
@@ -935,7 +935,7 @@ describe('runSetup: one run per connection', () => {
 
     const report = await finishPendingSetup(gateway, pending, readyCheck())
 
-    expect(report).toEqual(FAKE_SETUP)
+    expect(report).toEqual({ kind: 'done', report: FAKE_SETUP })
   })
 
   it('does not join the run of another connection', async () => {
@@ -985,7 +985,7 @@ describe('runSetup: sign-in and the build', () => {
     const pending = useDeviceStore.getState().connections[0]
     const report = await finishPendingSetup(gateway, pending, readyCheck())
 
-    expect(report).toEqual(FAKE_SETUP)
+    expect(report).toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(2)
     expect(flag()).toBeUndefined()
   })

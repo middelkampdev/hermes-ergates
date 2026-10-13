@@ -15,6 +15,7 @@ import type { Connection } from '@/state/device-store'
 
 import { COMMIT_PATTERN, PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
 import manualCommands from './manual-commands.json'
+import type { PendingSetupResult } from './pending-setup'
 import { pluginNotice } from './plugin-notice'
 import type { InstallKind, ServerCheck } from './server-check'
 import type { ManualFailure, StepStatus } from './setup-run'
@@ -125,8 +126,29 @@ export function runIsGoing(run: UpdateRunState | null): boolean {
 
 export type FinishAction = 'check' | 'done' | 'sign_in' | 'go_back'
 
-/** How the plugin's setup stands once the server answers: not run yet, done, or failed with the message to show. */
-export type SetupProgress = { state: 'pending' } | { state: 'done' } | { state: 'failed'; message: string }
+/**
+ * How the plugin's setup stands once the server answers: not run yet, done,
+ * failed with the message to show, or waiting for the code it belongs to,
+ * which starts when Hermes restarts.
+ */
+export type SetupProgress = { state: 'pending' } | { state: 'done' } | { state: 'failed'; message: string } | { state: 'waiting' }
+
+/**
+ * Whether the page is done once it asked to finish the pending setup
+ * (`finishPendingSetup`) for `check`: the setup ran, or none was pending and
+ * the server is ready. A setup that waits for the new code is not done,
+ * although the old code answers ready meanwhile.
+ */
+export function finishDone(result: PendingSetupResult, check: ServerCheck): boolean {
+  switch (result.kind) {
+    case 'done':
+      return true
+    case 'none':
+      return check.kind === 'ready'
+    case 'waiting':
+      return false
+  }
+}
 
 export interface FinishView {
   title: string
@@ -210,8 +232,12 @@ function updateVariant(installKind: InstallKind): FinishVariant {
  * one under way, a plugin that does not come up after the restart is a new
  * version that did not start. A working plugin that still has an update is
  * named only when the app's own run ended by hand.
+ *
+ * `setupWaits` is true when the last ready check left the pending setup
+ * waiting for other code than the code that answers: the ready server then
+ * still needs the restart that starts it.
  */
-export function finishVariant(check: ServerCheck | null, manual: FinishManual | null, update: FinishUpdate = NO_UPDATE): FinishVariant | null {
+export function finishVariant(check: ServerCheck | null, manual: FinishManual | null, update: FinishUpdate = NO_UPDATE, setupWaits = false): FinishVariant | null {
   if (check === null) {
     return manual === null ? null : manualVariant(manual)
   }
@@ -225,17 +251,25 @@ export function finishVariant(check: ServerCheck | null, manual: FinishManual | 
     case 'not_loaded':
       return afterUpdate(update) ?? { kind: 'restart', after: null }
     case 'restart_needed':
-      return { kind: 'restart', after: update.wentBack ? 'go_back' : update.started === undefined ? null : 'update' }
+      return restartVariant(update)
     case 'unavailable':
       return afterUpdate(update)
     case 'outdated':
       return updateVariant(check.installKind)
     case 'ready':
+      if (setupWaits) {
+        return restartVariant(update)
+      }
       return check.update !== null && update.byHand ? { kind: 'update' } : null
     case 'app_outdated':
     case 'unknown':
       return null
   }
+}
+
+/** The restart that starts the code on the server, named for what put it there. */
+function restartVariant(update: FinishUpdate): FinishVariant {
+  return { kind: 'restart', after: update.wentBack ? 'go_back' : update.started === undefined ? null : 'update' }
 }
 
 /** The variant for a plugin that does not answer while an update the app started is under way, or null outside one. */
@@ -422,8 +456,11 @@ function statusOf(variant: FinishVariant | null, check: ServerCheck | null, setu
     return CHECKING
   }
   if (check.kind === 'ready') {
-    // A ready server is not done until the plugin's setup went through: it is still being asked, or it said no. An update the user has yet to do keeps it waiting.
-    return updateStillOpen(variant, check) ? WAITING : setup.state === 'failed' ? setup.message : CHECKING
+    // A ready server is not done until the plugin's setup went through: it is still being asked, or it said no. An update the user has yet to do, or a setup that waits for the new code, keeps it waiting.
+    if (updateStillOpen(variant, check) || setup.state === 'waiting') {
+      return WAITING
+    }
+    return setup.state === 'failed' ? setup.message : CHECKING
   }
   // During an update the page already says what to do.
   const updating = variant?.kind === 'not_started' || (variant?.kind === 'restart' && variant.after === 'update')
@@ -459,7 +496,8 @@ function runStatus(outcome: UpdateOutcome | null): string | null {
  * Once the server answers (ready), asks for a new sign-in, or the setup is
  * done, the intro, the command and the restart lines are gone: the user did
  * what they were asked. A working plugin that still has an update the user
- * has to do by hand keeps them.
+ * has to do by hand keeps them, and so does a ready server whose pending
+ * setup waits for the new code (`setup` is `waiting`).
  */
 export function finishView(
   variant: FinishVariant | null,
@@ -491,7 +529,7 @@ export function finishView(
     return { title, intro: [], command: null, restartLines: null, guide, status: GOING_BACK, done: false, steps, primary: null }
   }
   const status = runStatus(run?.outcome ?? null) ?? statusOf(variant, check, setup)
-  if (variant === null || (check?.kind === 'ready' && !updateStillOpen(variant, check))) {
+  if (variant === null || (check?.kind === 'ready' && !updateStillOpen(variant, check) && setup.state !== 'waiting')) {
     return { title, intro: [], command: null, restartLines: null, guide, status, done: false, steps, primary: CHECK }
   }
   const { intro, command, restart } = instructionsFor(variant, build)

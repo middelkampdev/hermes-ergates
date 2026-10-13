@@ -3,6 +3,7 @@ export { afterSignIn, type SetupRoute } from './after-sign-in'
 export { PLUGIN_IDENTIFIER, PLUGIN_NAME, parseBuildRecord, type BuildRecord, type HermesRange, type RequiredPlugin } from './build-record'
 export { externalPath } from './external-link'
 export {
+  finishDone,
   finishUpdateOf,
   finishVariant,
   finishView,
@@ -24,7 +25,7 @@ export {
   type SetupProgress
 } from './finish-view'
 export { hermesFit, parseHermesVersion, type HermesFit } from './hermes-version'
-export { clearPendingSetup, finishPendingSetup, markPendingSetup, runningKind, type RunKind } from './pending-setup'
+export { clearPendingSetup, finishPendingSetup, markPendingSetup, runningKind, type PendingSetupResult, type RunKind } from './pending-setup'
 export { MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, shouldReloadAfterNotice, type NoticeRoute, type PluginNotice } from './plugin-notice'
 export { AUTO_UPDATE_LABEL, autoUpdate, type UpdateOffer } from './plugin-version'
 export { checkServer, isSignedOut, pluginFits, type InstallKind, type PluginFit, type ServerCheck } from './server-check'

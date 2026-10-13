@@ -866,7 +866,7 @@ describe('runUpdate: sign-in and the steps after the install', () => {
 
     expect(result.outcome).toEqual({ kind: 'sign_in' })
     const report = await finishPendingSetup(gateway, stored(), readyAt(TARGET))
-    expect(report).toEqual(FAKE_SETUP)
+    expect(report).toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(stored().pendingPluginSetup).toBeUndefined()
     expect(stored().pluginUpdate).toBeUndefined()
   })
@@ -879,12 +879,12 @@ describe('the pending setup after an update', () => {
     expect(stored().pendingPluginSetup).toBe(TARGET)
 
     const onOldCode = await finishPendingSetup(gateway, stored(), readyAt(OLD))
-    expect(onOldCode).toBeNull()
+    expect(onOldCode).toEqual({ kind: 'waiting' })
     expect(gateway.ergates.setupCalls).toBe(0)
 
     const afterRestart = await finishPendingSetup(gateway, stored(), readyAt(TARGET))
 
-    expect(afterRestart).toEqual(FAKE_SETUP)
+    expect(afterRestart).toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(1)
     expect(stored().pendingPluginSetup).toBeUndefined()
     expect(stored().pluginUpdate).toBeUndefined()
@@ -907,7 +907,7 @@ describe('a setup after an update that waits for Hermes to restart', () => {
     gateway.ergates.loadedCommit = TARGET
     const afterRestart = await finishPendingSetup(gateway, stored(), readyAt(TARGET))
 
-    expect(afterRestart).toEqual(FAKE_SETUP)
+    expect(afterRestart).toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(1)
     expect(stored().pendingPluginSetup).toBeUndefined()
     expect(stored().pluginUpdate).toBeUndefined()
@@ -937,7 +937,7 @@ describe('a setup while going back waits for Hermes to restart', () => {
     gateway.ergates.loadedCommit = OLD
     const afterRestart = await finishPendingSetup(gateway, stored(), readyAt(OLD, OLD))
 
-    expect(afterRestart).toEqual(FAKE_SETUP)
+    expect(afterRestart).toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(1)
     expect(stored().pendingPluginSetup).toBeUndefined()
     expect(stored().pluginUpdate).toBeUndefined()
@@ -1143,7 +1143,7 @@ describe('runUpdate: one run per connection', () => {
     expect(isSetupRunning('c-2')).toBe(false)
     expect(runningKind(connection.id)).toBe('update')
     expect(runningKind('c-2')).toBeNull()
-    await expect(finishPendingSetup(gateway, stored(), readyAt(TARGET))).resolves.toBeNull()
+    await expect(finishPendingSetup(gateway, stored(), readyAt(TARGET))).resolves.toEqual({ kind: 'waiting' })
     expect(gateway.ergates.setupCalls).toBe(0)
 
     installedOnServer(gateway)
