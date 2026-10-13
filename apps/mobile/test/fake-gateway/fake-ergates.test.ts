@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { GatewayError, isGatewayError, mapErgatesError } from '@/gateway/errors'
 import type { AgentProposal, ReminderRequest, SetupState } from '@/gateway/types'
 
-import { FakeErgates, PROPOSAL_TEMPLATE } from './fake-ergates'
+import { FAKE_PLUGIN_COMMIT, FakeErgates, PROPOSAL_TEMPLATE } from './fake-ergates'
 
 const request = (over: Partial<ReminderRequest> = {}): ReminderRequest => ({
   profile: 'thijs',
@@ -240,6 +240,32 @@ describe('FakeErgates health and setup', () => {
     const probe = await ergates.health()
     expect(probe).toMatchObject({ state: 'answered', health: { ok: true, setup: { finished: true } } })
     expect(await ergates.health()).toEqual(probe)
+  })
+
+  it('reports the commit it was installed and loaded from as one, until told otherwise', async () => {
+    const { ergates } = setup()
+
+    await expect(ergates.health()).resolves.toMatchObject({
+      health: { install: { kind: 'git install', commit: FAKE_PLUGIN_COMMIT, loaded_commit: FAKE_PLUGIN_COMMIT } }
+    })
+  })
+
+  it('follows the installed commit it is given at every call, while the loaded commit stays', async () => {
+    const record = { commit: FAKE_PLUGIN_COMMIT as string | null }
+    const ergates = new FakeErgates({ hasProfile: () => true, installedCommit: () => record.commit })
+
+    record.commit = 'b'.repeat(40)
+    await expect(ergates.health()).resolves.toMatchObject({ health: { install: { commit: 'b'.repeat(40), loaded_commit: FAKE_PLUGIN_COMMIT } } })
+    ergates.loadedCommit = 'b'.repeat(40)
+    await expect(ergates.health()).resolves.toMatchObject({ health: { install: { commit: 'b'.repeat(40), loaded_commit: 'b'.repeat(40) } } })
+  })
+
+  it('keeps whatever health a test sets, whatever the commits say', async () => {
+    const ergates = new FakeErgates({ hasProfile: () => true, installedCommit: () => 'b'.repeat(40) })
+    const probe = { state: 'answered', health: { ok: true, plugin_version: '0.2.0', schema_version: 1 } } as const
+    ergates.setHealth(probe)
+
+    await expect(ergates.health()).resolves.toEqual(probe)
   })
 
   it.each([{ state: 'absent' }, { state: 'not_loaded' }] as const)('answers the probe it is set to: %j', async probe => {

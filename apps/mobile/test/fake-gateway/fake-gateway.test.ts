@@ -137,3 +137,24 @@ describe('FakeGateway server requests', () => {
     expect(conn.openRequestsFor(live)).toEqual([])
   })
 })
+
+describe('FakeGateway plugin update', () => {
+  const NEWER = 'b'.repeat(40)
+
+  it('moves the install record at a reinstall and the loaded commit only at a restart', async () => {
+    const gateway = new FakeGateway()
+    gateway.plugins.rows = [{ name: 'ergates', version: '0.2.0', runtime_status: 'enabled' }]
+    const commits = async () => {
+      const probe = await gateway.ergates.health()
+      return probe.state === 'answered' ? [probe.health.install?.commit, probe.health.install?.loaded_commit] : []
+    }
+    const before = (await commits())[0]
+
+    await gateway.plugins.disable('ergates')
+    await gateway.plugins.install({ identifier: 'middelkampdev/hermes-ergates/integrations/ergates', ref: NEWER, enable: true, force: true })
+    await expect(commits()).resolves.toEqual([NEWER, before])
+
+    gateway.ergates.loadedCommit = NEWER
+    await expect(commits()).resolves.toEqual([NEWER, NEWER])
+  })
+})

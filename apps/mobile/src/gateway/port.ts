@@ -178,12 +178,15 @@ export const PLUGIN_INSTALL_TIMEOUT_MS = 900_000
  * for minutes (a git download in up to three phases) and answers only when it
  * ends. A refusal rejects with `GatewayError`; for `install` its `code` is a
  * `PluginInstallCode` when Hermes's text is one the app knows. `enable` maps no
- * code: any refusal is a plain error with Hermes's text as the message.
+ * code: any refusal is a plain error with Hermes's text as the message, and so
+ * does `disable`. `disable` only writes the config: a running server keeps the
+ * plugin's code until it restarts.
  */
 export interface PluginsApi {
   hub(): Promise<T.HermesPluginRow[]>
   install(req: T.PluginInstallRequest): Promise<T.PluginInstallResult>
   enable(name: string): Promise<void>
+  disable(name: string): Promise<void>
 }
 
 export interface GatewayPort {

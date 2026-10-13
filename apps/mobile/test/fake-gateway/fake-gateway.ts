@@ -315,8 +315,8 @@ export class FakeGateway implements GatewayPort {
   /** The profiles this gateway has: the recorded roster, plus any `profiles.create` made. */
   readonly profileNames = new Set<string>((profilesListFixture.profiles as { name: string }[]).map(p => p.name))
   /** The Ergates routes, over this gateway's profiles. */
-  readonly ergates = new FakeErgates({ hasProfile: name => this.profileNames.has(name) })
-  /** Hermes's plugin routes: the hub list, install and enable. */
+  readonly ergates = new FakeErgates({ hasProfile: name => this.profileNames.has(name), installedCommit: () => this.plugins.installedCommit })
+  /** Hermes's plugin routes: the hub list, install, enable and disable. */
   readonly plugins = new FakePlugins()
 
   /** `ui_meta` and its revisions per profile once a write touched them, as profile.yaml holds them. */
