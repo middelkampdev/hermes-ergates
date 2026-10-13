@@ -200,7 +200,10 @@ class Operations:
         make (read, never written), ``push`` three booleans and ``sweep`` the
         periodic sweep's ``status()`` (``ergates.sweep``).
 
-        ``store``, ``install`` and ``sweep`` are read at every call.
+        ``store``, ``install`` and ``sweep`` are read at every call, except
+        ``install.loaded_commit``: ``ergates.install_info`` read it once, when
+        Hermes imported the package, so it names the commit of the code that
+        answers.
         ``setup`` and ``push`` are expensive, so they are reused for
         :data:`HEALTH_CACHE_SECONDS`, and ``POST /setup`` and
         ``POST /profiles/{profile}/plugin`` drop them. A change made another

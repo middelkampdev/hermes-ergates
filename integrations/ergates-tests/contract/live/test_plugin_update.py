@@ -9,7 +9,10 @@ plugin at the first commit and update it to the second. What these tests pin abo
 * A failed forced install leaves the installed tree as it was, and the plugin turned off.
 * The routes a server has mounted keep their old code after an update. ``GET /health`` reads Hermes's install
   record at each call, so ``install.commit`` is the new commit while ``install.loaded_commit``, read when the
-  router was imported, is the commit the running code came from.
+  ``ergates`` package was imported, is the commit the running code came from.
+* Routes that fail to mount leave behind the package modules their ``api.py`` imported. Routes Hermes mounts
+  later, from another install, run over those modules, and ``install.loaded_commit`` names the commit they came
+  from.
 
 Each test starts its own server (``web_without_plugin``): Hermes mounts plugin routes per process.
 """
@@ -59,6 +62,27 @@ def plugin_two_commits(tmp_path_factory, plugin_monorepo) -> TwoCommits:
     second = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
     assert second != plugin_monorepo.sha
     return TwoCommits(identifier=f"{path.as_uri()}#{plugin_monorepo.subdir}", first=plugin_monorepo.sha, second=second)
+
+
+@pytest.fixture(scope="module")
+def plugin_broken_routes(tmp_path_factory, plugin_monorepo) -> TwoCommits:
+    """A clone of ``plugin_monorepo`` whose second commit makes ``dashboard/api.py`` raise once it has imported
+    the ``ergates`` package, the way a broken update did on a real server: Hermes mounts no routes, and the
+    package modules the file imported stay in the server's process."""
+    path = tmp_path_factory.mktemp("plugin-broken-repo")
+    git = ["git", *NO_HOOKS, "-C", str(path), "-c", "user.name=Ergates contract",
+           "-c", "user.email=contract@ergates.invalid", "-c", "commit.gpgsign=false"]
+    subprocess.run(["git", *NO_HOOKS, "clone", "-q", str(plugin_monorepo.path), str(path)], check=True)
+    api = path / plugin_monorepo.subdir / "dashboard" / "api.py"
+    last_import = "from ergates.sweep import SWEEP_INTERVAL_SECONDS, Sweep  # noqa: E402\n"
+    text = api.read_text(encoding="utf-8")
+    assert last_import in text
+    api.write_text(text.replace(last_import, last_import + 'raise RuntimeError("these routes do not mount")\n'),
+                   encoding="utf-8")
+    subprocess.run([*git, "commit", "-q", "-a", "-m", "Ergates plugin whose routes do not mount"], check=True)
+    broken = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    return TwoCommits(identifier=f"{path.as_uri()}#{plugin_monorepo.subdir}", first=plugin_monorepo.sha,
+                      second=broken)
 
 
 def install(web, headers: dict, repo: TwoCommits, ref: str, *, force: bool):
@@ -155,3 +179,20 @@ def test_a_forced_install_that_fails_leaves_the_installed_tree_and_the_plugin_tu
     assert runtime_status(served, token_headers) != "enabled"
     turn(served, token_headers, "enable")
     assert commits(served, token_headers) == (plugin_two_commits.second, plugin_two_commits.first)
+
+
+def test_routes_mounted_over_a_package_another_install_left_name_that_install_as_loaded(
+        web_without_plugin, token_headers, plugin_broken_routes):
+    """What going back after a broken update met on a real server. The new commit's ``dashboard/api.py``
+    imported the ``ergates`` package and then failed, so Hermes mounted no routes but kept the package. The
+    previous commit, installed over it, mounted its own ``api.py`` on the next request, and that file runs over
+    the package of the broken commit. Health names the broken commit as loaded and the previous one as installed,
+    so the app reads a restart to ask for instead of a plugin that is ready."""
+    web = web_without_plugin
+    broken = install(web, token_headers, plugin_broken_routes, plugin_broken_routes.second, force=False)
+    assert (broken.status_code, broken.json()["enabled"]) == (200, True)
+    assert web.get(f"{API}/health", headers=token_headers).status_code == 404
+
+    replace(web, token_headers, plugin_broken_routes, plugin_broken_routes.first)
+
+    assert commits(web, token_headers) == (plugin_broken_routes.first, plugin_broken_routes.second)

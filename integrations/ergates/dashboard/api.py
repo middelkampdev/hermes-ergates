@@ -26,9 +26,6 @@ on their first request after an install, so the gateway and cron processes
 start no sweep. A sweep that cannot start is logged by error class and named
 in ``GET /health``; the router still mounts.
 
-Importing it also records the commit the plugin was installed at, which
-``GET /health`` reports as ``install.loaded_commit`` (see ``install``).
-
 Hermes imports this file under its own module name, outside any package, so
 the plugin folder is added to ``sys.path`` to import the ``ergates`` package.
 The Hermes boundary
@@ -40,7 +37,6 @@ imports here; this file needs none, because every Hermes call goes through
 import functools
 import json
 import logging
-import os
 import sqlite3
 import sys
 import threading
@@ -56,7 +52,7 @@ if _PLUGIN_DIR not in sys.path:
     sys.path.append(_PLUGIN_DIR)
 
 from ergates import flush, hermes_adapter, setup  # noqa: E402
-from ergates.install_info import INSTALL_KIND_ENV, install_info  # noqa: E402
+from ergates.install_info import read_install  # noqa: E402
 from ergates.operations import Operations, Reply, internal_error, store_unavailable  # noqa: E402
 from ergates.paths import bundled_templates_dir, hermes_root, store_path, templates_dir  # noqa: E402
 from ergates.settings import push_status, sweep_interval  # noqa: E402
@@ -102,28 +98,17 @@ def sweep_status() -> dict:
     return _sweep.status()
 
 
-def _read_install() -> dict:
-    return install_info(
-        hermes_adapter.install_record(), hermes_adapter.root_plugin_dir(), os.environ.get(INSTALL_KIND_ENV),
-    )
-
-
-# The commit Hermes's install record named when Hermes imported this file. A reinstall replaces the plugin's files
-# and the record, but a running server keeps the routes it mounted, so this stays the commit of the code that
-# answers until the server restarts.
-_loaded_commit: Optional[str] = _read_install()["commit"]
-
-
 def install() -> dict:
     """How the plugin got here, for ``GET /health`` (``ergates.install_info``), read at each call.
 
     The ``ERGATES_INSTALL_KIND`` marker is read from the environment at each
     call, not when the operations are built. ``loaded_commit`` is the
-    exception: it was read once, when this file was imported, so it differs
-    from ``commit`` after a reinstall until Hermes restarts. It is ``None``
-    for a manual copy and a deployment, which have no commit.
+    exception: ``ergates.install_info`` read it once, when Hermes imported the
+    ``ergates`` package, so it differs from ``commit`` after a reinstall until
+    Hermes restarts. It is ``None`` for a manual copy and a deployment, which
+    have no commit.
     """
-    return {**_read_install(), "loaded_commit": _loaded_commit}
+    return read_install()
 
 
 def operations() -> Operations:
