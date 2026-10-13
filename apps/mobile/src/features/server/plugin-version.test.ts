@@ -4,7 +4,7 @@ import type { ErgatesHealth } from '@/gateway/types'
 import type { Connection } from '@/state/device-store'
 
 import type { BuildRecord } from './build-record'
-import { AUTO_UPDATE_LABEL, autoUpdate, compareVersions, updateOffer } from './plugin-version'
+import { AUTO_UPDATE_LABEL, autoUpdate, compareVersions, remountsWithoutRestart, updateOffer } from './plugin-version'
 
 const BUILD_COMMIT = 'b'.repeat(40)
 const INSTALLED_COMMIT = 'a'.repeat(40)
@@ -176,5 +176,35 @@ describe('autoUpdate', () => {
 
   it('has one label on every screen that shows the switch', () => {
     expect(AUTO_UPDATE_LABEL).toBe('Keep it up to date automatically')
+  })
+})
+
+describe('remountsWithoutRestart', () => {
+  const connection: Connection = { id: 'c1', label: 'A', baseUrl: 'http://a.example', authMode: 'token', primary: true, createdAt: 1 }
+  const learned: Connection = { ...connection, pluginRemountsFrom: '0.21.6' }
+
+  it.each([
+    ['the version it learned from', '0.21.6'],
+    ['a newer patch', '0.21.9'],
+    ['a newer minor', '0.23.0']
+  ])('holds for %s', (_title, hermesVersion) => {
+    expect(remountsWithoutRestart(learned, hermesVersion)).toBe(true)
+  })
+
+  it.each<[string, string | null]>([
+    ['an older version', '0.21.5'],
+    ['a version the server did not report', null],
+    ['a version the app cannot read', 'unknown'],
+    ['a pre-release it cannot order', '0.21.7-rc.1']
+  ])('does not hold for %s', (_title, hermesVersion) => {
+    expect(remountsWithoutRestart(learned, hermesVersion)).toBe(false)
+  })
+
+  it('does not hold before the connection has learned anything', () => {
+    expect(remountsWithoutRestart(connection, '0.21.9')).toBe(false)
+  })
+
+  it('does not hold for a learned version the app cannot read', () => {
+    expect(remountsWithoutRestart({ ...connection, pluginRemountsFrom: 'dev' }, '0.21.9')).toBe(false)
   })
 })

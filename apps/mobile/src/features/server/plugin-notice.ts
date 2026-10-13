@@ -7,7 +7,6 @@
  */
 
 import { isGatewayError } from '@/gateway/errors'
-import type { Connection } from '@/state/device-store'
 
 import type { ServerCheck } from './server-check'
 
@@ -59,21 +58,22 @@ export function pluginNotice(check: ServerCheck | undefined): PluginNotice | nul
 /**
  * The line that offers an update for a plugin that works, or null. A plugin
  * that cannot serve this app has a notice of its own (`pluginNotice`) with the
- * same button. Nothing in the line depends on the connection yet; callers
- * pass it with the check.
+ * same button.
  */
-export function updateLine(check: ServerCheck | undefined, _connection: Connection): PluginNotice | null {
+export function updateLine(check: ServerCheck | undefined): PluginNotice | null {
   return check?.kind === 'ready' && check.update !== null ? { text: 'An update for the Ergates plugin is ready.', action: { label: 'Update', route: '/server/update' } } : null
 }
 
 /**
  * The value line of the plugin row in Settings: the plugin's version when it
- * works, else the notice. `failed` is true when the check itself failed; an
- * earlier answer still wins over it.
+ * works (with the update that is ready for it, if any), else the notice.
+ * `failed` is true when the check itself failed; an earlier answer still wins
+ * over it.
  */
 export function pluginRowSubtitle(check: ServerCheck | undefined, failed: boolean): string {
   if (check?.kind === 'ready') {
-    return check.health.plugin_version
+    const installed = check.health.plugin_version
+    return check.update === null ? installed : `${installed} (update to ${check.update.to} ready)`
   }
   const notice = pluginNotice(check)
   if (notice !== null) {
@@ -148,4 +148,13 @@ export function recheckState(asked: AskedRecheck | null, error: unknown, answere
     return 'not_asked'
   }
   return answeredAt > asked.after ? 'answered' : 'asking'
+}
+
+/**
+ * Whether a screen reads again what it failed to read: the notice that
+ * explained the failure is gone (the user fixed the server from the notice's
+ * button), so the failure may be gone too. True once per change of the notice.
+ */
+export function shouldReloadAfterNotice(hadNotice: boolean, hasNotice: boolean, error: unknown): boolean {
+  return hadNotice && !hasNotice && Boolean(error)
 }

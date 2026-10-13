@@ -9,8 +9,8 @@
 import type { Connection } from '@/state/device-store'
 
 import { pluginNotice } from './plugin-notice'
-import { compareVersions, type UpdateOffer } from './plugin-version'
-import { isSignedOut, type ServerCheck } from './server-check'
+import { remountsWithoutRestart, type UpdateOffer } from './plugin-version'
+import { hermesVersionIn, isSignedOut, type ServerCheck } from './server-check'
 import type { StepStatus } from './setup-run'
 import { failedProfiles, SIGN_IN, UNREACHABLE, type HeldCheck } from './setup-view'
 import type { UpdateDeps, UpdateOutcome, UpdateStep } from './update-run'
@@ -29,7 +29,7 @@ export interface UpdateView {
   /** True when the screen draws the switch for keeping the plugin up to date under the source line. */
   autoUpdateSwitch: boolean
   primary: { label: string; action: UpdateAction } | null
-  /** `later` records that the user was asked about this update and goes Home; `not_now` only goes Home. */
+  /** Both go Home, only the label differs: opening the screen already recorded that it asked. */
   secondary: { label: string; action: 'later' | 'not_now' } | null
   /** The four steps of a run, in order; null before a run starts. */
   steps: { label: string; status: StepStatus }[] | null
@@ -112,23 +112,18 @@ export function retryTarget(check: HeldCheck): UpdateTarget | null {
 }
 
 /**
- * The commit a tap records as asked about, or null. Both answers to the
- * question (`Update now` and `Later`) count, so the screen opens by itself
- * once per update whatever the ending.
+ * The commit opening the screen records as asked about, or null when there is
+ * nothing new to record. Opening counts, not a tap, so the screen opens by
+ * itself once per update whatever the user does there, and whichever way
+ * (Home, the sign-in, a tap on a line) brought them to it.
  */
-export function askedUpdateFor(action: UpdateAction | 'later' | 'not_now', offer: UpdateOffer | null): string | null {
-  return offer !== null && (action === 'update' || action === 'later') ? offer.commit : null
+export function askedOnOpen(offer: UpdateOffer | null, connection: Connection): string | null {
+  return offer !== null && connection.askedUpdateFor !== offer.commit ? offer.commit : null
 }
 
-/** Whether this connection has learned that the server's Hermes starts a new plugin without a restart: its version is known and is the one seen to do so, or newer. */
+/** The restart note stays unless the connection learned that this Hermes needs none. */
 function needsNoRestart(check: ServerCheck, connection: Connection): boolean {
-  const learned = connection.pluginRemountsFrom
-  const version = 'hermesVersion' in check ? check.hermesVersion : null
-  if (learned === undefined || version === null) {
-    return false
-  }
-  const order = compareVersions(version, learned)
-  return order === 0 || order === 1
+  return remountsWithoutRestart(connection, hermesVersionIn(check))
 }
 
 function readyView(offer: UpdateOffer, check: ServerCheck, connection: Connection): UpdateView {

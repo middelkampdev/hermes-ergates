@@ -13,7 +13,7 @@ import type { UpdateOffer } from './plugin-version'
 import type { ServerCheck } from './server-check'
 import type { UpdateOutcome, UpdateStep } from './update-run'
 import type { StepStatus } from './setup-run'
-import { askedUpdateFor, offerOf, PENDING_UPDATE_RUN, retryTarget, targetOf, updateScreenView, updateSteps, updateView, type UpdateRunState } from './update-view'
+import { askedOnOpen, offerOf, PENDING_UPDATE_RUN, retryTarget, targetOf, updateScreenView, updateSteps, updateView, type UpdateRunState } from './update-view'
 
 const COMMIT = 'abcdef0123456789abcdef0123456789abcdef01'
 const PREVIOUS = '1234567890abcdef1234567890abcdef12345678'
@@ -323,21 +323,21 @@ describe('retryTarget: Try again installs only what the server still needs', () 
   })
 })
 
-describe('askedUpdateFor: which commit a tap records as asked about', () => {
-  it.each<[string, Parameters<typeof askedUpdateFor>[0]]>([
-    ['Update now', 'update'],
-    ['Later', 'later']
-  ])('records the offered commit for %s, so the screen opens by itself once per update whatever the ending', (_title, action) => {
-    expect(askedUpdateFor(action, offer)).toBe(COMMIT)
+describe('askedOnOpen: which commit opening the screen records as asked about', () => {
+  it('records the offered commit, so the screen opens by itself once per update whatever the user does there', () => {
+    expect(askedOnOpen(offer, connection)).toBe(COMMIT)
   })
 
-  it.each<Parameters<typeof askedUpdateFor>[0]>(['retry', 'finish', 'done', 'check_again', 'sign_in', 'not_now'])('records nothing for %s', action => {
-    expect(askedUpdateFor(action, offer)).toBeNull()
+  it('records a newer offer over the commit it recorded for an older one', () => {
+    expect(askedOnOpen(offer, { ...connection, askedUpdateFor: PREVIOUS })).toBe(COMMIT)
+  })
+
+  it('records nothing again for a commit it already recorded', () => {
+    expect(askedOnOpen(offer, { ...connection, askedUpdateFor: COMMIT })).toBeNull()
   })
 
   it('records nothing without an offer', () => {
-    expect(askedUpdateFor('update', null)).toBeNull()
-    expect(askedUpdateFor('later', null)).toBeNull()
+    expect(askedOnOpen(null, connection)).toBeNull()
   })
 })
 

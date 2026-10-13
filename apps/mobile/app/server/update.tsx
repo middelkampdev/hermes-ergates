@@ -14,7 +14,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
 import {
-  askedUpdateFor,
+  askedOnOpen,
   joinUpdate,
   offerOf,
   PENDING_UPDATE_RUN,
@@ -61,6 +61,13 @@ function UpdateReady({ connection }: { connection: Connection }) {
   const updateConnection = useDeviceStore(s => s.updateConnection)
   const build = useMemo(() => buildRecord(), [])
   const check = useServerCheck(connection, build)
+  // Opening the screen counts as asked, also for a user who leaves with Back.
+  const asked = askedOnOpen(offerOf(check.data), connection)
+  useEffect(() => {
+    if (asked !== null) {
+      updateConnection(connection.id, { askedUpdateFor: asked })
+    }
+  }, [asked, connection.id, updateConnection])
   // An update that is already going (the user left this screen and came back) is joined, not offered again. A setup going is not this screen's to join.
   const rejoin = useRef(runningKind(connection.id) === 'update')
   const [run, setRun] = useState<UpdateRunState | null>(() => (rejoin.current ? PENDING_UPDATE_RUN : null))
@@ -139,17 +146,14 @@ function UpdateReady({ connection }: { connection: Connection }) {
   }
 
   const act = (action: UpdateAction | 'later' | 'not_now') => {
-    const offer = offerOf(check.data)
-    const asked = askedUpdateFor(action, offer)
-    if (asked !== null) {
-      updateConnection(connection.id, { askedUpdateFor: asked })
-    }
     switch (action) {
-      case 'update':
+      case 'update': {
+        const offer = offerOf(check.data)
         if (offer !== null) {
           void start(targetOf(offer))
         }
         return
+      }
       case 'retry':
         void retry()
         return

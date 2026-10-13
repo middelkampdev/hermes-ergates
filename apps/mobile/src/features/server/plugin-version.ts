@@ -79,3 +79,17 @@ export const AUTO_UPDATE_LABEL = 'Keep it up to date automatically'
 export function autoUpdate(connection: Connection): boolean {
   return connection.autoUpdatePlugin !== false
 }
+
+/**
+ * Whether this connection has learned that the server's Hermes starts a new
+ * plugin without a restart: the Hermes version is known and is the one seen to
+ * do so, or newer. An unknown or unreadable version never counts.
+ */
+export function remountsWithoutRestart(connection: Connection, hermesVersion: string | null): boolean {
+  const learned = connection.pluginRemountsFrom
+  if (learned === undefined || hermesVersion === null) {
+    return false
+  }
+  const order = compareVersions(hermesVersion, learned)
+  return order === 0 || order === 1
+}

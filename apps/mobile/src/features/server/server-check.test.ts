@@ -5,7 +5,7 @@ import type { ErgatesHealth, HermesPluginRow, PluginProbe } from '@/gateway/type
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
 import type { BuildRecord } from './build-record'
-import { checkServer, isSignedOut, pluginFits, pluginPresence, pollInterval } from './server-check'
+import { checkServer, hermesVersionIn, isSignedOut, pluginFits, pluginPresence, pollInterval, type ServerCheck } from './server-check'
 
 const COMMIT = 'b'.repeat(40)
 const OLD_COMMIT = 'a'.repeat(40)
@@ -543,5 +543,18 @@ describe('pollInterval', () => {
 
   it('stops asking once the server refused the session, because every call fails until the user signs in again', () => {
     expect(pollInterval(true, new GatewayError('unauthorized', 'Sign-in required.', { status: 401 }))).toBe(false)
+  })
+})
+
+describe('hermesVersionIn', () => {
+  it.each<[string, ServerCheck, string | null]>([
+    ['a ready plugin', { kind: 'ready', health: currentHealth(), update: null, hermesVersion: '0.21.6' }, '0.21.6'],
+    ['an outdated plugin', { kind: 'outdated', health: currentHealth(), installKind: 'git install', update: null, hermesVersion: '0.21.7' }, '0.21.7'],
+    ['a missing plugin', { kind: 'missing', hermesVersion: '0.21.8', oneTap: true, reason: null }, '0.21.8'],
+    ['a version the server did not report', { kind: 'ready', health: currentHealth(), update: null, hermesVersion: null }, null],
+    ['a plugin newer than the app, which reads none', { kind: 'app_outdated', health: currentHealth() }, null],
+    ['a server that could not be read', { kind: 'unknown' }, null]
+  ])('gives the version a check read for %s', (_title, check, version) => {
+    expect(hermesVersionIn(check)).toBe(version)
   })
 })

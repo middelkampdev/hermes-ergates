@@ -54,7 +54,7 @@ export default function ConnectScreen() {
     setError(null)
     try {
       const connection = await connectGateway(registry, { label, baseUrl, ...credentialsFrom(mode, credentials) })
-      router.replace(await afterSignIn(registry.get(connection), buildRecord()))
+      router.replace(await afterSignIn(registry.get(connection), buildRecord(), connection))
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -83,7 +83,7 @@ export default function ConnectScreen() {
           setStatus(s)
           if (!s.auth_required) {
             const connection = await connectGateway(registry, { label: 'Local Hermes', baseUrl: devUrl, mode: 'token', token: devToken })
-            router.replace(await afterSignIn(registry.get(connection), buildRecord()))
+            router.replace(await afterSignIn(registry.get(connection), buildRecord(), connection))
           }
         } catch (err) {
           setError((err as Error).message)

@@ -7,16 +7,14 @@ import { describe, expect, it } from 'vitest'
 import { FAKE_PLUGIN_HEALTH } from '@test/fake-gateway/fake-ergates'
 
 import { GatewayError } from '@/gateway/errors'
-import type { Connection } from '@/state/device-store'
 
-import { CHECKING_NOTICE, featureNotice, isBareNotFound, MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, recheckState, updateLine } from './plugin-notice'
+import { CHECKING_NOTICE, featureNotice, isBareNotFound, MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, recheckState, shouldReloadAfterNotice, updateLine } from './plugin-notice'
 import type { UpdateOffer } from './plugin-version'
 import type { ServerCheck } from './server-check'
 
 const health = FAKE_PLUGIN_HEALTH
 
 const offer: UpdateOffer = { from: '0.2.0', to: '0.3.0', commit: 'b'.repeat(40), previous: 'a'.repeat(40), previousSchema: 2 }
-const connection: Connection = { id: 'c1', label: 'A', baseUrl: 'http://a.example', authMode: 'token', primary: true, createdAt: 1 }
 
 const ready: ServerCheck = { kind: 'ready', health, update: null, hermesVersion: null }
 const readyWithUpdate: ServerCheck = { kind: 'ready', health, update: offer, hermesVersion: '0.21.6' }
@@ -86,6 +84,14 @@ describe('pluginRowSubtitle', () => {
     expect(pluginRowSubtitle(ready, false)).toBe(health.plugin_version)
   })
 
+  it('names the update next to the version when a working plugin has one ready', () => {
+    expect(pluginRowSubtitle(readyWithUpdate, false)).toBe(`${health.plugin_version} (update to ${offer.to} ready)`)
+  })
+
+  it('shows the notice, not the offer, for a plugin that needs the update', () => {
+    expect(pluginRowSubtitle(outdatedWithUpdate, false)).toBe(pluginNotice(outdatedWithUpdate)?.text)
+  })
+
   it('shows the notice text for every kind that has one', () => {
     for (const check of [missing, disabled, notLoaded, restartNeeded, outdated, outdatedWithUpdate, appOutdated, unavailable]) {
       expect(pluginRowSubtitle(check, false)).toBe(pluginNotice(check)?.text)
@@ -105,15 +111,15 @@ describe('pluginRowSubtitle', () => {
 
 describe('updateLine', () => {
   it('offers the update of a plugin that works', () => {
-    expect(updateLine(readyWithUpdate, connection)).toEqual({ text: 'An update for the Ergates plugin is ready.', action: { label: 'Update', route: '/server/update' } })
+    expect(updateLine(readyWithUpdate)).toEqual({ text: 'An update for the Ergates plugin is ready.', action: { label: 'Update', route: '/server/update' } })
   })
 
   it('says nothing for a working plugin without an update', () => {
-    expect(updateLine(ready, connection)).toBeNull()
+    expect(updateLine(ready)).toBeNull()
   })
 
   it('leaves a plugin that needs an update to its notice, which has the same button', () => {
-    expect(updateLine(outdatedWithUpdate, connection)).toBeNull()
+    expect(updateLine(outdatedWithUpdate)).toBeNull()
   })
 
   it.each([
@@ -127,7 +133,7 @@ describe('updateLine', () => {
     ['unknown', { kind: 'unknown' }],
     ['no check yet', undefined]
   ] as [string, ServerCheck | undefined][])('says nothing for a check that is %s', (_title, check) => {
-    expect(updateLine(check, connection)).toBeNull()
+    expect(updateLine(check)).toBeNull()
   })
 })
 
@@ -224,5 +230,24 @@ describe('recheckState', () => {
   it('is asking until the check answers or fails after the moment it asked', () => {
     expect(recheckState({ error, after: 1_000 }, error, 1_000)).toBe('asking')
     expect(recheckState({ error, after: 1_000 }, error, 1_001)).toBe('answered')
+  })
+})
+
+describe('shouldReloadAfterNotice', () => {
+  const failed = new GatewayError('not_found', 'Not Found', { status: 404 })
+
+  it('reloads once the notice that explained the failed read is gone', () => {
+    expect(shouldReloadAfterNotice(true, false, failed)).toBe(true)
+  })
+
+  it('does not reload while the notice stays, appears for the first time, or was never there', () => {
+    expect(shouldReloadAfterNotice(true, true, failed)).toBe(false)
+    expect(shouldReloadAfterNotice(false, true, failed)).toBe(false)
+    expect(shouldReloadAfterNotice(false, false, failed)).toBe(false)
+  })
+
+  it('does not reload a read that went through', () => {
+    expect(shouldReloadAfterNotice(true, false, null)).toBe(false)
+    expect(shouldReloadAfterNotice(true, false, undefined)).toBe(false)
   })
 })

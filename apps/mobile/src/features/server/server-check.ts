@@ -66,6 +66,11 @@ export function pluginFits(health: ErgatesHealth, appLevel: number): PluginFit {
   return 'fits'
 }
 
+/** The Hermes version a check read, or null when its kind carries none or the read failed. */
+export function hermesVersionIn(check: ServerCheck): string | null {
+  return 'hermesVersion' in check ? check.hermesVersion : null
+}
+
 /** Hermes's version as `status` reports it, or null when `status` fails: a failed read never stops the check. */
 export async function hermesVersionOf(port: GatewayPort): Promise<string | null> {
   try {

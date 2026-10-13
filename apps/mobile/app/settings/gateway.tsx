@@ -11,6 +11,7 @@ import { pluginRowSubtitle, usePluginNotice, type NoticeRoute } from '@/features
 import { usePrimaryConnection } from '@/features/settings'
 import { useGateway } from '@/gateway/registry'
 import { buildRecord } from '@/lib/build-info'
+import { AutoUpdateSwitch } from '@/ui/AutoUpdateSwitch'
 import { Group } from '@/ui/Group'
 import { ListRow } from '@/ui/ListRow'
 import { Page } from '@/ui/Page'
@@ -51,6 +52,8 @@ function GatewaySettings({ connection, onBack, onOpenSetup }: GatewaySettingsPro
         {/* Push links name this id; the operator sets it as `ntfy.connection_id` on the server. */}
         <ListRow title="Connection id (for push links)" subtitle={connection.id} icon="hash" />
       </Group>
+      {/* Whether the app keeps the plugin on this server up to date by itself: the plugin row above names an update that is ready. */}
+      <AutoUpdateSwitch connection={connection} />
     </Page>
   )
 }
