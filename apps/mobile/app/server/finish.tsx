@@ -31,6 +31,7 @@ import {
   pendingCommit,
   PENDING_UPDATE_RUN,
   RESTART_HEADING,
+  restartSeenAfter,
   runIsGoing,
   runUpdate,
   serverCheckKey,
@@ -71,8 +72,8 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   const build = useMemo(() => buildRecord(), [])
   // Why the install is by hand comes from the run that ended that way, not from the route: the text of a route is anyone's to write.
   const [manual] = useState(() => lastManualOutcome(connection.id))
-  // Whether the update run that sent the user here ended by hand: the plugin then still works, and the update is left to do on the server.
-  const [byHand] = useState(() => lastUpdateOutcome(connection.id)?.kind === 'manual')
+  // How the update run that sent the user here ended: by hand, the plugin still works and the update is left to do on the server; with a restart, the page waits for it.
+  const [ended] = useState(() => lastUpdateOutcome(connection.id))
   const focused = useIsFocused()
   // True once the plugin answered and its setup went through: nothing is left to wait for.
   const [finished, setFinished] = useState(false)
@@ -82,6 +83,8 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   const [run, setRun] = useState<UpdateRunState | null>(null)
   // The highest store version any health read on this page asked for: going back is not offered past the one the previous version knows.
   const [schemaSeen, setSchemaSeen] = useState<number | null>(null)
+  // Whether a poll showed the server going away: only after that is a plugin that does not come up a new version that failed to start.
+  const [restartSeen, setRestartSeen] = useState(false)
   // The setup call outlives this screen; only a mounted screen draws what it reports.
   const mounted = useRef(true)
 
@@ -102,7 +105,14 @@ function FinishOnServer({ connection }: { connection: Connection }) {
   if (seen !== schemaSeen) {
     setSchemaSeen(seen)
   }
-  const update = useMemo<FinishUpdate>(() => finishUpdateOf(connection.pluginUpdate, seen, run, byHand), [connection.pluginUpdate, seen, run, byHand])
+  const sawRestart = restartSeenAfter(restartSeen, data ?? null, signedOut)
+  if (sawRestart !== restartSeen) {
+    setRestartSeen(sawRestart)
+  }
+  const update = useMemo<FinishUpdate>(
+    () => finishUpdateOf({ started: connection.pluginUpdate, schemaSeen: seen, run, ended, restartSeen: sawRestart }),
+    [connection.pluginUpdate, seen, run, ended, sawRestart]
+  )
   const goingBack = runIsGoing(run)
 
   // The variant follows the server, except when a check names none (ready, or one poll that could not reach it): the page then stays as it was.

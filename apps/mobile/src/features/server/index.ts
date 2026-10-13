@@ -11,6 +11,7 @@ export {
   NO_UPDATE,
   pendingCommit,
   RESTART_HEADING,
+  restartSeenAfter,
   runIsGoing,
   SERVER_GUIDE_URL,
   setupProblem,
@@ -28,9 +29,9 @@ export { clearPendingSetup, finishPendingSetup, markPendingSetup, runningKind, t
 export { MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, updateLine, type NoticeRoute, type PluginNotice } from './plugin-notice'
 export { AUTO_UPDATE_LABEL, autoUpdate, type UpdateOffer } from './plugin-version'
 export { checkServer, isSignedOut, pluginFits, type InstallKind, type PluginFit, type ServerCheck } from './server-check'
-export { isSetupRunning, lastManualOutcome, runSetup, type ManualFailure, type ManualOutcome, type SetupDeps, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
+export { isSetupRunning, joinSetup, lastManualOutcome, runSetup, type ManualFailure, type ManualOutcome, type SetupDeps, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
 export { SETUP_TITLE, opensFinish, setupScreenView, setupView, stepStatusWord, type HeldCheck, type SetupAction, type SetupRunState, type SetupView } from './setup-view'
-export { lastUpdateOutcome, runUpdate, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
-export { joinTarget, offerOf, PENDING_UPDATE_RUN, targetOf, updateScreenView, updateSteps, updateView, type UpdateAction, type UpdateRunState, type UpdateTarget, type UpdateView } from './update-view'
+export { joinUpdate, lastUpdateOutcome, runUpdate, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
+export { askedUpdateFor, offerOf, PENDING_UPDATE_RUN, retryTarget, targetOf, updateScreenView, updateSteps, updateView, type UpdateAction, type UpdateRunState, type UpdateTarget, type UpdateView } from './update-view'
 export { usePluginNotice } from './use-plugin-notice'
 export { serverCheckKey, useServerCheck } from './use-server-check'

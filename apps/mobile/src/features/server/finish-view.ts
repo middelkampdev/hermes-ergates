@@ -79,14 +79,39 @@ export interface FinishUpdate {
   wentBack: boolean
   /** True when the last update run ended with the user installing by hand. */
   byHand: boolean
+  /** True while the update run's call for a restart of Hermes is open: it asked for one and no poll has shown the server going away since. */
+  awaitingRestart: boolean
 }
 
 /** No update under way. */
-export const NO_UPDATE: FinishUpdate = { started: undefined, schemaSeen: null, wentBack: false, byHand: false }
+export const NO_UPDATE: FinishUpdate = { started: undefined, schemaSeen: null, wentBack: false, byHand: false, awaitingRestart: false }
 
-/** What the screen knows about the update, from the connection's record, the highest store version seen, the go back it ran (`run`) and how the update run ended. */
-export function finishUpdateOf(started: Connection['pluginUpdate'], schemaSeen: number | null, run: UpdateRunState | null, byHand: boolean): FinishUpdate {
-  return { started, schemaSeen, wentBack: run?.outcome?.kind === 'restart', byHand }
+/** What the screen holds about the update. */
+export interface FinishUpdateParts {
+  /** `Connection.pluginUpdate`. */
+  started: Connection['pluginUpdate']
+  /** The highest `store.min_schema_version` seen on the page, or null. */
+  schemaSeen: number | null
+  /** The go back the user started from the page, if any. */
+  run: UpdateRunState | null
+  /** How the connection's last update run ended in this session; null after a relaunch. */
+  ended: UpdateOutcome | null
+  /** Whether a poll has shown the server going away (`restartSeenAfter`). */
+  restartSeen: boolean
+}
+
+/** What the screen knows about the update. After a relaunch no outcome is in memory, so no restart is waited for. */
+export function finishUpdateOf({ started, schemaSeen, run, ended, restartSeen }: FinishUpdateParts): FinishUpdate {
+  return { started, schemaSeen, wentBack: run?.outcome?.kind === 'restart', byHand: ended?.kind === 'manual', awaitingRestart: ended?.kind === 'restart' && !restartSeen }
+}
+
+/**
+ * Whether a check is the first sign that the server restarted: it could not
+ * be reached, or it refused the session (a restart signs the user out unless
+ * the server has a fixed sign-in secret). Once seen it stays seen (`seen`).
+ */
+export function restartSeenAfter(seen: boolean, check: ServerCheck | null, signedOut: boolean): boolean {
+  return seen || signedOut || check?.kind === 'unknown'
 }
 
 /** Whether the go back is still going: the page offers nothing and does not set up the plugin meanwhile. */
@@ -213,6 +238,10 @@ function afterUpdate(update: FinishUpdate): FinishVariant | null {
   }
   if (update.wentBack) {
     return { kind: 'restart', update: false }
+  }
+  // Until the server went away, a plugin that does not answer is the restart the update asked for, not a new version that failed to start.
+  if (update.awaitingRestart) {
+    return { kind: 'restart', update: true }
   }
   return { kind: 'not_started', previous: started.previous, goBack: COMMIT_PATTERN.test(started.previous) && canGoBack(started, update.schemaSeen) }
 }
@@ -388,8 +417,9 @@ function statusOf(variant: FinishVariant | null, check: ServerCheck | null, setu
     // A ready server is not done until the plugin's setup went through: it is still being asked, or it said no. An update the user has yet to do keeps it waiting.
     return updateStillOpen(variant, check) ? WAITING : setup.state === 'failed' ? setup.message : CHECKING
   }
-  // During an update the page already says the new version did not start.
-  if ((check.kind === 'app_outdated' || check.kind === 'unavailable') && variant?.kind !== 'not_started') {
+  // During an update the page already says what to do.
+  const updating = variant?.kind === 'not_started' || (variant?.kind === 'restart' && variant.update)
+  if ((check.kind === 'app_outdated' || check.kind === 'unavailable') && !updating) {
     return pluginNotice(check)?.text ?? WAITING
   }
   return WAITING
@@ -432,7 +462,7 @@ export function finishView(
 ): FinishView {
   const title = variant?.kind === 'deployment' ? DEPLOYMENT_TITLE : TITLE
   const guide = { label: GUIDE_LABEL, url: `${SERVER_GUIDE_URL}${anchorOf(variant)}` }
-  const steps = run === null ? null : updateSteps(run)
+  const steps = run === null ? null : updateSteps(run, true)
   if (setup.state === 'done') {
     return { title, intro: [], command: null, restartLines: null, guide, status: READY, done: true, steps, primary: DONE }
   }

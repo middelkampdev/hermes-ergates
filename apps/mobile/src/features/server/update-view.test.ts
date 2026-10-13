@@ -9,12 +9,11 @@ import { FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-gateway/fake-ergates'
 import { GatewayError, mapHttpError } from '@/gateway/errors'
 import type { Connection } from '@/state/device-store'
 
-import type { BuildRecord } from './build-record'
 import type { UpdateOffer } from './plugin-version'
 import type { ServerCheck } from './server-check'
 import type { UpdateOutcome, UpdateStep } from './update-run'
 import type { StepStatus } from './setup-run'
-import { joinTarget, offerOf, PENDING_UPDATE_RUN, targetOf, updateScreenView, updateView, type UpdateRunState } from './update-view'
+import { askedUpdateFor, offerOf, PENDING_UPDATE_RUN, retryTarget, targetOf, updateScreenView, updateSteps, updateView, type UpdateRunState } from './update-view'
 
 const COMMIT = 'abcdef0123456789abcdef0123456789abcdef01'
 const PREVIOUS = '1234567890abcdef1234567890abcdef12345678'
@@ -22,10 +21,6 @@ const PREVIOUS = '1234567890abcdef1234567890abcdef12345678'
 const offer: UpdateOffer = { from: '0.1.0', to: '0.2.0', commit: COMMIT, previous: PREVIOUS, previousSchema: 1 }
 
 const connection: Connection = { id: 'c1', label: 'A', baseUrl: 'http://a.example', authMode: 'token', primary: true, createdAt: 1 }
-
-function buildRecord(commit: string | null = COMMIT): BuildRecord {
-  return { requiredPlugin: { version: '0.2.0', apiLevel: 2, commit }, hermesRange: { oldest: '0.21.6', newestMinor: '0.21' } }
-}
 
 function ready(hermesVersion: string | null = '0.21.6', update: UpdateOffer | null = offer): ServerCheck {
   return { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update, hermesVersion }
@@ -296,25 +291,62 @@ describe('offerOf: the update a check offers', () => {
   })
 })
 
-describe('targetOf and joinTarget: what runUpdate takes for the commits', () => {
+describe('targetOf: what runUpdate takes for the commits', () => {
   it('installs the offered commit, and remembers what the server had', () => {
     expect(targetOf(offer)).toEqual({ target: COMMIT, previous: PREVIOUS, previousSchema: 1, goingBack: false })
   })
+})
 
-  it('joins the run going with the commit of this build and the update the run recorded', () => {
-    const owner: Connection = { ...connection, pluginUpdate: { target: COMMIT, previous: PREVIOUS, previousSchema: 2 } }
-
-    expect(joinTarget(buildRecord(), owner)).toEqual({ target: COMMIT, previous: PREVIOUS, previousSchema: 2, goingBack: false })
+describe('retryTarget: Try again installs only what the server still needs', () => {
+  it('takes the target from the offer of the check that was just asked again', () => {
+    expect(retryTarget({ data: ready(), error: null })).toEqual({ target: COMMIT, previous: PREVIOUS, previousSchema: 1, goingBack: false })
   })
 
-  it('joins with the commit of this build alone while no update is recorded yet', () => {
-    expect(joinTarget(buildRecord(), connection)).toEqual({ target: COMMIT, previous: COMMIT, previousSchema: null, goingBack: false })
+  it('takes the commits of the new offer, not of the one the failed run started with', () => {
+    const newer: UpdateOffer = { from: '0.1.0', to: '0.3.0', commit: 'f'.repeat(40), previous: PREVIOUS, previousSchema: 1 }
+
+    expect(retryTarget({ data: ready('0.21.6', newer), error: null })?.target).toBe('f'.repeat(40))
   })
 
-  it.each<[string, BuildRecord | null]>([
-    ['a build without a commit', buildRecord(null)],
-    ['no build record', null]
-  ])('joins nothing for %s', (_title, build) => {
-    expect(joinTarget(build, connection)).toBeNull()
+  it.each<[string, ServerCheck | undefined]>([
+    ['an offer that is gone', ready('0.21.6', null)],
+    ['a server that now runs a newer plugin than this build', { kind: 'ready', health: { ...FAKE_PLUGIN_HEALTH, plugin_version: '0.9.0' }, update: null, hermesVersion: null }],
+    ['a plugin that needs an update the app cannot make', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'deployment', update: null, hermesVersion: null }],
+    ['a plugin that waits for a restart', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }],
+    ['no answer', undefined]
+  ])('starts no run for %s', (_title, data) => {
+    expect(retryTarget({ data, error: null })).toBeNull()
+  })
+
+  it('starts no run when asking again failed, whatever the check held before', () => {
+    expect(retryTarget({ data: ready(), error: new GatewayError('network', 'No connection to the gateway.') })).toBeNull()
+  })
+})
+
+describe('askedUpdateFor: which commit a tap records as asked about', () => {
+  it.each<[string, Parameters<typeof askedUpdateFor>[0]]>([
+    ['Update now', 'update'],
+    ['Later', 'later']
+  ])('records the offered commit for %s, so the screen opens by itself once per update whatever the ending', (_title, action) => {
+    expect(askedUpdateFor(action, offer)).toBe(COMMIT)
+  })
+
+  it.each<Parameters<typeof askedUpdateFor>[0]>(['retry', 'finish', 'done', 'check_again', 'sign_in', 'not_now'])('records nothing for %s', action => {
+    expect(askedUpdateFor(action, offer)).toBeNull()
+  })
+
+  it('records nothing without an offer', () => {
+    expect(askedUpdateFor('update', null)).toBeNull()
+    expect(askedUpdateFor('later', null)).toBeNull()
+  })
+})
+
+describe('updateSteps: the labels of a run', () => {
+  it('names the steps of an update', () => {
+    expect(updateSteps(PENDING_UPDATE_RUN).map(step => step.label)).toEqual(['Turning the old version off', 'Installing the update', 'Starting it', 'Setting up your agents'])
+  })
+
+  it('names the steps of a going back for what they do', () => {
+    expect(updateSteps(PENDING_UPDATE_RUN, true).map(step => step.label)).toEqual(['Turning the new version off', 'Installing the previous version', 'Starting it', 'Setting up your agents'])
   })
 })

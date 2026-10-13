@@ -299,6 +299,17 @@ function installable({ build, connectionId, target, goingBack }: UpdateDeps): bo
 const latest = new Map<string, string>()
 
 /**
+ * Joins the update (or, with `goingBack`, the going back) that is going for
+ * the connection and answers its outcome, or answers null when none is going.
+ * It never starts a run: a screen that rejoins calls this, so one that comes
+ * after the run ended starts nothing. `onStep` first gets the latest status of
+ * every step that has reported, then every later transition.
+ */
+export function joinUpdate(connectionId: string, goingBack: boolean, onStep: (step: UpdateStep, status: StepStatus) => void): Promise<UpdateOutcome> | null {
+  return isGoingBack(connectionId) === goingBack ? flights.join(connectionId, onStep) : null
+}
+
+/**
  * Replaces the plugin on the server with `target` and says how it went.
  * `onStep` reports each step's transitions; no step is left `active` when the
  * run returns. Unless `goingBack`, the update (`target`, `previous`,

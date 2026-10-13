@@ -386,6 +386,17 @@ function rememberManual(connectionId: string, outcome: SetupOutcome): SetupOutco
 }
 
 /**
+ * Joins the setup that is going for the connection and answers its outcome,
+ * or answers null when none is going. It never starts a run: a screen that
+ * rejoins calls this, so one that comes after the run ended starts nothing.
+ * `onStep` first gets the latest status of every step that has reported,
+ * then every later transition.
+ */
+export function joinSetup(connectionId: string, onStep: (step: SetupStep, status: StepStatus) => void): Promise<SetupOutcome> | null {
+  return flights.join(connectionId, onStep)
+}
+
+/**
  * Brings the server to a plugin that is installed, enabled, served and set
  * up, and says how it went. `onStep` reports each step's transitions; a step
  * the server did not need ends as `skipped`, and no step is left `active` when

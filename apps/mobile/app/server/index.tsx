@@ -14,6 +14,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
 import {
+  joinSetup,
   opensFinish,
   routeAfterCheck,
   runningKind,
@@ -23,6 +24,7 @@ import {
   setupScreenView,
   useServerCheck,
   type SetupAction,
+  type SetupOutcome,
   type SetupRunState,
   type SetupStep,
   type StepStatus
@@ -70,35 +72,51 @@ function ServerSetup({ connection }: { connection: Connection }) {
 
   const openFinish = useCallback(() => router.push('/server/finish'), [router])
 
+  const report = useCallback((step: SetupStep, status: StepStatus) => {
+    if (mounted.current) {
+      setRun(current => (current ? { ...current, steps: { ...current.steps, [step]: status } } : current))
+    }
+  }, [])
+
+  const settle = useCallback(
+    async (outcome: SetupOutcome) => {
+      if (outcome.kind === 'done' || outcome.kind === 'manual' || outcome.kind === 'restart') {
+        // Home and the other screens read the same check: make them see the finished setup, and Finish open on what the run left, not on the check from before it.
+        await queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
+      }
+      if (!mounted.current) {
+        return
+      }
+      setRun(current => ({ steps: current?.steps ?? PENDING_STEPS, outcome }))
+      if (opensFinish(outcome)) {
+        openFinish()
+      }
+    },
+    [queryClient, connection.id, openFinish]
+  )
+
   const start = useCallback(async () => {
     if (build === null) {
       return
     }
     setRun({ steps: PENDING_STEPS, outcome: null })
-    const outcome = await runSetup({ port: gateway, build, connectionId: connection.id }, (step, status) => {
-      if (mounted.current) {
-        setRun(current => (current ? { ...current, steps: { ...current.steps, [step]: status } } : current))
-      }
-    })
-    if (outcome.kind === 'done' || outcome.kind === 'manual' || outcome.kind === 'restart') {
-      // Home and the other screens read the same check: make them see the finished setup, and Finish open on what the run left, not on the check from before it.
-      await queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
-    }
-    if (!mounted.current) {
-      return
-    }
-    setRun(current => ({ steps: current?.steps ?? PENDING_STEPS, outcome }))
-    if (opensFinish(outcome)) {
-      openFinish()
-    }
-  }, [build, gateway, connection.id, queryClient, openFinish])
+    await settle(await runSetup({ port: gateway, build, connectionId: connection.id }, report))
+  }, [build, gateway, connection.id, report, settle])
 
   useEffect(() => {
-    if (rejoin.current) {
-      rejoin.current = false
-      void start()
+    if (!rejoin.current) {
+      return
     }
-  }, [start])
+    rejoin.current = false
+    const joining = joinSetup(connection.id, report)
+    if (joining === null) {
+      // The run ended before this screen got to it: show what the server says now, and start nothing.
+      setRun(null)
+      void queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
+      return
+    }
+    void joining.then(settle)
+  }, [connection.id, report, settle, queryClient])
 
   const act = (action: SetupAction | 'not_now') => {
     switch (action) {

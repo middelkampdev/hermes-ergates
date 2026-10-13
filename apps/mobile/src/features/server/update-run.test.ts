@@ -19,7 +19,7 @@ import { PLUGIN_IDENTIFIER, type BuildRecord } from './build-record'
 import { finishPendingSetup, markPendingSetup, runningKind } from './pending-setup'
 import type { ServerCheck } from './server-check'
 import { INSTALL_RACE_AFTER_MS, isSetupRunning, runSetup, type StepStatus } from './setup-run'
-import { lastUpdateOutcome, runUpdate, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
+import { joinUpdate, lastUpdateOutcome, runUpdate, type UpdateDeps, type UpdateOutcome, type UpdateStep } from './update-run'
 
 const OLD = FAKE_PLUGIN_COMMIT
 const TARGET = 'b'.repeat(40)
@@ -1241,6 +1241,82 @@ describe('lastUpdateOutcome: what the Finish screen shows of an update that ende
     await runUpdate({ port: gateway, build: buildRecord(), connectionId: connection.id, target: TARGET, previous: OLD, previousSchema: 1, goingBack: false }, () => undefined)
 
     expect(lastUpdateOutcome(connection.id)).toEqual({ kind: 'restart' })
+    gateway.plugins.rows = [{ name: 'ergates', version: '0.3.0', runtime_status: 'enabled' }]
+    await vi.runAllTimersAsync()
+    await setup
+  })
+})
+
+describe('joinUpdate: joining a run that is going, and never starting one', () => {
+  it('joins the update that is going, is told where it is at once, and settles with its outcome', async () => {
+    const gateway = runningServer()
+    gateway.plugins.fail('install', networkError())
+    const first = start(gateway)
+    await vi.advanceTimersByTimeAsync(2_000)
+
+    const joined: Transition[] = []
+    const second = joinUpdate(connection.id, false, (step, status) => joined.push([step, status]))
+
+    expect(joined).toEqual([
+      ['pause', 'done'],
+      ['install', 'active']
+    ])
+    installedOnServer(gateway)
+    const result = await first.finish()
+    await expect(second).resolves.toEqual(result.outcome)
+    expect(joined.at(-1)).toEqual(['setup', 'done'])
+    expect(gateway.plugins.installs).toHaveLength(1)
+  })
+
+  it('answers null and touches nothing when no run is going', () => {
+    const gateway = runningServer()
+    const calls = watch(gateway)
+    const reported: Transition[] = []
+
+    expect(joinUpdate(connection.id, false, (step, status) => reported.push([step, status]))).toBeNull()
+
+    expect(runningKind(connection.id)).toBeNull()
+    expect(calls.order()).toEqual([])
+    expect(reported).toEqual([])
+  })
+
+  it('answers null for a run that has already ended, so a screen that comes too late starts nothing', async () => {
+    const gateway = runningServer()
+    remounting(gateway)
+    await run(gateway)
+    const calls = watch(gateway)
+
+    expect(joinUpdate(connection.id, false, () => undefined)).toBeNull()
+
+    expect(runningKind(connection.id)).toBeNull()
+    expect(calls.order()).toEqual([])
+  })
+
+  it('joins an update only when asked for an update, and a going back only when asked for one', async () => {
+    const gateway = runningServer()
+    useDeviceStore.getState().updateConnection(connection.id, { pluginUpdate: { target: TARGET, previous: OLD, previousSchema: 1 } })
+    gateway.plugins.fail('install', networkError())
+    const going = start(gateway, { target: OLD, previous: TARGET, goingBack: true })
+    await vi.advanceTimersByTimeAsync(2_000)
+
+    expect(joinUpdate(connection.id, false, () => undefined)).toBeNull()
+    const joined = joinUpdate(connection.id, true, () => undefined)
+    expect(joined).not.toBeNull()
+
+    gateway.plugins.installedCommit = OLD
+    gateway.plugins.rows[0].runtime_status = 'enabled'
+    const result = await going.finish()
+    await expect(joined).resolves.toEqual(result.outcome)
+  })
+
+  it('does not join the update of another connection, or a setup that is going', async () => {
+    const gateway = emptyServer()
+    gateway.plugins.fail('install', networkError())
+    const setup = runSetup({ port: gateway, build: buildRecord(), connectionId: connection.id }, () => undefined)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(joinUpdate(connection.id, false, () => undefined)).toBeNull()
+    expect(joinUpdate('c-9', false, () => undefined)).toBeNull()
     gateway.plugins.rows = [{ name: 'ergates', version: '0.3.0', runtime_status: 'enabled' }]
     await vi.runAllTimersAsync()
     await setup

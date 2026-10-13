@@ -8,7 +8,6 @@
 
 import type { Connection } from '@/state/device-store'
 
-import type { BuildRecord } from './build-record'
 import { pluginNotice } from './plugin-notice'
 import { compareVersions, type UpdateOffer } from './plugin-version'
 import { isSignedOut, type ServerCheck } from './server-check'
@@ -58,16 +57,23 @@ const DONE = { label: 'Done', action: 'done' } as const
 const SHOW_ME_HOW = { label: 'Show me how', action: 'finish' } as const
 const TRY_AGAIN = { label: 'Try again', action: 'retry' } as const
 
-const STEPS: readonly { step: UpdateStep; label: string }[] = [
+const UPDATE_STEPS: readonly { step: UpdateStep; label: string }[] = [
   { step: 'pause', label: 'Turning the old version off' },
   { step: 'install', label: 'Installing the update' },
   { step: 'start', label: 'Starting it' },
   { step: 'setup', label: 'Setting up your agents' }
 ]
 
-/** The four steps of a run in order, each with its status. */
-export function updateSteps(run: UpdateRunState): { label: string; status: StepStatus }[] {
-  return STEPS.map(({ step, label }) => ({ label, status: run.steps[step] }))
+const GOING_BACK_STEPS: readonly { step: UpdateStep; label: string }[] = [
+  { step: 'pause', label: 'Turning the new version off' },
+  { step: 'install', label: 'Installing the previous version' },
+  { step: 'start', label: 'Starting it' },
+  { step: 'setup', label: 'Setting up your agents' }
+]
+
+/** The four steps of a run in order, each with its status; a going back names them for what they do. */
+export function updateSteps(run: UpdateRunState, goingBack = false): { label: string; status: StepStatus }[] {
+  return (goingBack ? GOING_BACK_STEPS : UPDATE_STEPS).map(({ step, label }) => ({ label, status: run.steps[step] }))
 }
 
 /** The switch sits under the source line, so a view has it exactly when it names a source. */
@@ -90,18 +96,28 @@ export function targetOf(offer: UpdateOffer): UpdateTarget {
 }
 
 /**
- * The commits for joining the update run that is going. A join uses only the
- * target; `previous` and `previousSchema` are what the run recorded on the
- * connection, and the commit of this build stands in until it has. Null when
- * this build has no commit to update to.
+ * The commits for Try again: those of the update the server needs now, from
+ * the check that was just asked again. It is null, and nothing may be
+ * installed, when asking failed (the check would be an old one), when the
+ * offer is gone (the server already has the update, or a newer plugin), or
+ * when the check offers none. The offer is the only guard against installing
+ * over a newer plugin, so a failed run's own commits are never reused.
  */
-export function joinTarget(build: BuildRecord | null, connection: Connection): UpdateTarget | null {
-  const target = build?.requiredPlugin.commit
-  if (!target) {
+export function retryTarget(check: HeldCheck): UpdateTarget | null {
+  if (check.error) {
     return null
   }
-  const recorded = connection.pluginUpdate
-  return { target, previous: recorded?.previous ?? target, previousSchema: recorded?.previousSchema ?? null, goingBack: false }
+  const offer = offerOf(check.data)
+  return offer === null ? null : targetOf(offer)
+}
+
+/**
+ * The commit a tap records as asked about, or null. Both answers to the
+ * question (`Update now` and `Later`) count, so the screen opens by itself
+ * once per update whatever the ending.
+ */
+export function askedUpdateFor(action: UpdateAction | 'later' | 'not_now', offer: UpdateOffer | null): string | null {
+  return offer !== null && (action === 'update' || action === 'later') ? offer.commit : null
 }
 
 /** Whether this connection has learned that the server's Hermes starts a new plugin without a restart: its version is known and is the one seen to do so, or newer. */

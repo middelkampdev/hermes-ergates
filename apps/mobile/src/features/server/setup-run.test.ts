@@ -17,7 +17,7 @@ import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 import { PLUGIN_IDENTIFIER, type BuildRecord } from './build-record'
 import { finishPendingSetup, markPendingSetup, runningKind } from './pending-setup'
 import type { ServerCheck } from './server-check'
-import { INSTALL_RACE_AFTER_MS, isSetupRunning, lastManualOutcome, runSetup, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
+import { INSTALL_RACE_AFTER_MS, isSetupRunning, joinSetup, lastManualOutcome, runSetup, type SetupOutcome, type SetupStep, type StepStatus } from './setup-run'
 
 const COMMIT = 'c'.repeat(40)
 const LOST = 'Lost the connection to your server during setup.'
@@ -1069,5 +1069,58 @@ describe('lastManualOutcome: what the Finish screen shows of a run that ended by
     await joiner.finish()
 
     expect(lastManualOutcome(connection.id)).toEqual({ kind: 'manual', failure: 'no_git', detail: null })
+  })
+})
+
+describe('joinSetup: joining a run that is going, and never starting one', () => {
+  it('joins the setup that is going, is told where it is at once, and settles with its outcome', async () => {
+    const gateway = freshServer()
+    gateway.plugins.fail('install', networkError())
+    const first = start(gateway)
+    await vi.advanceTimersByTimeAsync(7_000)
+
+    const joined: Transition[] = []
+    const second = joinSetup(connection.id, (step, status) => joined.push([step, status]))
+
+    expect(joined).toEqual([['install', 'active']])
+    gateway.plugins.rows = [row('enabled')]
+    const result = await first.finish()
+    await expect(second).resolves.toEqual(result.outcome)
+    expect(joined.at(-1)).toEqual(['setup', 'done'])
+    expect(gateway.plugins.installs).toHaveLength(1)
+  })
+
+  it('answers null and touches nothing when no run is going', () => {
+    const gateway = freshServer()
+    const reported: Transition[] = []
+
+    expect(joinSetup(connection.id, (step, status) => reported.push([step, status]))).toBeNull()
+
+    expect(runningKind(connection.id)).toBeNull()
+    expect(gateway.plugins.installs).toEqual([])
+    expect(healthCalls(gateway)).toBe(0)
+    expect(reported).toEqual([])
+  })
+
+  it('answers null for a run that has already ended, so a screen that comes too late starts nothing', async () => {
+    const gateway = freshServer()
+    await run(gateway)
+    const installs = gateway.plugins.installs.length
+
+    expect(joinSetup(connection.id, () => undefined)).toBeNull()
+
+    expect(runningKind(connection.id)).toBeNull()
+    expect(gateway.plugins.installs).toHaveLength(installs)
+  })
+
+  it('does not join the setup of another connection', async () => {
+    const gateway = freshServer()
+    gateway.plugins.fail('install', networkError())
+    const first = start(gateway)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(joinSetup('c-9', () => undefined)).toBeNull()
+    gateway.plugins.rows = [row('enabled')]
+    await first.finish()
   })
 })

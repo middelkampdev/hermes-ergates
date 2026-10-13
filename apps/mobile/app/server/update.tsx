@@ -14,9 +14,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
 import {
-  joinTarget,
+  askedUpdateFor,
+  joinUpdate,
   offerOf,
   PENDING_UPDATE_RUN,
+  retryTarget,
   runningKind,
   runUpdate,
   serverCheckKey,
@@ -24,7 +26,10 @@ import {
   updateScreenView,
   useServerCheck,
   type UpdateAction,
+  type UpdateOutcome,
+  type StepStatus,
   type UpdateRunState,
+  type UpdateStep,
   type UpdateTarget
 } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
@@ -57,10 +62,8 @@ function UpdateReady({ connection }: { connection: Connection }) {
   const build = useMemo(() => buildRecord(), [])
   const check = useServerCheck(connection, build)
   // An update that is already going (the user left this screen and came back) is joined, not offered again. A setup going is not this screen's to join.
-  const rejoin = useRef(runningKind(connection.id) === 'update' && joinTarget(build, connection) !== null)
+  const rejoin = useRef(runningKind(connection.id) === 'update')
   const [run, setRun] = useState<UpdateRunState | null>(() => (rejoin.current ? PENDING_UPDATE_RUN : null))
-  // What the last run was started with, so Try again repeats it even when the check no longer offers it.
-  const started = useRef<UpdateTarget | null>(null)
   // The run keeps reporting after this screen is gone; only a mounted screen draws it.
   const mounted = useRef(true)
 
@@ -73,20 +76,16 @@ function UpdateReady({ connection }: { connection: Connection }) {
 
   const openFinish = useCallback(() => router.push('/server/finish'), [router])
 
-  const start = useCallback(
-    async (target: UpdateTarget) => {
-      if (build === null) {
-        return
-      }
-      started.current = target
-      setRun(PENDING_UPDATE_RUN)
-      const outcome = await runUpdate({ port: gateway, build, connectionId: connection.id, ...target }, (step, status) => {
-        if (mounted.current) {
-          setRun(current => (current ? { ...current, steps: { ...current.steps, [step]: status } } : current))
-        }
-      })
+  const report = useCallback((step: UpdateStep, status: StepStatus) => {
+    if (mounted.current) {
+      setRun(current => (current ? { ...current, steps: { ...current.steps, [step]: status } } : current))
+    }
+  }, [])
+
+  // What a run left on the server is for every screen to see; Finish opens on it, not on the check from before the run.
+  const settle = useCallback(
+    async (outcome: UpdateOutcome) => {
       if (outcome.kind !== 'sign_in') {
-        // Home and the other screens read the same check: make them see what the run left, and Finish open on it, not on the check from before the run.
         await queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
       }
       if (!mounted.current) {
@@ -97,21 +96,54 @@ function UpdateReady({ connection }: { connection: Connection }) {
         openFinish()
       }
     },
-    [build, gateway, connection.id, queryClient, openFinish]
+    [queryClient, connection.id, openFinish]
+  )
+
+  const start = useCallback(
+    async (target: UpdateTarget) => {
+      if (build === null) {
+        return
+      }
+      setRun(PENDING_UPDATE_RUN)
+      await settle(await runUpdate({ port: gateway, build, connectionId: connection.id, ...target }, report))
+    },
+    [build, gateway, connection.id, report, settle]
   )
 
   useEffect(() => {
-    if (rejoin.current) {
-      rejoin.current = false
-      const target = joinTarget(build, connection)
-      if (target !== null) {
-        void start(target)
-      }
+    if (!rejoin.current) {
+      return
     }
-  }, [start, build, connection])
+    rejoin.current = false
+    const joining = joinUpdate(connection.id, false, report)
+    if (joining === null) {
+      // The run ended before this screen got to it: show what the server says now, and start nothing.
+      setRun(null)
+      void queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
+      return
+    }
+    void joining.then(settle)
+  }, [connection.id, report, settle, queryClient])
+
+  // Try again asks the server again and installs only what it still needs: the update may have gone through after all, or a newer plugin may be there now.
+  const retry = async () => {
+    const asked = await check.refetch()
+    const target = retryTarget({ data: asked.data, error: asked.error })
+    if (target === null) {
+      if (mounted.current) {
+        setRun(null)
+      }
+      return
+    }
+    await start(target)
+  }
 
   const act = (action: UpdateAction | 'later' | 'not_now') => {
     const offer = offerOf(check.data)
+    const asked = askedUpdateFor(action, offer)
+    if (asked !== null) {
+      updateConnection(connection.id, { askedUpdateFor: asked })
+    }
     switch (action) {
       case 'update':
         if (offer !== null) {
@@ -119,9 +151,7 @@ function UpdateReady({ connection }: { connection: Connection }) {
         }
         return
       case 'retry':
-        if (started.current !== null) {
-          void start(started.current)
-        }
+        void retry()
         return
       case 'check_again':
         void check.refetch()
@@ -133,11 +163,6 @@ function UpdateReady({ connection }: { connection: Connection }) {
         router.push({ pathname: '/sign-in', params: { connection: connection.id } })
         return
       case 'later':
-        if (offer !== null) {
-          updateConnection(connection.id, { askedUpdateFor: offer.commit })
-        }
-        router.dismissTo('/')
-        return
       case 'done':
       case 'not_now':
         // Home is under this screen when it was pushed from there, and not when a notice replaced into it.
@@ -165,7 +190,7 @@ function UpdateReady({ connection }: { connection: Connection }) {
       footer={
         primary || secondary ? (
           <View style={styles.actions}>
-            {primary ? <Button label={primary.label} onPress={() => act(primary.action)} loading={primary.action === 'check_again' && check.isFetching} /> : null}
+            {primary ? <Button label={primary.label} onPress={() => act(primary.action)} loading={(primary.action === 'check_again' || primary.action === 'retry') && check.isFetching} /> : null}
             {secondary ? <Button label={secondary.label} variant="secondary" onPress={() => act(secondary.action)} /> : null}
           </View>
         ) : undefined
