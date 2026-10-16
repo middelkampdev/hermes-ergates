@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { addressKind, normalizeBaseUrl, usesHttps, type AddressKind } from './address'
+import { addressKind, isTailscaleName, normalizeBaseUrl, usesHttps, type AddressKind } from './address'
 
 type Row = [address: string, kind: AddressKind]
 
@@ -72,12 +72,12 @@ describe('addressKind', () => {
     expect(addressKind(address)).toBe(kind)
   })
 
-  it('classifies a Tailscale IPv6 prefix next to the private range as private', () => {
+  it('classifies an IPv6 address next to the Tailscale range as private', () => {
     expect(addressKind('http://[fd7a:115c:a1e1::1]')).toBe('private')
   })
 })
 
-describe('an address that looks private but is not', () => {
+describe('addressKind judges by the host the request goes to', () => {
   it.each<Row>([
     // The name only starts like a Tailscale address.
     ['http://100.64.0.1.example.com', 'public'],
@@ -92,14 +92,48 @@ describe('an address that looks private but is not', () => {
     ['http://[::ffff:10.0.0.1]', 'private'],
     ['http://[::ffff:127.0.0.1]', 'loopback'],
     ['http://[::ffff:100.64.0.1]', 'tailscale'],
-    // The URL parser turns other spellings of an IPv4 address into dotted form.
-    ['http://0x7f.1', 'loopback'],
-    ['http://2130706433', 'loopback'],
-    ['http://0xC0A80001', 'private'],
-    ['http://0177.0.0.1', 'loopback'],
     // Scheme and host are not case sensitive.
     ['HTTP://LOCALHOST', 'loopback']
   ])('%s is %s', (address, kind) => {
+    expect(addressKind(address)).toBe(kind)
+  })
+
+  // The URL parser rewrites these hosts, but the phone's network stack gets the text as typed and may read it as another
+  // address: 012.0.0.1 is 10.0.0.1 to the parser and 12.0.0.1 to the phone. Only a plain ASCII host that the parser leaves
+  // as typed is trusted.
+  it.each([
+    'http://012.0.0.1',
+    'http://0177.0.0.1',
+    'http://0144.0100.0.1',
+    'http://172%2e037%2e0%2e1',
+    'http://172\u3002037\u30020\u30021',
+    'http://0x7f.1',
+    'http://0xC0A80001',
+    'http://2130706433',
+    'http://127.1',
+    'http://hermes%2elocal',
+    'http://hermes\u3002local',
+    'http://b\u00fccher',
+    'http://\uff4c\uff4f\uff43\uff41\uff4c\uff48\uff4f\uff53\uff54'
+  ])('treats %j, which the phone may read differently from the URL parser, as public', address => {
+    expect(addressKind(address)).toBe('public')
+  })
+
+  // An address with a user name or password is not a plain host, whatever host follows.
+  it.each(['http://user@10.0.0.1', 'http://user:pass@192.168.1.10', 'http://user:pass@localhost:9119', 'http://:pass@hermes.local'])(
+    'treats %j, which carries a user name or password, as public',
+    address => {
+      expect(addressKind(address)).toBe('public')
+    }
+  )
+
+  it.each<Row>([
+    ['http://hermes.local.', 'private'],
+    ['http://HERMES.Local:9119/', 'private'],
+    ['http://127.0.0.1.:9119', 'loopback'],
+    ['http://[::ffff:10.0.0.1]', 'private'],
+    ['http://[::FFFF:7F00:1]:9119', 'loopback']
+  ])('keeps %s, which the parser leaves as typed apart from case and a trailing dot, as %s', (address, kind) => {
     expect(addressKind(address)).toBe(kind)
   })
 
@@ -138,6 +172,24 @@ describe('an address typed without a scheme', () => {
 
   it('ignores spaces around the address and a trailing slash', () => {
     expect(addressKind('  http://10.1.2.3:9119/  ')).toBe('private')
+  })
+})
+
+describe('isTailscaleName', () => {
+  it.each<[string, boolean]>([
+    ['https://hermes.tail1234.ts.net', true],
+    ['https://hermes.tail1234.ts.net.', true],
+    ['HTTPS://HERMES.TAIL1234.TS.NET:8443', true],
+    ['hermes.tail1234.ts.net', true],
+    ['http://100.64.0.1', false],
+    ['http://[fd7a:115c:a1e0::1]', false],
+    ['http://evilts.net', false],
+    ['http://ts.net', false],
+    ['http://hermes.ts.net.example.com', false],
+    ['http://hermes.local', false],
+    ['', false]
+  ])('%j gives %s', (address, expected) => {
+    expect(isTailscaleName(address)).toBe(expected)
   })
 })
 

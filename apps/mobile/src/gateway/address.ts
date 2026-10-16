@@ -11,6 +11,9 @@ type Ipv6 = [number, number, number, number, number, number, number, number]
 
 /** Name endings that stay on the local network. A name without a dot does too. */
 const LOCAL_NAME_ENDINGS = ['.local', '.home.arpa', '.internal']
+const TAILSCALE_NAME_ENDING = '.ts.net'
+/** Anything outside printable ASCII. The app's URL parser does not convert Unicode hosts, the phone's network stack does. */
+const NON_ASCII = /[^ -~]/
 
 /** The address as the app sends requests to it: trimmed, no trailing slash, `http://` when no scheme was typed. */
 export function normalizeBaseUrl(text: string): string {
@@ -23,10 +26,14 @@ export function usesHttps(baseUrl: string): boolean {
 }
 
 /**
- * Loopback, Tailscale, private or public. The URL parser decides which host
- * the request goes to, so `user@host` tricks, odd IPv4 spellings and names that
- * only start like an address are judged by what they really are. An address
- * the parser cannot read is public.
+ * Loopback, Tailscale, private or public, judged by the host the request goes to.
+ *
+ * The URL parser rewrites some hosts (octal, hex and short IPv4 forms, plain integers, `%`-encoded and
+ * Unicode dots), but the phone's network stack gets the address as typed and may read it as another
+ * address: `012.0.0.1` is 10.0.0.1 to the parser and 12.0.0.1 to the phone. So a host is trusted only when
+ * the text as typed (after the last `@`, before the port, in lower case, without a trailing dot) is what the
+ * parser reads and is plain ASCII. Anything else is public, and so is an address with a user name or
+ * password or one the parser cannot read. A bracketed IPv6 host is read by the parser.
  */
 export function addressKind(baseUrl: string): AddressKind {
   const host = hostOf(baseUrl)
@@ -42,21 +49,63 @@ export function addressKind(baseUrl: string): AddressKind {
 }
 
 /**
- * The host with IPv6 brackets kept and a trailing dot dropped, or null when the address is not a URL.
- * The URL parser reads `\` as `/` and drops tabs and line breaks. The phone's network stack may read
- * them differently and send the request to another host, so an address with one is not trusted.
+ * True when the address is a `*.ts.net` name. Tailscale Funnel can publish such a name on the open
+ * internet, so it says nothing about where the server sits.
+ */
+export function isTailscaleName(baseUrl: string): boolean {
+  const hostname = parsedHostname(baseUrl)
+  return hostname !== null && hostname.endsWith(TAILSCALE_NAME_ENDING)
+}
+
+/** The parser's host with IPv6 brackets kept and a trailing dot dropped, or null when it cannot read the address. */
+function parsedHostname(baseUrl: string): string | null {
+  const url = parseUrl(normalizeBaseUrl(baseUrl))
+  return url ? withoutTrailingDot(url.hostname) : null
+}
+
+function parseUrl(address: string): URL | null {
+  try {
+    return new URL(address)
+  } catch {
+    return null
+  }
+}
+
+function withoutTrailingDot(host: string): string {
+  return host.replace(/\.$/, '')
+}
+
+/**
+ * The host with IPv6 brackets kept and a trailing dot dropped, or null when it cannot be trusted: the
+ * parser cannot read the address, or the address has a user name or password, or the parser rewrote the host.
+ * The parser also reads `\` as `/` and drops tabs and line breaks, which the phone's network stack may read
+ * differently, so an address with one is not trusted either.
  */
 function hostOf(baseUrl: string): string | null {
   const address = normalizeBaseUrl(baseUrl)
   if (/[\\\s]/.test(address)) {
     return null
   }
-  try {
-    const hostname = new URL(address).hostname.replace(/\.$/, '')
-    return hostname === '' ? null : hostname
-  } catch {
+  const url = parseUrl(address)
+  if (url === null || url.username !== '' || url.password !== '') {
     return null
   }
+  const hostname = withoutTrailingDot(url.hostname)
+  if (hostname === '') {
+    return null
+  }
+  if (hostname.startsWith('[')) {
+    return hostname
+  }
+  const typed = typedHost(address)
+  return typed === hostname && !NON_ASCII.test(typed) ? hostname : null
+}
+
+/** The host as typed: after the last `@` of the authority, before the port, in lower case, without a trailing dot. */
+function typedHost(address: string): string {
+  const authority = address.replace(/^https?:\/\//i, '').split(/[/?#]/)[0]
+  const afterUserinfo = authority.slice(authority.lastIndexOf('@') + 1)
+  return withoutTrailingDot(afterUserinfo.split(':')[0].toLowerCase())
 }
 
 function parseIpv4(host: string): Ipv4 | null {
@@ -125,7 +174,7 @@ function nameKind(name: string): AddressKind {
   if (name === 'localhost') {
     return 'loopback'
   }
-  if (name.endsWith('.ts.net')) {
+  if (name.endsWith(TAILSCALE_NAME_ENDING)) {
     return 'tailscale'
   }
   if (!name.includes('.') || LOCAL_NAME_ENDINGS.some(ending => name.endsWith(ending))) {
