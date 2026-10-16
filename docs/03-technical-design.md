@@ -126,7 +126,11 @@ Hermes also ends a session when it restarts, unless the server pins the signing 
 
 Cookie renewal and logout behavior are tested against the basic provider. Do not call native refresh routes with a basic-session cookie as though it were an OAuth refresh token. Native PKCE is a later path: Hermes currently uses a loopback redirect; mobile app-scheme/claimed-HTTPS support and OS handoff remain a separate integration gate.
 
-Tailscale encrypts transport between devices. Native HTTP permission/ATS behavior, cookie handling and locked-phone tailnet reachability must be validated on both OSes. If HTTPS is needed, terminate it on the private Tailscale endpoint; do not weaken certificate validation. Bind/reverse-proxy Host and peer behavior must match Hermes's request guards.
+Tailscale encrypts transport between devices. Cookie handling and locked-phone tailnet reachability must be validated on both OSes. Hermes does not terminate TLS (06 section 2), so an `https` address comes from Tailscale Serve or from a reverse proxy; do not weaken certificate validation. Bind/reverse-proxy Host and peer behavior must match Hermes's request guards.
+
+Address grade (ADR-045). Before the app signs in, it grades the address with pure functions (`src/gateway/address.ts`, `src/features/settings/connection-grade.ts`). A loopback, private or Tailscale IP address is private and connects in token or password mode. A public address, a `*.ts.net` name included, connects only over `https` in password mode, with a password of at least 12 characters. A public address over plain `http`, or one that signs in without a password, is refused. The Check button, `connectGateway` and `signInAgain` apply the grade, and Settings › Gateway shows it for the saved connection. ADR-045 has the address kinds, the rules for odd spellings of a host, and the reasons.
+
+Cleartext and ATS (ADR-045). Android needs `android.usesCleartextTraffic: true` (set in `app.json`) to reach `http://100.x.y.z`. The setting is app-wide, so `HttpClient` and the WebSocket also refuse plain `http` to a public address before any network call (`requireSecureTransport`), and every new network path must go through that guard. On iOS, ATS keeps only `NSAllowsLocalNetworking`, which allows plain `http` to unqualified names, `.local` names and any IP address. The app adds no other exception.
 
 ## 5. Turn and permission lifecycle
 

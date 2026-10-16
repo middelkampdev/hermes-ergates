@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { FakeWebSocket, fakeSocketFactory, flush, installFakeWebSocket } from '@test/fake-gateway/fake-websocket'
 
-import { GatewayError, isGatewayError } from '../errors'
+import { PUBLIC_HTTP_REFUSAL } from '../address'
+import { GatewayError, InsecureTransportError, isGatewayError } from '../errors'
 import type { ServerRequestFrame } from '../types'
 import { buildSocketUrl } from './auth'
 import { SocketSession } from './socket'
@@ -180,6 +181,47 @@ describe('SocketSession', () => {
     // Without this the app re-mints against a dead cookie every 10s forever.
     expect(terminal).toEqual(['unauthorized'])
     expect(FakeWebSocket.instances).toHaveLength(0)
+  })
+})
+
+describe('SocketSession transport guard', () => {
+  it.each(['http://8.8.8.8:9119', 'http://hermes.example.com', 'http://hermes.tail1234.ts.net', 'http://HERMES.TAIL1234.TS.NET:9119'])(
+    'refuses %s over plain http before it asks for a credential or opens a socket',
+    async baseUrl => {
+      installFakeWebSocket({})
+      const credential = vi.fn(async () => ({ token: 'tok' }))
+      const socketFactory = vi.fn(fakeSocketFactory)
+
+      const opening = SocketSession.open({ baseUrl, profile: 'default', credential, socketFactory, backoffMs: [5] })
+
+      await expect(opening).rejects.toBeInstanceOf(InsecureTransportError)
+      await expect(opening).rejects.toThrow(PUBLIC_HTTP_REFUSAL)
+      // A gateway error like any other socket failure, so the screens map it by its kind.
+      await expect(opening).rejects.toSatisfy((e: unknown) => isGatewayError(e) && e.kind === 'insecure_transport')
+      await flush(40)
+      expect(credential).not.toHaveBeenCalled()
+      expect(socketFactory).not.toHaveBeenCalled()
+      expect(FakeWebSocket.instances).toHaveLength(0)
+    }
+  )
+
+  it.each(['http://192.168.1.10:9119', 'http://100.101.102.103:9119', 'http://127.0.0.1:9119'])('opens %s over plain http', async baseUrl => {
+    installFakeWebSocket({})
+
+    const session = await SocketSession.open({ ...OPTS, baseUrl })
+
+    expect(session.state).toBe('open')
+    expect(FakeWebSocket.instances[0]?.url).toBe(`ws://${baseUrl.slice('http://'.length)}/api/ws?profile=default&token=tok`)
+    session.close()
+  })
+
+  it('opens a public address over https', async () => {
+    installFakeWebSocket({})
+
+    const session = await SocketSession.open({ ...OPTS, baseUrl: 'https://hermes.example.com' })
+
+    expect(FakeWebSocket.instances[0]?.url).toBe('wss://hermes.example.com/api/ws?profile=default&token=tok')
+    session.close()
   })
 })
 

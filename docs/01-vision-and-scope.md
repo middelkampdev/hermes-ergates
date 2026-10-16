@@ -83,7 +83,7 @@ Jop wants the same experience on a VPS he controls, with agents that act only th
 | A5 | Telegram is acceptable as a fallback push channel for reminders | Retain ntfy; evaluate native Expo push as the alternative |
 | A6 | Vendors may change subscription policy; the design keeps a tested alternate provider configuration | Move to API keys |
 | A7 | Any subscription path is enabled only after checking the chosen account's entitlement and current terms; an API-key provider is the initial engineering default | Use an API key for that provider (a tested server-side provider configuration change) |
-| A8 | The VPS is reachable over Tailscale in Phases 0-2; public exposure with OAuth or OIDC comes in Phase 3 | Expose earlier with Caddy and the Hermes auth gate |
+| A8 | The owner's own VPS is reachable over Tailscale in Phases 0-2 and has no public listener; public exposure with OAuth or OIDC comes in Phase 3. The app also connects to a public server that has `https` and a password of at least 12 characters, such as the store reviewers' demo server (ADR-045) | Expose earlier with Caddy and the Hermes auth gate |
 
 ## 8. Success criteria for Phase 1 (MVP)
 

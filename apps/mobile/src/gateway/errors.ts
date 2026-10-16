@@ -3,6 +3,8 @@
  * Messages shown to the user never contain tokens, tickets or URLs.
  */
 
+import { allowsPlainHttp, PUBLIC_HTTP_REFUSAL, usesHttps } from './address'
+
 export type GatewayErrorKind =
   | 'unauthorized'
   | 'forbidden'
@@ -12,6 +14,8 @@ export type GatewayErrorKind =
   | 'network'
   | 'timeout'
   | 'rpc'
+  /** The app sent nothing: plain `http` to an address that may be on the public internet. */
+  | 'insecure_transport'
   | 'unknown'
 
 export class GatewayError extends Error {
@@ -33,6 +37,29 @@ export class GatewayError extends Error {
 
 export function isGatewayError(value: unknown): value is GatewayError {
   return value instanceof GatewayError
+}
+
+/**
+ * A request or socket the app does not send: plain `http` to an address that may be on the public internet.
+ * A gateway error of the `insecure_transport` kind, so every screen that maps gateway errors shows the
+ * refusal. The message is plain text for the user, like `userMessage`.
+ */
+export class InsecureTransportError extends GatewayError {
+  constructor() {
+    super('insecure_transport', PUBLIC_HTTP_REFUSAL)
+    this.name = 'InsecureTransportError'
+  }
+}
+
+/**
+ * Throws before a request or a socket leaves the phone for a public address over plain `http`. The screens
+ * grade an address before they sign in, but a connection saved before that, or a path that skipped the
+ * grade, must not send a password or a token in plain text either.
+ */
+export function requireSecureTransport(baseUrl: string): void {
+  if (!usesHttps(baseUrl) && !allowsPlainHttp(baseUrl)) {
+    throw new InsecureTransportError()
+  }
 }
 
 const SECRET_PATTERN = /(token|ticket|cookie|password|secret|hermes_session_at|hermes_session_rt|hermes_session_provider)=[^&\s;]*/gi
@@ -172,6 +199,8 @@ export function mapSocketClose(code: number, reason = ''): GatewayError {
 export function userMessage(err: unknown): string {
   const mapped = isGatewayError(err) ? err : mapRpcError(err)
   switch (mapped.kind) {
+    case 'insecure_transport':
+      return PUBLIC_HTTP_REFUSAL
     case 'unauthorized':
       return 'Sign-in required.'
     case 'forbidden':

@@ -11,7 +11,7 @@
 import type { ServerRequest } from '@vendor/hermes/shared/json-rpc-channel'
 import { JsonRpcGatewayClient, type ConnectionState as ClientState, type GatewayEvent, type WebSocketLike } from '@vendor/hermes/shared/json-rpc-gateway'
 
-import { GatewayError, mapRpcError, mapSocketClose, userMessage, type RespondOutcome } from '../errors'
+import { GatewayError, mapRpcError, mapSocketClose, requireSecureTransport, userMessage, type RespondOutcome } from '../errors'
 import type { ConnectionFailure, ConnectionState, GatewayConnection } from '../port'
 import type { GatewayEventFrame, GatewayReadyPayload, ReplayResult, ServerRequestFrame } from '../types'
 import { buildSocketUrl } from './auth'
@@ -201,6 +201,8 @@ export class SocketSession implements GatewayConnection {
   }
 
   private async dial(): Promise<void> {
+    // Before the credential is read: a ticket or token is never put in the URL of a plain-http public address.
+    requireSecureTransport(this.options.baseUrl)
     // A stale close error must not be reported as the cause of a later network
     // drop, and must not keep scheduleReconnect() disarmed for the object's life.
     this.lastCloseError = null

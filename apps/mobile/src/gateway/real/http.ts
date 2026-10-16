@@ -4,10 +4,15 @@
  *  - password: gated mode, cookies captured from `Set-Cookie` and replayed
  *    explicitly as a `Cookie` header. The platform jar is off
  *    (`credentials: 'omit'`), so it never keeps a second copy of the sign-in.
+ * Never sends a request to a public address over plain http (`InsecureTransportError`).
  * Never logs headers, bodies or full URLs.
  */
 
-import { GatewayError, mapHttpError } from '../errors'
+import { normalizeBaseUrl } from '../address'
+import { GatewayError, mapHttpError, requireSecureTransport } from '../errors'
+
+// The one normalizer lives in ../address; this keeps it importable from the HTTP client module.
+export { normalizeBaseUrl }
 
 export type HttpAuthMode = 'none' | 'token' | 'password'
 
@@ -40,14 +45,6 @@ export interface HttpRequestOptions {
 
 export const SESSION_TOKEN_HEADER = 'X-Hermes-Session-Token'
 const DEFAULT_TIMEOUT_MS = 30_000
-
-export function normalizeBaseUrl(input: string): string {
-  const trimmed = input.trim().replace(/\/+$/, '')
-  if (!/^https?:\/\//i.test(trimmed)) {
-    return `http://${trimmed}`
-  }
-  return trimmed
-}
 
 /** Merge `Set-Cookie` values into a `name=value; name2=value2` Cookie header string. */
 export function mergeCookieHeader(existing: string | null | undefined, setCookie: string[]): string {
@@ -137,6 +134,8 @@ export class HttpClient {
    * when there is no answer (network failure or timeout).
    */
   async exchange(method: string, path: string, body?: unknown, opts: HttpRequestOptions = {}): Promise<HttpExchange> {
+    // Before the auth is read, so a password or token never gets as far as a header.
+    requireSecureTransport(this.baseUrl)
     const auth = this.getAuth()
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (body !== undefined) {

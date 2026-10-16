@@ -5,6 +5,7 @@
 
 import React, { createContext, useContext, useMemo, useRef } from 'react'
 
+import { normalizeBaseUrl } from './address'
 import type { ConnectedGateway } from './port'
 import { RealGateway } from './real/real-gateway'
 import type { SecretStore } from './secrets'
@@ -33,7 +34,7 @@ export function createGatewayRegistry(secrets: SecretStore, factory: (id: string
   return {
     get(connection) {
       const existing = cache.get(connection.id)
-      if (existing && existing.http.baseUrl === normalize(connection.baseUrl)) {
+      if (existing && existing.http.baseUrl === normalizeBaseUrl(connection.baseUrl)) {
         return existing
       }
       existing?.disconnectAll()
@@ -49,11 +50,6 @@ export function createGatewayRegistry(secrets: SecretStore, factory: (id: string
       cache.delete(id)
     }
   }
-}
-
-function normalize(url: string): string {
-  const trimmed = url.trim().replace(/\/+$/, '')
-  return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
 }
 
 const RegistryContext = createContext<GatewayRegistry | null>(null)

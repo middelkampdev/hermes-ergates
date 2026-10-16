@@ -3,10 +3,14 @@
  * add a gateway, sign in, sign in again, sign out with clearing, pick the primary.
  */
 
+import { normalizeBaseUrl } from '@/gateway/address'
 import { userMessage } from '@/gateway/errors'
+import type { ConnectedGateway } from '@/gateway/port'
 import type { GatewayRegistry } from '@/gateway/registry'
 import type { BackendStatus, Credentials } from '@/gateway/types'
 import { useDeviceStore, type Connection } from '@/state/device-store'
+
+import { addressGrade, connectionGrade, gradeLine, PASSWORD_TOO_SHORT, passwordProblem, type ConnectionGrade } from './connection-grade'
 
 export type ConnectInput =
   | { label: string; baseUrl: string; mode: 'token'; token: string }
@@ -17,15 +21,72 @@ export function newConnectionId(): string {
   return `c-${Date.now().toString(36)}-${rand}`
 }
 
-export function normalizeBaseUrl(input: string): string {
-  const trimmed = input.trim().replace(/\/+$/, '')
-  return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
+/**
+ * The app refused to sign in: the server is graded unsafe, or the password is too short for a public one.
+ * The message is the plain text to show, and the grade tells the screen which guide to offer.
+ */
+export class SignInRefused extends Error {
+  readonly grade: ConnectionGrade
+
+  constructor(message: string, grade: ConnectionGrade) {
+    super(message)
+    this.name = 'SignInRefused'
+    this.grade = grade
+  }
 }
 
-/** Discover auth mode before asking for credentials. */
+/** What a screen shows for a failed connect or sign-in: the plain message, and the grade when the app refused. */
+export interface SignInFailure {
+  message: string
+  grade: ConnectionGrade | null
+}
+
+export function signInFailure(err: unknown): SignInFailure {
+  return { message: (err as Error).message, grade: err instanceof SignInRefused ? err.grade : null }
+}
+
+/**
+ * Discover auth mode before asking for credentials. An address that is unsafe by itself (a public address
+ * over plain http) is refused without a request: asking it would already send one in plain text. The
+ * throwaway gateway that asked is never used again, so whatever its status read stored is removed.
+ */
 export async function probeGateway(registry: GatewayRegistry, baseUrl: string): Promise<BackendStatus> {
-  const gateway = registry.probe(newConnectionId(), normalizeBaseUrl(baseUrl))
-  return gateway.status()
+  const address = normalizeBaseUrl(baseUrl)
+  const grade = addressGrade(address)
+  if (grade?.kind === 'unsafe') {
+    throw new SignInRefused(gradeLine(grade, ''), grade)
+  }
+  const gateway = registry.probe(newConnectionId(), address)
+  try {
+    return await gateway.status()
+  } finally {
+    await removeStoredSecrets(gateway)
+  }
+}
+
+/**
+ * A server may set a session cookie on any answer, and the gateway stores it under its connection id. A
+ * gateway that never becomes a saved connection must not leave that cookie behind, so what is stored for
+ * its id is discarded, with no request.
+ */
+async function removeStoredSecrets(gateway: ConnectedGateway): Promise<void> {
+  await gateway.discardStoredSecrets().catch(() => undefined)
+}
+
+/**
+ * Throws `SignInRefused` unless the app may send these credentials to this server. The address grades
+ * first, with no request; only a public https address or a `*.ts.net` name has to say whether it asks for
+ * a password, with a fresh status read. Nothing is sent to an unsafe server, and a public server gets no
+ * password under the minimum.
+ */
+async function requireSafeSignIn(gateway: ConnectedGateway, baseUrl: string, creds: Credentials): Promise<void> {
+  const grade = addressGrade(baseUrl) ?? connectionGrade(baseUrl, await gateway.status())
+  if (grade.kind === 'unsafe') {
+    throw new SignInRefused(gradeLine(grade, ''), grade)
+  }
+  if (creds.mode === 'password' && passwordProblem(grade, creds.password) === 'too_short') {
+    throw new SignInRefused(PASSWORD_TOO_SHORT, grade)
+  }
 }
 
 export async function connectGateway(registry: GatewayRegistry, input: ConnectInput): Promise<Connection> {
@@ -39,16 +100,18 @@ export async function connectGateway(registry: GatewayRegistry, input: ConnectIn
     primary: true,
     createdAt: Date.now()
   }
+  const creds: Credentials =
+    input.mode === 'token'
+      ? { mode: 'token', token: input.token.trim() }
+      : { mode: 'password', provider: input.provider, username: input.username, password: input.password }
   const gateway = registry.get(record)
   try {
-    if (input.mode === 'token') {
-      await gateway.login({ mode: 'token', token: input.token.trim() })
-    } else {
-      await gateway.login({ mode: 'password', provider: input.provider, username: input.username, password: input.password })
-    }
+    await requireSafeSignIn(gateway, baseUrl, creds)
+    await gateway.login(creds)
   } catch (err) {
+    await removeStoredSecrets(gateway)
     registry.forget(id)
-    throw new Error(userMessage(err))
+    throw plainError(err)
   }
   const store = useDeviceStore.getState()
   store.addConnection(record)
@@ -60,14 +123,29 @@ export async function connectGateway(registry: GatewayRegistry, input: ConnectIn
  * Signs a saved connection in again, in place: after an expired session, or on
  * a rooted phone, where the sign-in lives in memory only and is gone after every
  * restart. The connection keeps its id, so its drafts, outbox, agent setups and
- * organization stay. A rejected sign-in throws the plain message to show.
+ * organization stay. A rejected sign-in throws the plain message to show. The
+ * connection was graded when it was saved, but the grade is worked out again:
+ * a connection saved by an earlier version was never graded, and a server can
+ * change how it signs in. A sign-in in the other mode (the screen picks the
+ * fields from a fresh status read) saves that mode on the same connection.
  */
 export async function signInAgain(registry: GatewayRegistry, connection: Connection, creds: Credentials): Promise<void> {
+  const trimmed: Credentials = creds.mode === 'token' ? { mode: 'token', token: creds.token.trim() } : creds
+  const gateway = registry.get(connection)
   try {
-    await registry.get(connection).login(creds.mode === 'token' ? { mode: 'token', token: creds.token.trim() } : creds)
+    await requireSafeSignIn(gateway, connection.baseUrl, trimmed)
+    await gateway.login(trimmed)
   } catch (err) {
-    throw new Error(userMessage(err))
+    throw plainError(err)
   }
+  if (trimmed.mode !== connection.authMode) {
+    useDeviceStore.getState().updateConnection(connection.id, { authMode: trimmed.mode })
+  }
+}
+
+/** A refusal keeps its grade for the screen; any other failure becomes the plain message to show. */
+function plainError(err: unknown): Error {
+  return err instanceof SignInRefused ? err : new Error(userMessage(err))
 }
 
 /** Sign out: revoke on the server where supported, close sockets, clear secrets and device data for that connection. */

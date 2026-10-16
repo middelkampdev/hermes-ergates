@@ -151,7 +151,7 @@ The Edit mode bottom bar's "Move to…" still opens the separate Move to Section
 
 ### Settings and agent details
 
-- The account avatar opens Settings, a modal sheet with a close ✕ and a centered title. From the top: a header with the connection's avatar, name and address; a group without a caption with **Gateway** (a sub-page with Sign-in, Backend and the connection id for push links); **Make it yours** with Notifications (for all agents), Appearance (its subtitle names the mode and theme, such as "System · Nous"; a sub-page with System, Light and Dark and the theme list, each with a check mark on the current choice), a Haptics switch and Hidden bots; **About** with the Ergates version, the Hermes pin and Privacy; then the **Sign out** button. Every row has a leading line icon. Usage appears here once the app can show it. Gateway and Appearance push inside the same modal, with the normal back chevron.
+- The account avatar opens Settings, a modal sheet with a close ✕ and a centered title. From the top: a header with the connection's avatar, name and address; a group without a caption with **Gateway** (a sub-page with Sign-in, Connection, Backend and the connection id for push links); **Make it yours** with Notifications (for all agents), Appearance (its subtitle names the mode and theme, such as "System · Nous"; a sub-page with System, Light and Dark and the theme list, each with a check mark on the current choice), a Haptics switch and Hidden bots; **About** with the Ergates version, the Hermes pin and Privacy; then the **Sign out** button. Every row has a leading line icon. Usage appears here once the app can show it. Gateway and Appearance push inside the same modal, with the normal back chevron.
 - Show measured usage and its unit. Do not invent a subscription percentage for providers that expose only tokens or cost estimates.
 - Agent details puts **Edit Bot** first, followed by routines, tools/connectors, memory and files, with an overflow for the roster actions above. The editor contains model and instructions. Advanced holds approvals mode, terminal configuration and iteration settings; labels explain their actual scope.
 - Permission switches distinguish “Applying…” from “Off”; do not claim a live connector is disabled until the enforcement transition in [04](04-security-and-compliance.md#5-least-privilege-tool-model) completes.
@@ -291,6 +291,32 @@ Development builds have Settings › Developer tools › Design system. It opens
 | Reduced motion | Static working indicator; native transitions reduced; no perpetual decorative animation |
 | Server plugin missing, off, not loaded, waiting for a restart, outdated, updatable or unavailable | One short sentence and, when the user can fix it, a button to the screen that does (server plugin screens below). Chat keeps working |
 | Server restarted during setup or an update | The Finish screen says "Your server restarted. Sign in again to continue." with a Sign in again button; the plugin's setup still runs after sign-in |
+| Server address graded unsafe | One sentence says why, with the **How to stay private** link, and no password or token is sent. Connect hides the sign-in fields. Sign in again shows them and refuses after the tap. For a connection saved before the app graded addresses, Home shows the plain `http` refusal, and Settings › Gateway shows the link under its Unsafe row |
+
+### Connect and sign in
+
+Before the app signs in, it grades the server address (03 section 4, ADR-045). The Connect screen (`app/connect.tsx`) asks for a name and a gateway URL. The Check button reads the server's status. It stays disabled until the address has a host, so an empty address or a scheme alone such as `https://` cannot be checked. Once the server has answered, a grade line appears under the button with a link to the server guide on middelkamp.dev. The sign-in fields and the Connect button come after the line, so the user reads the grade before typing a secret. Changing the URL clears the grade and any refusal.
+
+In the first four lines, `{version}` is the Hermes version the server reported. A `*.ts.net` name over `https` in password mode gets the public line, because the app cannot tell a Tailscale Funnel name from a tailnet-only one (ADR-045). So a tailnet-only name behind Tailscale Serve needs `https`, Hermes in password mode and a password of at least 12 characters.
+
+| Grade | Line | Link |
+|---|---|---|
+| Private, on this device | Hermes {version}. Private: this server runs on this device. | Server guide (`#private-access`) |
+| Private, a Tailscale IP address | Hermes {version}. Private: Tailscale encrypts this connection. | Server guide (`#private-access`) |
+| Private, on the local network | Hermes {version}. Private: a server on your local network. | Server guide (`#private-access`) |
+| Public, also a `*.ts.net` name | Hermes {version}. Ergates treats this address as public, so anyone on the internet may reach it. Use a password of at least 12 characters, or connect over Tailscale. | Server guide (`#public-access`) |
+| Unsafe, a public address over `http` | This address may be on the public internet without encryption. Ergates connects to a public server only over https. | How to stay private (`#private-access`) |
+| Unsafe, a public address that signs in without a password | This public server signs in without a password. Ergates connects to a public server only with a password. | How to stay private (`#private-access`) |
+
+- The public line says what the app does with the address: it treats it as public.
+- A public address over `http`, and a `*.ts.net` name over `http`, is refused when the user taps Check, before any request. The refusal shows in the error style with its link under it, and the screen shows no sign-in fields and no Connect button.
+- A public address that signs in without a password shows its line and link. The sign-in fields stay hidden and the Connect button stays disabled.
+- On a public server a password under 12 characters is refused before any login request, with "On a public server, use a password of at least 12 characters." in the error style. On Connect the message shows under the Connect button, with the Server guide link above it. The length counts Unicode code points and the password is not trimmed.
+- A link that cannot open shows an alert titled "Could not open the guide" with the address.
+
+Sign in again (`app/sign-in.tsx`) applies the same rules to a saved connection. It reads a fresh status and shows the fields for the mode the server signs in with now, or for the saved mode until the server answers. A successful sign-in in the other mode saves that mode on the connection. A refusal shows its message in the error style, with the matching link under it ("How to stay private" for an unsafe grade, otherwise "Server guide").
+
+Settings › Gateway has a Connection row with a shield icon between Sign-in and Backend. Its subtitle is the grade label: "Private (this device)", "Private (Tailscale)" (a Tailscale IP address), "Private (local network)", "Public, encrypted" (a `*.ts.net` name included) or "Unsafe". The app works it out from the saved address and the saved sign-in mode, with no request. Under "Unsafe" the row shows the **How to stay private** link. The Sign-in row's subtitle is "Session token" or "Username and password".
 
 ### Server plugin screens
 

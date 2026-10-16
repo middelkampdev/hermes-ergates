@@ -195,6 +195,11 @@ export interface GatewayPort {
   me(): Promise<T.AuthIdentity | null>
   logout(): Promise<void>
   /**
+   * Removes what this phone stores for this connection id (sign-in mode, token, cookie), with no request.
+   * For a gateway whose connection is never saved: the throwaway one behind Check, and one the app refused.
+   */
+  discardStoredSecrets(): Promise<void>
+  /**
    * Clears leftover platform cookie jars for this gateway's origin. Requests no
    * longer use the native jar, but jars that older app versions filled still
    * hold the sign-in, so sign-out and connection removal clear them even when

@@ -54,6 +54,47 @@ describe('FakeGateway status', () => {
   })
 })
 
+describe('FakeGateway status and login counters', () => {
+  it('counts every status and login call, from zero', async () => {
+    const gateway = new FakeGateway()
+    expect(gateway.statusCalls).toBe(0)
+    expect(gateway.loginCalls).toBe(0)
+
+    await gateway.status()
+    await gateway.status()
+    await gateway.login()
+
+    expect(gateway.statusCalls).toBe(2)
+    expect(gateway.loginCalls).toBe(1)
+  })
+
+  it('counts a status call that rejects', async () => {
+    const gateway = new FakeGateway()
+    gateway.setHermesVersion(new GatewayError('network', 'No connection to the gateway.'))
+
+    await expect(gateway.status()).rejects.toMatchObject({ kind: 'network' })
+
+    expect(gateway.statusCalls).toBe(1)
+  })
+
+  it('reports the recorded plain status until a test asks for the gated one', async () => {
+    const gateway = new FakeGateway()
+    expect(await gateway.status()).toMatchObject({ auth_required: false, auth_providers: [] })
+
+    gateway.requirePassword()
+
+    expect(await gateway.status()).toMatchObject({ auth_required: true, auth_providers: ['basic'] })
+  })
+
+  it('keeps a version a test set on the gated status', async () => {
+    const gateway = new FakeGateway()
+    gateway.requirePassword()
+    gateway.setHermesVersion('0.99.1')
+
+    expect(await gateway.status()).toMatchObject({ auth_required: true, version: '0.99.1' })
+  })
+})
+
 describe('FakeGateway profile metadata', () => {
   const hermesBots = async (gateway: FakeGateway, name: string) => {
     const profile = (await gateway.profiles.list()).profiles.find(p => p.name === name)

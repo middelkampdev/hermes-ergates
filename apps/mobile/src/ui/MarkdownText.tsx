@@ -12,6 +12,7 @@ import Markdown, { renderRules as defaultRenderRules, type RenderRules } from 'r
 import { useTheme } from '@/theme/provider'
 import { LEADING, RADIUS, RULE, SPACE, TYPE, type MobileTheme } from '@/theme/tokens'
 
+import { MARKDOWN_IMAGE_SOURCES } from './markdown-images'
 import { astTableToRows, tableToStacked } from './markdown-table'
 
 /** The space under each paragraph. A bubble cancels it under its last paragraph with a negative bottom margin of the same size. */
@@ -106,8 +107,9 @@ export function MarkdownText({ children }: MarkdownTextProps) {
     [narrow, theme]
   )
 
+  // The image props are missing from the library's types, so they go in as a spread.
   return (
-    <Markdown style={style} rules={rules}>
+    <Markdown style={style} rules={rules} {...MARKDOWN_IMAGE_SOURCES}>
       {children}
     </Markdown>
   )
