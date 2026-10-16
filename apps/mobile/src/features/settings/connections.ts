@@ -35,9 +35,20 @@ export class SignInRefused extends Error {
   }
 }
 
+/** What a screen shows for a failed connect or sign-in: the plain message, and the grade when the app refused. */
+export interface SignInFailure {
+  message: string
+  grade: ConnectionGrade | null
+}
+
+export function signInFailure(err: unknown): SignInFailure {
+  return { message: (err as Error).message, grade: err instanceof SignInRefused ? err.grade : null }
+}
+
 /**
  * Discover auth mode before asking for credentials. An address that is unsafe by itself (a public address
- * over plain http) is refused without a request: asking it would already send one in plain text.
+ * over plain http) is refused without a request: asking it would already send one in plain text. The
+ * throwaway gateway that asked is never used again, so whatever its status read stored is removed.
  */
 export async function probeGateway(registry: GatewayRegistry, baseUrl: string): Promise<BackendStatus> {
   const address = normalizeBaseUrl(baseUrl)
@@ -45,7 +56,21 @@ export async function probeGateway(registry: GatewayRegistry, baseUrl: string): 
   if (grade?.kind === 'unsafe') {
     throw new SignInRefused(gradeLine(grade, ''), grade)
   }
-  return registry.probe(newConnectionId(), address).status()
+  const gateway = registry.probe(newConnectionId(), address)
+  try {
+    return await gateway.status()
+  } finally {
+    await removeStoredSecrets(gateway)
+  }
+}
+
+/**
+ * A server may set a session cookie on any answer, and the gateway stores it under its connection id. A
+ * gateway that never becomes a saved connection must not leave that cookie behind. It has not signed in,
+ * so signing it out sends no request: it only removes what is stored for its id.
+ */
+async function removeStoredSecrets(gateway: ConnectedGateway): Promise<void> {
+  await gateway.logout().catch(() => undefined)
 }
 
 /**
@@ -84,6 +109,7 @@ export async function connectGateway(registry: GatewayRegistry, input: ConnectIn
     await requireSafeSignIn(gateway, baseUrl, creds)
     await gateway.login(creds)
   } catch (err) {
+    await removeStoredSecrets(gateway)
     registry.forget(id)
     throw plainError(err)
   }

@@ -6,6 +6,8 @@
 
 import type { BackendStatus, Credentials } from '@/gateway/types'
 
+import type { ConnectionGrade } from './connection-grade'
+
 export type SignInMode = Credentials['mode']
 
 export interface CredentialValues {
@@ -21,6 +23,14 @@ export const BLANK_CREDENTIALS: CredentialValues = { token: '', provider: 'basic
 /** Whether the fields of this mode are filled in enough to send. */
 export function credentialsReady(mode: SignInMode, values: CredentialValues): boolean {
   return mode === 'password' ? Boolean(values.username.trim() && values.password) : Boolean(values.token.trim())
+}
+
+/**
+ * Whether Connect can go ahead: the server has answered (it has a grade), the app does not refuse that
+ * grade, and the fields are filled in. A null grade means the address has not been checked yet.
+ */
+export function canConnect(grade: ConnectionGrade | null, mode: SignInMode, values: CredentialValues): boolean {
+  return grade !== null && grade.kind !== 'unsafe' && credentialsReady(mode, values)
 }
 
 /** The credentials for `login`, with only the fields of this mode. */

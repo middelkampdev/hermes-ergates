@@ -1,30 +1,35 @@
 /**
- * Signing in again keeps the saved connection. Sign out is the only other way
- * back from "Sign-in required", and it deletes the connection with its drafts,
- * outbox, agent setups and local organization.
+ * Probing an address, connecting to a server and signing in again to a saved one:
+ * the grade of the address and the server decides what the app sends, and what it
+ * keeps when it refuses. Signing in again keeps the saved connection. Sign out is
+ * the only other way back from "Sign-in required", and it deletes the connection
+ * with its drafts, outbox, agent setups and local organization.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
+import statusGated from '@test/fixtures/status-gated.json'
 
 import { PUBLIC_HTTP_REFUSAL } from '@/gateway/address'
 import { GatewayError } from '@/gateway/errors'
 import type { ConnectedGateway } from '@/gateway/port'
-import type { GatewayRegistry } from '@/gateway/registry'
+import { createGatewayRegistry, type GatewayRegistry } from '@/gateway/registry'
+import { RealGateway } from '@/gateway/real/real-gateway'
+import type { SecretStore } from '@/gateway/secrets'
 import type { Credentials } from '@/gateway/types'
 import { draftKey, useDeviceStore, type Connection } from '@/state/device-store'
 import type { OutboxItem } from '@/state/outbox'
 
 import { PASSWORD_TOO_SHORT } from './connection-grade'
-import { connectGateway, connectionToSignIn, probeGateway, signInAgain, SignInRefused, type ConnectInput } from './connections'
+import { connectGateway, connectionToSignIn, probeGateway, signInAgain, SignInRefused, signInFailure, type ConnectInput } from './connections'
 
 const saved: Connection = { id: 'c-1', label: 'Home server', baseUrl: 'http://100.64.0.1:9119', authMode: 'password', primary: true, createdAt: 1 }
 const queued: OutboxItem = { localId: 'o-1', connectionId: 'c-1', profile: 'alice', text: 'ask about the invoice', createdAt: 2, status: 'queued_unsent' }
 const creds: Credentials = { mode: 'password', provider: 'basic', username: 'jop', password: 'hunter2' }
 
-/** A registry whose one gateway only knows `login`. */
+/** A registry whose one gateway only knows `login` and `logout`. */
 function registryWith(login: ConnectedGateway['login']) {
-  const gateway = { login } as unknown as ConnectedGateway
+  const gateway = { login, logout: async () => undefined } as unknown as ConnectedGateway
   return { get: vi.fn(() => gateway), probe: vi.fn(), forget: vi.fn() } satisfies GatewayRegistry
 }
 
@@ -43,6 +48,28 @@ function gatedGateway(): FakeGateway {
 
 const PUBLIC_HTTPS = 'https://hermes.example.com'
 const NO_PASSWORD_PUBLIC = 'This public server signs in without a password. Ergates connects to a public server only with a password.'
+
+/**
+ * A registry over real gateways whose server answers every status read with `status` and a session cookie,
+ * and the secrets those gateways store, so a test sees what a discarded connection leaves behind.
+ */
+function realRegistry(status: object = statusGated) {
+  const stored = new Map<string, string>()
+  const secrets: SecretStore = {
+    get: async key => stored.get(key) ?? null,
+    set: async (key, value) => {
+      stored.set(key, value)
+    },
+    remove: async key => {
+      stored.delete(key)
+    }
+  }
+  const fetchImpl = vi.fn(
+    async () => new Response(JSON.stringify(status), { status: 200, headers: { 'content-type': 'application/json', 'set-cookie': 'hermes_session_at=abc; Path=/' } })
+  ) as unknown as typeof fetch
+  const registry = createGatewayRegistry(secrets, (id, baseUrl) => new RealGateway({ connectionId: id, baseUrl, secrets, fetchImpl }))
+  return { registry, stored, fetchImpl }
+}
 
 function passwordInput(baseUrl: string, password: string): ConnectInput {
   return { label: 'Office', baseUrl, mode: 'password', provider: 'basic', username: 'jop', password }
@@ -79,6 +106,15 @@ describe('probeGateway', () => {
     expect(gateway.statusCalls).toBe(0)
   })
 
+  it('leaves no secret behind for the throwaway gateway that asked', async () => {
+    const { registry, stored, fetchImpl } = realRegistry()
+
+    await expect(probeGateway(registry, PUBLIC_HTTPS)).resolves.toMatchObject({ auth_required: true })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect([...stored.keys()]).toEqual([])
+  })
+
   it('asks a private address and a public https address for their status', async () => {
     const gateway = new FakeGateway()
     const registry = registryOver(gateway)
@@ -101,6 +137,26 @@ describe('connectGateway', () => {
     expect(gateway.loginCalls).toBe(0)
     expect(useDeviceStore.getState().connections).toEqual([saved])
     expect(registry.forget).toHaveBeenCalledTimes(1)
+  })
+
+  it('removes the cookie a status read stored for the id it discards, when it refuses a short password', async () => {
+    const { registry, stored, fetchImpl } = realRegistry()
+
+    await expect(connectGateway(registry, passwordInput(PUBLIC_HTTPS, 'a'.repeat(11)))).rejects.toThrow(PASSWORD_TOO_SHORT)
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect([...stored.keys()]).toEqual([])
+    expect(useDeviceStore.getState().connections).toEqual([saved])
+  })
+
+  it('removes the cookie a status read stored for the id it discards, when the server signs in without a password', async () => {
+    // The recorded gated answer, but a server that no longer asks for a password.
+    const { registry, stored, fetchImpl } = realRegistry({ ...statusGated, auth_required: false, auth_providers: [] })
+
+    await expect(connectGateway(registry, { label: 'Office', baseUrl: PUBLIC_HTTPS, mode: 'token', token: 'tok-1' })).rejects.toThrow(NO_PASSWORD_PUBLIC)
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect([...stored.keys()]).toEqual([])
   })
 
   it('tells the screen which grade it refused, so it can offer the guide', async () => {
@@ -248,6 +304,7 @@ describe('signInAgain', () => {
     const gateway = gatedGateway()
     const registry = registryOver(gateway)
     const publicServer: Connection = { ...saved, baseUrl: PUBLIC_HTTPS }
+    const before = useDeviceStore.getState().connections
 
     const attempt = signInAgain(registry, publicServer, passwordCreds('a'.repeat(11)))
 
@@ -255,7 +312,9 @@ describe('signInAgain', () => {
     await expect(attempt).rejects.toMatchObject({ grade: { kind: 'public' } })
     expect(gateway.loginCalls).toBe(0)
     expect(registry.forget).not.toHaveBeenCalled()
-    expect(useDeviceStore.getState().connections).toEqual([saved])
+    // The store was not written, and holds no connection to that address.
+    expect(useDeviceStore.getState().connections).toBe(before)
+    expect(before.some(c => c.baseUrl === PUBLIC_HTTPS)).toBe(false)
   })
 
   it('signs in to a saved public connection with a password of 12 characters, after a fresh status read', async () => {
@@ -313,6 +372,18 @@ describe('signInAgain', () => {
     await signInAgain(registryWith(login), { ...saved, authMode: 'token' }, { mode: 'token', token: '  abc123\n' })
 
     expect(login).toHaveBeenCalledWith({ mode: 'token', token: 'abc123' })
+  })
+})
+
+describe('signInFailure', () => {
+  it('carries the grade of a refusal, so the screen can offer the guide', () => {
+    const grade = { kind: 'unsafe', reason: 'public_http' } as const
+
+    expect(signInFailure(new SignInRefused(PUBLIC_HTTP_REFUSAL, grade))).toEqual({ message: PUBLIC_HTTP_REFUSAL, grade })
+  })
+
+  it('carries no grade for any other failure', () => {
+    expect(signInFailure(new Error('Sign-in required.'))).toEqual({ message: 'Sign-in required.', grade: null })
   })
 })
 

@@ -21,10 +21,10 @@ import {
   GRADE_GUIDE,
   guideLabel,
   signInAgain,
-  SignInRefused,
+  signInFailure,
   usePrimaryConnection,
-  type ConnectionGrade,
-  type CredentialValues
+  type CredentialValues,
+  type SignInFailure
 } from '@/features/settings'
 import { useGateway, useGatewayRegistry } from '@/gateway/registry'
 import { buildRecord } from '@/lib/build-info'
@@ -58,9 +58,8 @@ function SignIn({ connection }: { connection: Connection }) {
   const isPrimary = usePrimaryConnection()?.id === connection.id
   const [credentials, setCredentials] = useState<CredentialValues>(BLANK_CREDENTIALS)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // The grade behind `error` when the app refused the server or the password, so the guide can be offered.
-  const [refused, setRefused] = useState<ConnectionGrade | null>(null)
+  // The failure to show, with the grade when the app refused the server or the password, so the guide can be offered.
+  const [failure, setFailure] = useState<SignInFailure | null>(null)
 
   // Preselect the gateway's first provider, as Connect does. Unreachable is fine
   // here: signing in reports it.
@@ -85,8 +84,7 @@ function SignIn({ connection }: { connection: Connection }) {
 
   const signIn = async () => {
     setBusy(true)
-    setError(null)
-    setRefused(null)
+    setFailure(null)
     try {
       await signInAgain(registry, connection, credentialsFrom(mode, credentials))
       // Everything read while signed out failed; read it again with the new sign-in.
@@ -99,8 +97,7 @@ function SignIn({ connection }: { connection: Connection }) {
       }
       router.replace(route)
     } catch (err) {
-      setError((err as Error).message)
-      setRefused(err instanceof SignInRefused ? err.grade : null)
+      setFailure(signInFailure(err))
     } finally {
       setBusy(false)
     }
@@ -132,12 +129,12 @@ function SignIn({ connection }: { connection: Connection }) {
           </View>
           <CredentialFields mode={mode} values={credentials} onChange={patch => setCredentials(c => ({ ...c, ...patch }))} />
           <Button label={busy ? 'Signing in…' : 'Sign in'} onPress={signIn} loading={busy} disabled={!credentialsReady(mode, credentials) || busy} />
-          {error ? (
+          {failure ? (
             <Text style={[styles.error, { color: theme.colors.destructive }]} accessibilityRole="alert">
-              {error}
+              {failure.message}
             </Text>
           ) : null}
-          {refused ? <GuideLink label={guideLabel(refused)} url={GRADE_GUIDE[refused.kind]} /> : null}
+          {failure?.grade ? <GuideLink label={guideLabel(failure.grade)} url={GRADE_GUIDE[failure.grade.kind]} /> : null}
           {/* Settings acts on the primary connection only. Home replaces itself with this screen for the primary
               one, so there Settings is the only way to Sign out or the gateway details; any other connection
               arrives here pushed from its chat, where Back still works. */}

@@ -5,18 +5,18 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } fr
 import { afterSignIn } from '@/features/server'
 import {
   BLANK_CREDENTIALS,
+  canConnect,
   connectGateway,
   connectionGrade,
   credentialsFrom,
-  credentialsReady,
   firstProvider,
   GRADE_GUIDE,
   gradeLine,
   guideLabel,
   probeGateway,
-  SignInRefused,
-  type ConnectionGrade,
-  type CredentialValues
+  signInFailure,
+  type CredentialValues,
+  type SignInFailure
 } from '@/features/settings'
 import { useGatewayRegistry } from '@/gateway/registry'
 import type { BackendStatus } from '@/gateway/types'
@@ -40,21 +40,14 @@ export default function ConnectScreen() {
   const [status, setStatus] = useState<BackendStatus | null>(null)
   const [credentials, setCredentials] = useState<CredentialValues>(BLANK_CREDENTIALS)
   const [busy, setBusy] = useState<'check' | 'connect' | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  // The grade behind `error` when the app refused the address or the password, so the guide can be offered.
-  const [refused, setRefused] = useState<ConnectionGrade | null>(null)
+  // The failure to show, with the grade when the app refused the address or the password, so the guide can be offered.
+  const [failure, setFailure] = useState<SignInFailure | null>(null)
   const mode = status?.auth_required ? 'password' : 'token'
   const grade = status ? connectionGrade(baseUrl, status) : null
 
-  const fail = (err: unknown) => {
-    setError((err as Error).message)
-    setRefused(err instanceof SignInRefused ? err.grade : null)
-  }
-
   const check = async () => {
     setBusy('check')
-    setError(null)
-    setRefused(null)
+    setFailure(null)
     try {
       const s = await probeGateway(registry, baseUrl)
       setStatus(s)
@@ -64,7 +57,7 @@ export default function ConnectScreen() {
       }
     } catch (err) {
       setStatus(null)
-      fail(err)
+      setFailure(signInFailure(err))
     } finally {
       setBusy(null)
     }
@@ -75,13 +68,12 @@ export default function ConnectScreen() {
       return
     }
     setBusy('connect')
-    setError(null)
-    setRefused(null)
+    setFailure(null)
     try {
       const connection = await connectGateway(registry, { label, baseUrl, ...credentialsFrom(mode, credentials) })
       router.replace(await afterSignIn(registry.get(connection), buildRecord(), connection))
     } catch (err) {
-      fail(err)
+      setFailure(signInFailure(err))
     } finally {
       setBusy(null)
     }
@@ -111,15 +103,13 @@ export default function ConnectScreen() {
             router.replace(await afterSignIn(registry.get(connection), buildRecord(), connection))
           }
         } catch (err) {
-          setError((err as Error).message)
+          setFailure(signInFailure(err))
         } finally {
           setBusy(null)
         }
       })()
     }
   }, [registry, router])
-
-  const canConnect = Boolean(status) && grade?.kind !== 'unsafe' && credentialsReady(mode, credentials)
 
   return (
     <Screen>
@@ -128,23 +118,23 @@ export default function ConnectScreen() {
           <Text style={[styles.title, { color: theme.colors.foreground }]}>Connect a gateway</Text>
           <Text style={[styles.subtitle, { color: theme.colors.mutedForeground }]}>Your assistants run on your own Hermes server. Enter its address to begin.</Text>
           <Field label="Name" value={label} onChangeText={setLabel} placeholder="Home server" />
-          <Field label="Gateway URL" value={baseUrl} onChangeText={t => { setBaseUrl(t); setStatus(null) }} placeholder="http://100.x.y.z:9119" keyboardType="url" accessibilityLabel="Gateway URL" />
+          <Field label="Gateway URL" value={baseUrl} onChangeText={t => { setBaseUrl(t); setStatus(null); setFailure(null) }} placeholder="http://100.x.y.z:9119" keyboardType="url" accessibilityLabel="Gateway URL" />
           <Button label={busy === 'check' ? 'Checking…' : status ? 'Checked' : 'Check'} onPress={check} variant="secondary" loading={busy === 'check'} disabled={busy !== null} />
           {status && grade ? (
             <View style={styles.section}>
               <Text style={[styles.hint, { color: theme.colors.mutedForeground }]}>{gradeLine(grade, status.version)}</Text>
               <GuideLink label={guideLabel(grade)} url={GRADE_GUIDE[grade.kind]} />
-              <CredentialFields mode={mode} values={credentials} onChange={patch => setCredentials(c => ({ ...c, ...patch }))} />
-              <Button label={busy === 'connect' ? 'Connecting…' : 'Connect'} onPress={connect} loading={busy === 'connect'} disabled={!canConnect || busy !== null} />
+              {grade.kind !== 'unsafe' ? <CredentialFields mode={mode} values={credentials} onChange={patch => setCredentials(c => ({ ...c, ...patch }))} /> : null}
+              <Button label={busy === 'connect' ? 'Connecting…' : 'Connect'} onPress={connect} loading={busy === 'connect'} disabled={!canConnect(grade, mode, credentials) || busy !== null} />
             </View>
           ) : null}
-          {error ? (
+          {failure ? (
             <Text style={[styles.error, { color: theme.colors.destructive }]} accessibilityRole="alert">
-              {error}
+              {failure.message}
             </Text>
           ) : null}
           {/* A refusal before the server answered has no grade line above it, so the guide goes under the refusal. */}
-          {refused && !status ? <GuideLink label={guideLabel(refused)} url={GRADE_GUIDE[refused.kind]} /> : null}
+          {failure?.grade && !status ? <GuideLink label={guideLabel(failure.grade)} url={GRADE_GUIDE[failure.grade.kind]} /> : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>

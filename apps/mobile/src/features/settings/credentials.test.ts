@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { BLANK_CREDENTIALS, credentialsFrom, credentialsReady, firstProvider } from './credentials'
+import type { ConnectionGrade } from './connection-grade'
+import { BLANK_CREDENTIALS, canConnect, credentialsFrom, credentialsReady, firstProvider } from './credentials'
 
 describe('the sign-in fields', () => {
   it('start empty, with the basic provider until the gateway names its own', () => {
@@ -23,6 +24,35 @@ describe('the sign-in fields', () => {
 
     expect(credentialsFrom('token', typed)).toEqual({ mode: 'token', token: 'abc' })
     expect(credentialsFrom('password', typed)).toEqual({ mode: 'password', provider: 'github', username: 'jop', password: 'pw' })
+  })
+})
+
+describe('canConnect', () => {
+  const ready = { ...BLANK_CREDENTIALS, username: 'jop', password: 'pw' }
+  const PRIVATE: ConnectionGrade = { kind: 'private', via: 'lan' }
+  const PUBLIC: ConnectionGrade = { kind: 'public' }
+
+  it('is true for a private or a public grade with the fields filled in', () => {
+    expect(canConnect(PRIVATE, 'password', ready)).toBe(true)
+    expect(canConnect(PUBLIC, 'password', ready)).toBe(true)
+    expect(canConnect(PRIVATE, 'token', { ...BLANK_CREDENTIALS, token: 'abc' })).toBe(true)
+  })
+
+  it.each<ConnectionGrade>([
+    { kind: 'unsafe', reason: 'public_http' },
+    { kind: 'unsafe', reason: 'public_token' }
+  ])('is false for an unsafe grade, however well the fields are filled in: %o', grade => {
+    expect(canConnect(grade, 'password', ready)).toBe(false)
+    expect(canConnect(grade, 'token', { ...BLANK_CREDENTIALS, token: 'abc' })).toBe(false)
+  })
+
+  it('is false while the fields are not ready', () => {
+    expect(canConnect(PRIVATE, 'password', { ...ready, password: '' })).toBe(false)
+    expect(canConnect(PUBLIC, 'token', BLANK_CREDENTIALS)).toBe(false)
+  })
+
+  it('is false before the server has answered, which has no grade yet', () => {
+    expect(canConnect(null, 'password', ready)).toBe(false)
   })
 })
 
