@@ -5,6 +5,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } fr
 import { afterSignIn } from '@/features/server'
 import {
   BLANK_CREDENTIALS,
+  canCheck,
   canConnect,
   connectGateway,
   connectionGrade,
@@ -119,7 +120,14 @@ export default function ConnectScreen() {
           <Text style={[styles.subtitle, { color: theme.colors.mutedForeground }]}>Your assistants run on your own Hermes server. Enter its address to begin.</Text>
           <Field label="Name" value={label} onChangeText={setLabel} placeholder="Home server" />
           <Field label="Gateway URL" value={baseUrl} onChangeText={t => { setBaseUrl(t); setStatus(null); setFailure(null) }} placeholder="http://100.x.y.z:9119" keyboardType="url" accessibilityLabel="Gateway URL" />
-          <Button label={busy === 'check' ? 'Checking…' : status ? 'Checked' : 'Check'} onPress={check} variant="secondary" loading={busy === 'check'} disabled={busy !== null} />
+          {/* Nothing to check before a host is typed: an empty address or a scheme alone. */}
+          <Button
+            label={busy === 'check' ? 'Checking…' : status ? 'Checked' : 'Check'}
+            onPress={check}
+            variant="secondary"
+            loading={busy === 'check'}
+            disabled={busy !== null || !canCheck(baseUrl)}
+          />
           {status && grade ? (
             <View style={styles.section}>
               <Text style={[styles.hint, { color: theme.colors.mutedForeground }]}>{gradeLine(grade, status.version)}</Text>

@@ -4,6 +4,7 @@
  * and password fields, depending on how the gateway signs in.
  */
 
+import { normalizeBaseUrl } from '@/gateway/address'
 import type { BackendStatus, Credentials } from '@/gateway/types'
 
 import type { ConnectionGrade } from './connection-grade'
@@ -23,6 +24,19 @@ export const BLANK_CREDENTIALS: CredentialValues = { token: '', provider: 'basic
 /** Whether the fields of this mode are filled in enough to send. */
 export function credentialsReady(mode: SignInMode, values: CredentialValues): boolean {
   return mode === 'password' ? Boolean(values.username.trim() && values.password) : Boolean(values.token.trim())
+}
+
+/**
+ * Whether the Check button can ask: the address has a host. An empty address, or a scheme alone such as
+ * `https://`, has none, so there is nothing to grade yet. Any address with a host is graded, and refused
+ * when it is not private and not https.
+ */
+export function canCheck(baseUrl: string): boolean {
+  const authority = normalizeBaseUrl(baseUrl)
+    .replace(/^[a-z][a-z0-9+.-]*:\/*/i, '')
+    .split(/[/?#]/)[0]
+  const host = authority.slice(authority.lastIndexOf('@') + 1)
+  return host !== '' && !host.startsWith(':')
 }
 
 /**

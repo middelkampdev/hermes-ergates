@@ -15,4 +15,4 @@ export {
   type ConnectionGrade
 } from './connection-grade'
 export { connectGateway, connectionToSignIn, probeGateway, signInAgain, signInFailure, signOut, usePrimaryConnection, type SignInFailure } from './connections'
-export { BLANK_CREDENTIALS, canConnect, credentialsFrom, credentialsReady, firstProvider, signInModeFrom, type CredentialValues, type SignInMode } from './credentials'
+export { BLANK_CREDENTIALS, canCheck, canConnect, credentialsFrom, credentialsReady, firstProvider, signInModeFrom, type CredentialValues, type SignInMode } from './credentials'

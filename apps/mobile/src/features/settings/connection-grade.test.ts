@@ -91,6 +91,17 @@ describe('addressGrade', () => {
     expect(addressGrade(`https://user@${TAILSCALE_NAME}`)).toBeNull()
   })
 
+  it.each(['ftp://hermes', 'ws://192.168.1.10:9119', 'https:/hermes', 'http:/hermes', 'file:///etc/hosts'])(
+    'refuses an address that is not http or https before any request, instead of reading its scheme as a private name: %s',
+    address => {
+      expect(addressGrade(address)).toEqual(PUBLIC_HTTP)
+    }
+  )
+
+  it.each(['http://134744072', 'http://0x7f000001', 'http://\u212A'])('refuses a host that ends in a number or lower-cases to ASCII over http: %j', address => {
+    expect(addressGrade(address)).toEqual(PUBLIC_HTTP)
+  })
+
   it('refuses an empty address, which reads as public over http', () => {
     expect(addressGrade('')).toEqual(PUBLIC_HTTP)
   })

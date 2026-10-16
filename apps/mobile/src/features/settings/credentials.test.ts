@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ConnectionGrade } from './connection-grade'
-import { BLANK_CREDENTIALS, canConnect, credentialsFrom, credentialsReady, firstProvider, signInModeFrom } from './credentials'
+import { BLANK_CREDENTIALS, canCheck, canConnect, credentialsFrom, credentialsReady, firstProvider, signInModeFrom } from './credentials'
 
 describe('the sign-in fields', () => {
   it('start empty, with the basic provider until the gateway names its own', () => {
@@ -54,6 +54,23 @@ describe('canConnect', () => {
   it('is false before the server has answered, which has no grade yet', () => {
     expect(canConnect(null, 'password', ready)).toBe(false)
   })
+})
+
+describe('canCheck', () => {
+  it.each(['', '   ', 'http://', 'https://', '  HTTPS://  ', 'https:///', 'http://:9119', 'http://user@', 'ftp://', 'https:/'])(
+    'is false while the address has no host: %j',
+    address => {
+      expect(canCheck(address)).toBe(false)
+    }
+  )
+
+  // Check grades these, and refuses the ones that are not private or https.
+  it.each(['http://127.0.0.1:9119', '192.168.1.10:9119', '[::1]:9119', 'hermes', 'https://hermes.example.com', 'http://8.8.8.8', 'ftp://hermes', 'https:/hermes'])(
+    'is true once a host is typed: %j',
+    address => {
+      expect(canCheck(address)).toBe(true)
+    }
+  )
 })
 
 describe('firstProvider', () => {

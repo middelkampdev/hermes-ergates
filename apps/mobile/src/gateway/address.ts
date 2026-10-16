@@ -14,6 +14,9 @@ const LOCAL_NAME_ENDINGS = ['.local', '.home.arpa', '.internal']
 const TAILSCALE_NAME_ENDING = '.ts.net'
 /** Anything outside printable ASCII. The app's URL parser does not convert Unicode hosts, the phone's network stack does. */
 const NON_ASCII = /[^ -~]/
+/** A scheme other than `http://` or `https://`, or one of them with a single slash: such an address is left as typed. */
+const OTHER_SCHEME = /^[a-z][a-z0-9+.-]*:\//i
+const HTTP_SCHEME = /^https?:\/\//i
 
 /** Why the app does not connect to an address that may be on the public internet over plain `http`. */
 export const PUBLIC_HTTP_REFUSAL = 'This address may be on the public internet without encryption. Ergates connects to a public server only over https.'
@@ -21,10 +24,15 @@ export const PUBLIC_HTTP_REFUSAL = 'This address may be on the public internet w
 /**
  * The address as the app sends requests to it: trimmed, no trailing slash, `http://` when no scheme was
  * typed. The scheme is split off first, so slashes only count after it and `https://` stays `https://`.
+ * Another scheme (`ftp://`, `ws://`), or `http:/` or `https:/` with one slash, is left as typed: with
+ * `http://` in front, the scheme would read as a host without a dot. Such an address is graded public.
  */
 export function normalizeBaseUrl(text: string): string {
   const trimmed = text.trim()
-  const scheme = /^https?:\/\//i.exec(trimmed)?.[0]
+  const scheme = HTTP_SCHEME.exec(trimmed)?.[0]
+  if (!scheme && OTHER_SCHEME.test(trimmed)) {
+    return trimmed
+  }
   const rest = trimmed.slice(scheme?.length ?? 0).replace(/\/+$/, '')
   return `${scheme ?? 'http://'}${rest}`
 }
@@ -51,7 +59,8 @@ export function allowsPlainHttp(baseUrl: string): boolean {
  * address: `012.0.0.1` is 10.0.0.1 to the parser and 12.0.0.1 to the phone. So a host is trusted only when
  * the text as typed (after the last `@`, before the port, in lower case, without a trailing dot) is what the
  * parser reads and is plain ASCII. Anything else is public, and so is an address with a user name or
- * password or one the parser cannot read. A bracketed IPv6 host is read by the parser.
+ * password or one the parser cannot read. A bracketed IPv6 host is read by the parser. A host that ends in a
+ * number but is not a plain dotted IPv4 address is public too, whatever the parser made of it.
  */
 export function addressKind(baseUrl: string): AddressKind {
   const host = hostOf(baseUrl)
@@ -63,7 +72,10 @@ export function addressKind(baseUrl: string): AddressKind {
     return groups ? ipv6Kind(groups) : 'public'
   }
   const octets = parseIpv4(host)
-  return octets ? ipv4Kind(octets) : nameKind(host)
+  if (octets) {
+    return ipv4Kind(octets)
+  }
+  return endsInANumber(host) ? 'public' : nameKind(host)
 }
 
 /**
@@ -101,7 +113,7 @@ function withoutTrailingDot(host: string): string {
  */
 function hostOf(baseUrl: string): string | null {
   const address = normalizeBaseUrl(baseUrl)
-  if (/[\\\s]/.test(address)) {
+  if (!HTTP_SCHEME.test(address) || /[\\\s]/.test(address)) {
     return null
   }
   const url = parseUrl(address)
@@ -115,15 +127,25 @@ function hostOf(baseUrl: string): string | null {
   if (hostname.startsWith('[')) {
     return hostname
   }
+  // Checked before lower-casing: the Kelvin sign (U+212A) lower-cases to an ASCII `k`.
   const typed = typedHost(address)
-  return typed === hostname && !NON_ASCII.test(typed) ? hostname : null
+  return !NON_ASCII.test(typed) && typed.toLowerCase() === hostname ? hostname : null
 }
 
-/** The host as typed: after the last `@` of the authority, before the port, in lower case, without a trailing dot. */
+/** The host as typed: after the last `@` of the authority, before the port, without a trailing dot. */
 function typedHost(address: string): string {
-  const authority = address.replace(/^https?:\/\//i, '').split(/[/?#]/)[0]
+  const authority = address.replace(HTTP_SCHEME, '').split(/[/?#]/)[0]
   const afterUserinfo = authority.slice(authority.lastIndexOf('@') + 1)
-  return withoutTrailingDot(afterUserinfo.split(':')[0].toLowerCase())
+  return withoutTrailingDot(afterUserinfo.split(':')[0])
+}
+
+/**
+ * The WHATWG URL parser's "ends in a number": the last label is all digits or starts with `0x`. A parser reads
+ * such a host as an IPv4 address, so it is never a plain name, even when the parser left it as typed.
+ */
+function endsInANumber(host: string): boolean {
+  const last = host.slice(host.lastIndexOf('.') + 1)
+  return /^\d+$/.test(last) || /^0x/i.test(last)
 }
 
 function parseIpv4(host: string): Ipv4 | null {

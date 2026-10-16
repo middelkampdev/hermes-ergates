@@ -93,7 +93,7 @@ describe('requireSecureTransport', () => {
     }
   )
 
-  it.each(['http://8.8.8.8:9119', 'http://hermes.example.com', 'http://hermes.tail1234.ts.net', 'hermes.example.com', 'http://'])('refuses %s with the public http copy', baseUrl => {
+  it.each(['http://8.8.8.8:9119', 'http://hermes.example.com', 'http://hermes.tail1234.ts.net', 'hermes.example.com', 'http://', 'ftp://hermes', 'https:/hermes', 'http://134744072'])('refuses %s with the public http copy', baseUrl => {
     expect(() => requireSecureTransport(baseUrl)).toThrow(InsecureTransportError)
     expect(() => requireSecureTransport(baseUrl)).toThrow(PUBLIC_HTTP_REFUSAL)
   })
