@@ -7,7 +7,11 @@
  * Never logs headers, bodies or full URLs.
  */
 
+import { normalizeBaseUrl } from '../address'
 import { GatewayError, mapHttpError } from '../errors'
+
+// The one normalizer lives in ../address; this keeps it importable from the HTTP client module.
+export { normalizeBaseUrl }
 
 export type HttpAuthMode = 'none' | 'token' | 'password'
 
@@ -40,14 +44,6 @@ export interface HttpRequestOptions {
 
 export const SESSION_TOKEN_HEADER = 'X-Hermes-Session-Token'
 const DEFAULT_TIMEOUT_MS = 30_000
-
-export function normalizeBaseUrl(input: string): string {
-  const trimmed = input.trim().replace(/\/+$/, '')
-  if (!/^https?:\/\//i.test(trimmed)) {
-    return `http://${trimmed}`
-  }
-  return trimmed
-}
 
 /** Merge `Set-Cookie` values into a `name=value; name2=value2` Cookie header string. */
 export function mergeCookieHeader(existing: string | null | undefined, setCookie: string[]): string {

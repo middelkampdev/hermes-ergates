@@ -3,6 +3,7 @@
  * add a gateway, sign in, sign in again, sign out with clearing, pick the primary.
  */
 
+import { normalizeBaseUrl } from '@/gateway/address'
 import { userMessage } from '@/gateway/errors'
 import type { GatewayRegistry } from '@/gateway/registry'
 import type { BackendStatus, Credentials } from '@/gateway/types'
@@ -15,11 +16,6 @@ export type ConnectInput =
 export function newConnectionId(): string {
   const rand = Math.random().toString(36).slice(2, 10)
   return `c-${Date.now().toString(36)}-${rand}`
-}
-
-export function normalizeBaseUrl(input: string): string {
-  const trimmed = input.trim().replace(/\/+$/, '')
-  return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
 }
 
 /** Discover auth mode before asking for credentials. */

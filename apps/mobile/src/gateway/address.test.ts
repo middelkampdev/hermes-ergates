@@ -1,0 +1,170 @@
+import { describe, expect, it } from 'vitest'
+
+import { addressKind, normalizeBaseUrl, usesHttps, type AddressKind } from './address'
+
+type Row = [address: string, kind: AddressKind]
+
+const LOOPBACK: Row[] = [
+  ['http://127.0.0.1:9119', 'loopback'],
+  ['http://127.255.255.254', 'loopback'],
+  ['http://localhost:9119', 'loopback'],
+  ['http://localhost.', 'loopback'],
+  ['http://[::1]:9119', 'loopback']
+]
+
+const TAILSCALE: Row[] = [
+  ['http://100.64.0.1:9119', 'tailscale'],
+  ['http://100.127.255.254', 'tailscale'],
+  ['https://hermes.tail1234.ts.net', 'tailscale'],
+  ['https://hermes.tail1234.ts.net.', 'tailscale'],
+  ['http://[fd7a:115c:a1e0::1]:9119', 'tailscale'],
+  ['http://[fd7a:115c:a1e0:ab12:4843:cd96:6200:1]', 'tailscale']
+]
+
+const PRIVATE: Row[] = [
+  ['http://10.1.2.3', 'private'],
+  ['http://172.16.0.1', 'private'],
+  ['http://172.31.255.255', 'private'],
+  ['http://192.168.1.10:9119', 'private'],
+  ['http://169.254.1.1', 'private'],
+  ['http://[fe80::1]', 'private'],
+  ['http://[febf::1]', 'private'],
+  ['http://[fd00::1]', 'private'],
+  ['http://[fc00::1]', 'private'],
+  ['http://hermes.local', 'private'],
+  ['http://HERMES.LOCAL', 'private'],
+  ['http://hermes.local.', 'private'],
+  ['http://hermes', 'private'],
+  ['http://nas.home.arpa', 'private'],
+  ['http://box.internal', 'private']
+]
+
+const PUBLIC: Row[] = [
+  ['https://167.233.238.119', 'public'],
+  ['https://hermes.example.com', 'public'],
+  ['http://100.128.0.1', 'public'],
+  ['http://100.63.255.255', 'public'],
+  ['http://172.32.0.1', 'public'],
+  ['http://172.15.255.255', 'public'],
+  ['http://192.169.0.1', 'public'],
+  ['http://169.253.0.1', 'public'],
+  ['http://11.0.0.1', 'public'],
+  ['http://[fec0::1]', 'public'],
+  ['http://[2001:db8::1]', 'public'],
+  ['https://ts.net', 'public'],
+  ['https://nottailscale.net', 'public']
+]
+
+describe('addressKind', () => {
+  it.each(LOOPBACK)('%s is loopback', (address, kind) => {
+    expect(addressKind(address)).toBe(kind)
+  })
+
+  it.each(TAILSCALE)('%s is tailscale', (address, kind) => {
+    expect(addressKind(address)).toBe(kind)
+  })
+
+  it.each(PRIVATE)('%s is private', (address, kind) => {
+    expect(addressKind(address)).toBe(kind)
+  })
+
+  it.each(PUBLIC)('%s is public', (address, kind) => {
+    expect(addressKind(address)).toBe(kind)
+  })
+
+  it('classifies a Tailscale IPv6 prefix next to the private range as private', () => {
+    expect(addressKind('http://[fd7a:115c:a1e1::1]')).toBe('private')
+  })
+})
+
+describe('an address that looks private but is not', () => {
+  it.each<Row>([
+    // The name only starts like a Tailscale address.
+    ['http://100.64.0.1.example.com', 'public'],
+    ['http://10.0.0.1.nip.io', 'public'],
+    ['http://127.0.0.1.example.com', 'public'],
+    // The host is what follows the @, whatever comes before it.
+    ['http://10.0.0.1@evil.example', 'public'],
+    ['http://localhost@evil.example', 'public'],
+    ['http://user:pass@192.168.1.10@evil.example', 'public'],
+    // An IPv4-mapped IPv6 address is the IPv4 address inside it.
+    ['http://[::ffff:8.8.8.8]', 'public'],
+    ['http://[::ffff:10.0.0.1]', 'private'],
+    ['http://[::ffff:127.0.0.1]', 'loopback'],
+    ['http://[::ffff:100.64.0.1]', 'tailscale'],
+    // The URL parser turns other spellings of an IPv4 address into dotted form.
+    ['http://0x7f.1', 'loopback'],
+    ['http://2130706433', 'loopback'],
+    ['http://0xC0A80001', 'private'],
+    ['http://0177.0.0.1', 'loopback'],
+    // Scheme and host are not case sensitive.
+    ['HTTP://LOCALHOST', 'loopback']
+  ])('%s is %s', (address, kind) => {
+    expect(addressKind(address)).toBe(kind)
+  })
+
+  it.each([
+    '',
+    '   ',
+    'http://:9119',
+    'http://100.64.0.1.2',
+    'http://exa mple.com',
+    'http://[::1'
+  ])('treats %j, which the URL parser cannot read, as public', address => {
+    expect(addressKind(address)).toBe('public')
+  })
+
+  // The URL parser reads `\` as `/` and drops tabs and line breaks, so it would call these private. A phone's network stack may
+  // read them differently and send the request to the host after the `@`.
+  it.each(['http://192.168.1.10\\@evil.example', 'http://192.168.1.\t10', 'http://evil.example\n.local'])(
+    'treats %j, which the URL parser and the network stack may read differently, as public',
+    address => {
+      expect(addressKind(address)).toBe('public')
+    }
+  )
+})
+
+describe('an address typed without a scheme', () => {
+  it('gets http and is classified', () => {
+    expect(normalizeBaseUrl('100.64.0.1:9119')).toBe('http://100.64.0.1:9119')
+    expect(addressKind('100.64.0.1:9119')).toBe('tailscale')
+  })
+
+  it('is classified like the same address with http in front', () => {
+    expect(addressKind('192.168.1.10:9119')).toBe('private')
+    expect(addressKind('hermes.example.com')).toBe('public')
+    expect(addressKind('[::1]:9119')).toBe('loopback')
+  })
+
+  it('ignores spaces around the address and a trailing slash', () => {
+    expect(addressKind('  http://10.1.2.3:9119/  ')).toBe('private')
+  })
+})
+
+describe('usesHttps', () => {
+  it.each<[string, boolean]>([
+    ['https://x', true],
+    ['HTTPS://x', true],
+    ['  https://x/  ', true],
+    ['http://x', false],
+    ['HTTP://x', false],
+    ['x', false],
+    ['x.example.com:443', false],
+    ['', false]
+  ])('%j gives %s', (address, expected) => {
+    expect(usesHttps(address)).toBe(expected)
+  })
+})
+
+describe('normalizeBaseUrl', () => {
+  it('trims the text, drops trailing slashes and adds http when there is no scheme', () => {
+    expect(normalizeBaseUrl(' 127.0.0.1:9119/ ')).toBe('http://127.0.0.1:9119')
+    expect(normalizeBaseUrl('hermes.example.com//')).toBe('http://hermes.example.com')
+  })
+
+  it('keeps the scheme it was given', () => {
+    expect(normalizeBaseUrl('https://gw.tail.net')).toBe('https://gw.tail.net')
+    expect(normalizeBaseUrl('HTTPS://gw.tail.net/')).toBe('HTTPS://gw.tail.net')
+    expect(normalizeBaseUrl('http://gw.tail.net')).toBe('http://gw.tail.net')
+  })
+})
