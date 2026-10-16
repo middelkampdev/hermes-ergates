@@ -232,6 +232,27 @@ describe('persistence', () => {
     expect(b.getState().connections).toEqual([{ ...conn1, pendingPluginSetup: commit }])
   })
 
+  it('keeps what a connection knows about its plugin updates across a restart', async () => {
+    const storage = createMemoryStorageJson<PersistedDeviceState>()
+    const updateState = {
+      autoUpdatePlugin: false,
+      askedUpdateFor: 'b'.repeat(40),
+      pluginUpdate: { target: 'b'.repeat(40), previous: 'a'.repeat(40), previousSchema: 2 },
+      pluginRemountsFrom: '0.21.6',
+      pluginUpdatedNotice: { from: '0.2.0', to: '0.3.0' },
+      pluginWentBack: { to: 'a'.repeat(40), from: 'b'.repeat(40) }
+    }
+    const a = createDeviceStore(storage, new MemorySecretStore())
+    await waitForHydration(a)
+    a.getState().addConnection(conn1)
+    a.getState().updateConnection('c1', updateState)
+
+    const b = createDeviceStore(storage, new MemorySecretStore())
+    await waitForHydration(b)
+
+    expect(b.getState().connections).toEqual([{ ...conn1, ...updateState }])
+  })
+
   it('recovers submitting outbox items as unconfirmed and drops expired ones on rehydrate', async () => {
     const storage = createMemoryStorageJson<PersistedDeviceState>()
     const secrets = new MemorySecretStore()

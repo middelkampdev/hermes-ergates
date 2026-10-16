@@ -60,7 +60,8 @@ def test_the_install_and_update_commands_leave_the_plugin_enabled_and_served_wit
     assert runtime_status(web, token_headers) == "enabled"
     health = web.get(f"{API}/health", headers=token_headers)
     assert health.status_code == 200, health.text
-    assert health.json()["install"] == {"kind": "git install", "commit": plugin_monorepo.sha, "catalog_name": None}
+    assert health.json()["install"] == {"kind": "git install", "commit": plugin_monorepo.sha, "catalog_name": None,
+                                        "loaded_commit": plugin_monorepo.sha}
 
     updated = run_hermes(root_without_plugin, command(templates["update"], **pin))
 

@@ -10,8 +10,8 @@ import { isGatewayError } from '@/gateway/errors'
 
 import type { ServerCheck } from './server-check'
 
-/** The screens a notice can lead to: the setup screen and the Finish screen. */
-export type NoticeRoute = '/server' | '/server/finish'
+/** The screens a notice can lead to: the setup screen, the Finish screen and the update screen. */
+export type NoticeRoute = '/server' | '/server/finish' | '/server/update'
 
 export interface PluginNotice {
   text: string
@@ -43,8 +43,11 @@ export function pluginNotice(check: ServerCheck | undefined): PluginNotice | nul
       return { text: 'The Ergates plugin is turned off on this server.', action: { label: 'Turn on', route: '/server' } }
     case 'not_loaded':
       return { text: 'Hermes has not loaded the Ergates plugin yet.', action: { label: 'Show me how', route: '/server/finish' } }
+    case 'restart_needed':
+      return { text: 'Restart Hermes to finish the plugin update.', action: { label: 'Show me how', route: '/server/finish' } }
     case 'outdated':
-      return { text: 'The Ergates plugin on this server needs an update.', action: { label: 'Update', route: '/server/finish' } }
+      // The app updates a plugin it can put back by itself; for any other, the user does it on the server.
+      return { text: 'The Ergates plugin on this server needs an update.', action: { label: 'Update', route: check.update === null ? '/server/finish' : '/server/update' } }
     case 'app_outdated':
       return { text: "This server's Ergates plugin needs a newer version of this app. Update Ergates.", action: null }
     case 'unavailable':
@@ -54,18 +57,32 @@ export function pluginNotice(check: ServerCheck | undefined): PluginNotice | nul
 
 /**
  * The value line of the plugin row in Settings: the plugin's version when it
- * works, else the notice. `failed` is true when the check itself failed; an
- * earlier answer still wins over it.
+ * works (with the update that is ready for it, if any), else the notice.
+ * `failed` is true when the check itself failed; an earlier answer still wins
+ * over it.
  */
 export function pluginRowSubtitle(check: ServerCheck | undefined, failed: boolean): string {
   if (check?.kind === 'ready') {
-    return check.health.plugin_version
+    const installed = check.health.plugin_version
+    return check.update === null ? installed : `${installed} (update to ${check.update.to} ready)`
   }
   const notice = pluginNotice(check)
   if (notice !== null) {
     return notice.text
   }
   return check === undefined && !failed ? 'Checking…' : 'Could not check'
+}
+
+/**
+ * Where the plugin row in Settings leads, or null when it leads nowhere: the
+ * screen of the notice, and for a working plugin with an update ready, the
+ * Update ready screen its subtitle names.
+ */
+export function pluginRowRoute(check: ServerCheck | undefined): NoticeRoute | null {
+  if (check?.kind === 'ready') {
+    return check.update === null ? null : '/server/update'
+  }
+  return pluginNotice(check)?.action?.route ?? null
 }
 
 /**
@@ -134,4 +151,13 @@ export function recheckState(asked: AskedRecheck | null, error: unknown, answere
     return 'not_asked'
   }
   return answeredAt > asked.after ? 'answered' : 'asking'
+}
+
+/**
+ * Whether a screen reads again what it failed to read: the notice that
+ * explained the failure is gone (the user fixed the server from the notice's
+ * button), so the failure may be gone too. True once per change of the notice.
+ */
+export function shouldReloadAfterNotice(hadNotice: boolean, hasNotice: boolean, error: unknown): boolean {
+  return hadNotice && !hasNotice && Boolean(error)
 }

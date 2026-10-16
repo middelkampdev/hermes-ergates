@@ -37,7 +37,6 @@ imports here; this file needs none, because every Hermes call goes through
 import functools
 import json
 import logging
-import os
 import sqlite3
 import sys
 import threading
@@ -53,7 +52,7 @@ if _PLUGIN_DIR not in sys.path:
     sys.path.append(_PLUGIN_DIR)
 
 from ergates import flush, hermes_adapter, setup  # noqa: E402
-from ergates.install_info import INSTALL_KIND_ENV, install_info  # noqa: E402
+from ergates.install_info import read_install  # noqa: E402
 from ergates.operations import Operations, Reply, internal_error, store_unavailable  # noqa: E402
 from ergates.paths import bundled_templates_dir, hermes_root, store_path, templates_dir  # noqa: E402
 from ergates.settings import push_status, sweep_interval  # noqa: E402
@@ -103,11 +102,13 @@ def install() -> dict:
     """How the plugin got here, for ``GET /health`` (``ergates.install_info``), read at each call.
 
     The ``ERGATES_INSTALL_KIND`` marker is read from the environment at each
-    call, not when the operations are built.
+    call, not when the operations are built. ``loaded_commit`` is the
+    exception: ``ergates.install_info`` read it once, when Hermes imported the
+    ``ergates`` package, so it differs from ``commit`` after a reinstall until
+    Hermes restarts. It is ``None`` for a manual copy and a deployment, which
+    have no commit.
     """
-    return install_info(
-        hermes_adapter.install_record(), hermes_adapter.root_plugin_dir(), os.environ.get(INSTALL_KIND_ENV),
-    )
+    return read_install()
 
 
 def operations() -> Operations:

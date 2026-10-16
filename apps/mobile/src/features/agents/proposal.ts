@@ -4,7 +4,7 @@
  * never Markdown, an attachment, or a clarify option that claims to be one.
  */
 
-import type { PluginNotice } from '@/features/server'
+import { shouldReloadAfterNotice, type PluginNotice } from '@/features/server'
 import { isGatewayError, userMessage } from '@/gateway/errors'
 import { PROVISION_STEPS, type AgentProposal, type ProposalReceipt, type ProvisionStep } from '@/gateway/types'
 
@@ -207,5 +207,5 @@ export function shouldForgetRun(receipt: ProposalReceipt | undefined, receiptErr
  * failure it explained may be gone too. Once per change of the notice.
  */
 export function shouldReloadReceipt(hadNotice: boolean, hasNotice: boolean, receiptError: unknown): boolean {
-  return hadNotice && !hasNotice && Boolean(receiptError)
+  return shouldReloadAfterNotice(hadNotice, hasNotice, receiptError)
 }

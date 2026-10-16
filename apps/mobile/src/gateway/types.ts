@@ -665,8 +665,13 @@ export interface ErgatesHealth {
   min_api_level?: number
   schema_version: number
   store?: { plugin_schema_version: number; min_schema_version: number; writable: boolean }
-  /** How the plugin got onto the server; `commit` is known for a `git install` only. */
-  install?: { kind: 'deployment' | 'git install' | 'manual copy'; commit: string | null; catalog_name: string | null }
+  /**
+   * How the plugin got onto the server. `commit` is what its install record
+   * holds, known for a `git install` only. `loaded_commit` is the commit the
+   * running code was loaded from, `null` for a manual copy or a deployment; an
+   * older plugin leaves it out.
+   */
+  install?: { kind: 'deployment' | 'git install' | 'manual copy'; commit: string | null; loaded_commit?: string | null; catalog_name: string | null }
   setup?: SetupState
   push?: { configured: boolean; token_set: boolean; legacy_config_token: boolean }
   /** `last_run_at` is epoch seconds (the plugin's `time.time()`), null before the first pass. */
@@ -697,13 +702,16 @@ export interface HermesPluginRow {
   runtime_status: 'enabled' | 'disabled' | 'inactive'
 }
 
-/** `POST /api/dashboard/agent-plugins/install`. The app always sends `force: false`. */
+/**
+ * `POST /api/dashboard/agent-plugins/install`. With `force` Hermes replaces a
+ * plugin that is already there, but declines to while that plugin is turned on.
+ */
 export interface PluginInstallRequest {
   identifier: string
   /** A full 40-character commit. */
   ref: string
   enable: true
-  force: false
+  force: boolean
 }
 
 export interface PluginInstallResult {

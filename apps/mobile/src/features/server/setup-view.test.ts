@@ -10,7 +10,8 @@ import { GatewayError, mapHttpError } from '@/gateway/errors'
 
 import type { BuildRecord } from './build-record'
 import type { ServerCheck } from './server-check'
-import { opensFinish, setupScreenView, setupView, signedOutView, stepStatusWord, type SetupRunState } from './setup-view'
+import type { UpdateOffer } from './plugin-version'
+import { opensFinish, setupRedirect, setupScreenView, setupView, signedOutView, stepStatusWord, type SetupRunState } from './setup-view'
 import type { SetupOutcome, SetupStep, StepStatus } from './setup-run'
 
 const COMMIT = 'abcdef0123456789abcdef0123456789abcdef01'
@@ -27,7 +28,7 @@ const NOT_NOW = { label: 'Not now', action: 'not_now' }
 const SHOW_ME_HOW = { label: 'Show me how', action: 'finish' }
 
 const oneTap: ServerCheck = { kind: 'missing', hermesVersion: '0.21.6', oneTap: true, reason: null }
-const ready: ServerCheck = { kind: 'ready', health: FAKE_PLUGIN_HEALTH }
+const ready: ServerCheck = { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: null, hermesVersion: null }
 
 function stepsWith(statuses: Partial<Record<SetupStep, StepStatus>> = {}): Record<SetupStep, StepStatus> {
   return { install: 'pending', enable: 'pending', start: 'pending', setup: 'pending', ...statuses }
@@ -44,6 +45,7 @@ describe('setupView: a server without the plugin', () => {
       body: [INTRO],
       source: SOURCE,
       note: UNREVIEWED,
+      autoUpdateSwitch: true,
       primary: { label: 'Set up this server', action: 'run' },
       secondary: NOT_NOW,
       steps: null
@@ -60,7 +62,7 @@ describe('setupView: a server without the plugin', () => {
     [
       'older than the oldest supported',
       { kind: 'missing', hermesVersion: '0.20.1', oneTap: false, reason: 'too_old' },
-      'Your server runs Hermes 0.20.1. One-tap setup needs Hermes 0.21.6 or newer, so you finish it on the server.'
+      'Your server runs Hermes 0.20.1. Update Hermes first (hermes update): one-tap setup needs Hermes 0.21.6 or newer. You can also finish setup on the server.'
     ],
     [
       'newer than the newest tested',
@@ -78,6 +80,7 @@ describe('setupView: a server without the plugin', () => {
       body: [INTRO],
       source: SOURCE,
       note,
+      autoUpdateSwitch: true,
       primary: SHOW_ME_HOW,
       secondary: NOT_NOW,
       steps: null
@@ -95,10 +98,19 @@ describe('setupView: a server without the plugin', () => {
       body: [INTRO],
       source: null,
       note: 'This build of Ergates does not know which plugin version to install.',
+      autoUpdateSwitch: false,
       primary: null,
       secondary: NOT_NOW,
       steps: null
     })
+  })
+
+  it('puts the update switch under the source line, and nowhere the source line is missing', () => {
+    expect(setupView(oneTap, buildRecord(), null).autoUpdateSwitch).toBe(true)
+    expect(setupView({ kind: 'missing', hermesVersion: '0.20.1', oneTap: false, reason: 'too_old' }, buildRecord(), null).autoUpdateSwitch).toBe(true)
+    expect(setupView(oneTap, buildRecord(null), null).autoUpdateSwitch).toBe(false)
+    expect(setupView({ kind: 'disabled', hermesVersion: '0.21.6' }, buildRecord(), null).autoUpdateSwitch).toBe(false)
+    expect(setupView(oneTap, buildRecord(), runWith(null, { install: 'active' })).autoUpdateSwitch).toBe(false)
   })
 
   it('does not offer one tap without a commit, whatever the check says', () => {
@@ -116,6 +128,7 @@ describe('setupView: the other checks', () => {
       body: ['The Ergates plugin is on your server but turned off.'],
       source: null,
       note: null,
+      autoUpdateSwitch: false,
       primary: { label: 'Turn it on', action: 'turn_on' },
       secondary: NOT_NOW,
       steps: null
@@ -136,6 +149,7 @@ describe('setupView: the other checks', () => {
       body: ['Your server is ready.'],
       source: null,
       note: null,
+      autoUpdateSwitch: false,
       primary: { label: 'Done', action: 'done' },
       secondary: null,
       steps: null
@@ -144,7 +158,8 @@ describe('setupView: the other checks', () => {
 
   it.each<[string, ServerCheck]>([
     ['not loaded', { kind: 'not_loaded', hermesVersion: '0.21.6' }],
-    ['outdated', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'git install', hermesVersion: '0.21.6' }]
+    ['waiting for a restart', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }],
+    ['outdated', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'git install', update: null, hermesVersion: '0.21.6' }]
   ])('leads a plugin that is %s to the guide, because the user finishes it on the server', (_title, check) => {
     const view = setupView(check, buildRecord(), null)
 
@@ -159,6 +174,7 @@ describe('setupView: the other checks', () => {
       body: [],
       source: null,
       note: null,
+      autoUpdateSwitch: false,
       primary: null,
       secondary: NOT_NOW,
       steps: null
@@ -171,6 +187,7 @@ describe('setupView: the other checks', () => {
       body: ['Could not reach your server.'],
       source: null,
       note: null,
+      autoUpdateSwitch: false,
       primary: { label: 'Try again', action: 'check_again' },
       secondary: NOT_NOW,
       steps: null
@@ -195,6 +212,7 @@ describe('setupView: while a run is going', () => {
       body: [],
       source: null,
       note: null,
+      autoUpdateSwitch: false,
       primary: null,
       secondary: null,
       steps: [
@@ -273,6 +291,7 @@ describe('signedOutView', () => {
       body: ['Your server asked you to sign in again.'],
       source: null,
       note: null,
+      autoUpdateSwitch: false,
       primary: { label: 'Sign in again', action: 'sign_in' },
       secondary: NOT_NOW,
       steps: null
@@ -340,5 +359,25 @@ describe('stepStatusWord', () => {
     const words = (['pending', 'active', 'done', 'skipped', 'failed'] as const).map(stepStatusWord)
 
     expect(words).toEqual(['waiting', 'in progress', 'done', 'not needed', 'failed'])
+  })
+})
+
+describe('setupRedirect', () => {
+  const offer: UpdateOffer = { from: '0.1.0', to: '0.2.0', commit: COMMIT, previous: 'a'.repeat(40), previousSchema: 1 }
+
+  it.each<{ title: string; check: ServerCheck; route: string | null }>([
+    { title: 'a plugin Hermes has not loaded', check: { kind: 'not_loaded', hermesVersion: '0.21.6' }, route: '/server/finish' },
+    { title: 'a plugin that waits for a restart', check: { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }, route: '/server/finish' },
+    { title: 'an outdated plugin the app cannot update', check: { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'deployment', update: null, hermesVersion: '0.21.6' }, route: '/server/finish' },
+    { title: 'an outdated plugin the app can update', check: { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'git install', update: offer, hermesVersion: '0.21.6' }, route: '/server/update' },
+    { title: 'a missing plugin, which this screen sets up', check: oneTap, route: null },
+    { title: 'a plugin that is turned off, which this screen turns on', check: { kind: 'disabled', hermesVersion: '0.21.6' }, route: null },
+    { title: 'a working plugin', check: ready, route: null },
+    { title: 'a working plugin with an update, which has its own line', check: { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: offer, hermesVersion: '0.21.6' }, route: null },
+    { title: 'a plugin newer than the app', check: { kind: 'app_outdated', health: FAKE_PLUGIN_HEALTH }, route: null },
+    { title: 'a plugin that cannot open its data', check: { kind: 'unavailable', message: 'The store is locked.' }, route: null },
+    { title: 'a server that could not be read', check: { kind: 'unknown' }, route: null }
+  ])('for $title it goes to $route', ({ check, route }) => {
+    expect(setupRedirect(check)).toBe(route)
   })
 })

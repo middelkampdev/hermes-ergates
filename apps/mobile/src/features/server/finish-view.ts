@@ -5,16 +5,22 @@
  * draws a `FinishView` and does what the tapped action names. Pure: no React,
  * no gateway.
  *
- * The command is built from this build's record only. Nothing the server, an
- * agent, a message or a link says reaches it.
+ * The command is built from this build's record only, or, for going back by
+ * hand, from the commit the app recorded before the update, which must be a
+ * full hash. Nothing the server, an agent, a message or a link says reaches it.
  */
 
 import { isGatewayError } from '@/gateway/errors'
+import type { Connection } from '@/state/device-store'
 
-import { PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
+import { COMMIT_PATTERN, PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
 import manualCommands from './manual-commands.json'
+import type { PendingSetupResult } from './pending-setup'
+import { pluginNotice } from './plugin-notice'
 import type { InstallKind, ServerCheck } from './server-check'
-import type { ManualFailure } from './setup-run'
+import type { ManualFailure, StepStatus } from './setup-run'
+import type { LastUpdateRun, UpdateOutcome } from './update-run'
+import { updateSteps, type UpdateRunState, type UpdateTarget } from './update-view'
 
 /** The page with the manual steps, the restart steps and the deployment steps; the anchors are `#manual`, `#restart`, `#deployment` and `#stay-signed-in`. */
 export const SERVER_GUIDE_URL = 'https://middelkamp.dev/ergates/server/'
@@ -42,7 +48,16 @@ export const RESTART_HEADING = 'Then restart Hermes:'
  * only the enable is left; `refused` when Hermes refused to turn it on
  * during the last run (`detail` is its text). `update`: move a git install to
  * this build's commit. `update_copy`: update the folder a manual copy comes
- * from. `restart`: the plugin is enabled but Hermes has not loaded it.
+ * from. `restart`: the plugin is enabled but Hermes has not loaded it
+ * (`after` is null), or an update is installed (`'update'`) or the app put
+ * the previous version back (`'go_back'`) and Hermes has to restart to start
+ * it.
+ * `not_started`: an update the app installed did not come up after the
+ * restart; `previous` is the commit the server had before it, and `goBack`
+ * whether that version can still use the store (the app then puts it back).
+ * `went_back`: the app put the previous version back and it answers; when
+ * this app needs a newer plugin, the update did not start, and the guide
+ * says what to check before trying again.
  * `deployment`: the Ergates deployment brings its own plugin.
  */
 export type FinishVariant =
@@ -50,7 +65,9 @@ export type FinishVariant =
   | { kind: 'enable'; refused: boolean; detail: string | null }
   | { kind: 'update' }
   | { kind: 'update_copy' }
-  | { kind: 'restart' }
+  | { kind: 'restart'; after: 'update' | 'go_back' | null }
+  | { kind: 'not_started'; previous: string; goBack: boolean }
+  | { kind: 'went_back' }
   | { kind: 'deployment' }
 
 /** Why the install is by hand: how the last setup run ended (`lastManualOutcome`). */
@@ -59,10 +76,90 @@ export interface FinishManual {
   detail: string | null
 }
 
-export type FinishAction = 'check' | 'done' | 'sign_in'
+/** What the Finish screen knows about the update of its connection. */
+export interface FinishUpdate {
+  /** The update the app started and has not finished (`Connection.pluginUpdate`). */
+  started: Connection['pluginUpdate']
+  /** The highest `store.min_schema_version` a health read showed since the update started, or null before one did. */
+  schemaSeen: number | null
+  /** The previous version the app put back (`Connection.pluginWentBack`); it counts for a check whose install commit is `to`. */
+  wentBack: Connection['pluginWentBack']
+  /** True when the last update run ended with the user installing by hand. */
+  byHand: boolean
+  /** True while the update run's call for a restart of Hermes is open: it asked for one and no poll has shown the server going away since. */
+  awaitingRestart: boolean
+}
 
-/** How the plugin's setup stands once the server answers: not run yet, done, or failed with the message to show. */
-export type SetupProgress = { state: 'pending' } | { state: 'done' } | { state: 'failed'; message: string }
+/** No update under way. */
+export const NO_UPDATE: FinishUpdate = { started: undefined, schemaSeen: null, wentBack: undefined, byHand: false, awaitingRestart: false }
+
+/** What the screen holds about the update. */
+export interface FinishUpdateParts {
+  /** `Connection.pluginUpdate`. */
+  started: Connection['pluginUpdate']
+  /** The highest `store.min_schema_version` the polls showed since the update run started (`schemaSeenOf`), or null. */
+  schemaSeen: number | null
+  /** The connection's last update run in this session (`lastUpdateRun`); null after a relaunch. */
+  last: LastUpdateRun | null
+  /** Whether the polls showed a sign of the restart the update run asked for (`RestartWatch.seen`). */
+  restartSeen: boolean
+  /** `Connection.pluginWentBack`. */
+  wentBack: Connection['pluginWentBack']
+}
+
+/**
+ * What the screen knows about the update. The update and the previous version
+ * being back are on the connection, so they hold after a relaunch too. How
+ * the last run ended and what the polls showed of its restart come from
+ * memory the update run keeps, so a page that mounts again knows the same;
+ * after a relaunch no run is in memory, so no restart is waited for.
+ */
+export function finishUpdateOf({ started, schemaSeen, last, restartSeen, wentBack }: FinishUpdateParts): FinishUpdate {
+  const kind = last?.outcome.kind
+  return {
+    started,
+    schemaSeen,
+    wentBack,
+    byHand: last?.goingBack === false && kind === 'manual',
+    awaitingRestart: last?.goingBack === false && kind === 'restart' && !restartSeen
+  }
+}
+
+/** Whether `check` shows the previous version the app put back: its install commit is the one it installed. */
+function showsWentBack(check: ServerCheck, wentBack: Connection['pluginWentBack']): boolean {
+  return wentBack !== undefined && 'health' in check && check.health.install?.commit === wentBack.to
+}
+
+/** Whether the go back is still going: the page offers nothing and does not set up the plugin meanwhile. */
+export function runIsGoing(run: UpdateRunState | null): boolean {
+  return run !== null && run.outcome === null
+}
+
+export type FinishAction = 'check' | 'done' | 'sign_in' | 'go_back'
+
+/**
+ * How the plugin's setup stands once the server answers: not run yet, done,
+ * failed with the message to show, or waiting for the code it belongs to,
+ * which starts when Hermes restarts.
+ */
+export type SetupProgress = { state: 'pending' } | { state: 'done' } | { state: 'failed'; message: string } | { state: 'waiting' }
+
+/**
+ * Whether the page is done once it asked to finish the pending setup
+ * (`finishPendingSetup`) for `check`: the setup ran, or none was pending and
+ * the server is ready. A setup that waits for the new code is not done,
+ * although the old code answers ready meanwhile.
+ */
+export function finishDone(result: PendingSetupResult, check: ServerCheck): boolean {
+  switch (result.kind) {
+    case 'done':
+      return true
+    case 'none':
+      return check.kind === 'ready'
+    case 'waiting':
+      return false
+  }
+}
 
 export interface FinishView {
   title: string
@@ -76,7 +173,10 @@ export interface FinishView {
   status: string
   /** True when the plugin's setup went through. */
   done: boolean
-  primary: { label: string; action: FinishAction }
+  /** The steps of the run that puts the previous version back; null when none has started. */
+  steps: { label: string; status: StepStatus }[] | null
+  /** The button; null while a run goes and there is nothing to tap. */
+  primary: { label: string; action: FinishAction } | null
 }
 
 const TITLE = 'Finish on your server'
@@ -84,6 +184,18 @@ const DEPLOYMENT_TITLE = 'Update your Ergates deployment'
 const RUN_INTRO = 'On your server, as the user that runs Hermes, run:'
 const TURNED_OFF_INTRO = `The plugin is on your server but turned off. ${RUN_INTRO}`
 const NOT_LOADED = 'Hermes has not loaded the Ergates plugin yet.'
+const RESTART_INTRO = {
+  none: NOT_LOADED,
+  update: 'The update is installed. Restart Hermes to start the new version.',
+  go_back: 'The previous version is installed. Restart Hermes to start it.'
+} as const
+const DID_NOT_START = 'The new version did not start.'
+const WENT_BACK_OUTDATED = 'The previous version is back, but this app needs a newer plugin. The update did not start on your server.'
+const WENT_BACK_GUIDE = 'The guide shows what to check before you try again.'
+const WENT_BACK_READY = 'The previous version is back. Your server is ready.'
+const GO_BACK_BY_HAND = 'To go back yourself, run this on your server, as the user that runs Hermes:'
+const CANNOT_GO_BACK = 'The update changed how Ergates keeps its data, so the previous version cannot be put back.'
+const GOING_BACK = 'Going back to the previous version…'
 const GUIDE_LABEL = 'Open the guide'
 const CHECKING = 'Checking…'
 const WAITING = 'Waiting for your server…'
@@ -99,6 +211,7 @@ const RESTART_LINES: readonly string[] = [
 ]
 
 const CHECK = { label: 'Check now', action: 'check' } as const
+const GO_BACK = { label: 'Go back to the previous version', action: 'go_back' } as const
 const DONE = { label: 'Done', action: 'done' } as const
 const SIGN_IN = { label: 'Sign in again', action: 'sign_in' } as const
 
@@ -128,8 +241,17 @@ function updateVariant(installKind: InstallKind): FinishVariant {
  * has moved on wins over it: once the plugin is installed, a stale "the
  * install failed" is not shown. Before the first check (`null`) it is all
  * there is to go on.
+ *
+ * `update` is what the screen knows about an update the app started. With
+ * one under way, a plugin that does not come up after the restart is a new
+ * version that did not start. A working plugin that still has an update is
+ * named only when the app's own run ended by hand.
+ *
+ * `setupWaits` is true when the last ready check left the pending setup
+ * waiting for other code than the code that answers: the ready server then
+ * still needs the restart that starts it.
  */
-export function finishVariant(check: ServerCheck | null, manual: FinishManual | null): FinishVariant | null {
+export function finishVariant(check: ServerCheck | null, manual: FinishManual | null, update: FinishUpdate = NO_UPDATE, setupWaits = false): FinishVariant | null {
   if (check === null) {
     return manual === null ? null : manualVariant(manual)
   }
@@ -141,15 +263,78 @@ export function finishVariant(check: ServerCheck | null, manual: FinishManual | 
       // The plugin is there, so installing over it would be refused: whatever went wrong before, turning it on is what is left.
       return manual?.failure === 'enable_refused' ? manualVariant(manual) : { kind: 'enable', refused: false, detail: null }
     case 'not_loaded':
-      return { kind: 'restart' }
-    case 'outdated':
-      return updateVariant(check.installKind)
-    case 'ready':
-    case 'app_outdated':
+      return afterUpdate(update) ?? { kind: 'restart', after: null }
+    case 'restart_needed':
+      return restartVariant(update, check)
     case 'unavailable':
+      return afterUpdate(update)
+    case 'outdated':
+      // The update the app tried did not start, and its command is no way forward: the guide says what to check first.
+      return showsWentBack(check, update.wentBack) ? { kind: 'went_back' } : updateVariant(check.installKind)
+    case 'ready':
+      if (setupWaits) {
+        return restartVariant(update, check)
+      }
+      if (showsWentBack(check, update.wentBack)) {
+        return { kind: 'went_back' }
+      }
+      return check.update !== null && update.byHand ? { kind: 'update' } : null
+    case 'app_outdated':
     case 'unknown':
       return null
   }
+}
+
+/**
+ * The restart that starts the code on the server: the previous version the
+ * app put back, or else an update, whoever installed it (the files on the
+ * server are newer than the code that answers).
+ */
+function restartVariant(update: FinishUpdate, check: ServerCheck): FinishVariant {
+  return { kind: 'restart', after: showsWentBack(check, update.wentBack) ? 'go_back' : 'update' }
+}
+
+/**
+ * The variant for a plugin that does not answer while an update the app
+ * started is under way, or after the app put the previous version back, or
+ * null outside both.
+ */
+function afterUpdate(update: FinishUpdate): FinishVariant | null {
+  const { started } = update
+  if (started === undefined) {
+    // A go back ended the update; the failed version's routes answer until Hermes restarts, and the restart starts the previous version.
+    return update.wentBack !== undefined ? { kind: 'restart', after: 'go_back' } : null
+  }
+  // Until the server went away, a plugin that does not answer is the restart the update asked for, not a new version that failed to start.
+  if (update.awaitingRestart) {
+    return { kind: 'restart', after: 'update' }
+  }
+  return { kind: 'not_started', previous: started.previous, goBack: COMMIT_PATTERN.test(started.previous) && canGoBack(started, update.schemaSeen) }
+}
+
+/**
+ * Whether the previous version can still use the store: not when a health
+ * read showed the store's oldest usable plugin schema above the one the
+ * previous version writes. When either is unknown it counts as yes, because
+ * the store's own marker makes an older plugin read-only instead of letting it
+ * write a store it does not understand.
+ */
+function canGoBack(started: NonNullable<Connection['pluginUpdate']>, schemaSeen: number | null): boolean {
+  return started.previousSchema === null || schemaSeen === null || schemaSeen <= started.previousSchema
+}
+
+/** What `runUpdate` takes to put the previous version back: it installs the commit the server had, and is a going back. */
+export function goBackTarget(started: NonNullable<Connection['pluginUpdate']>): UpdateTarget {
+  return { target: started.previous, goingBack: true }
+}
+
+/**
+ * Whether the page still asks the user to update by hand although the server
+ * answers: the plugin works and has an update, and this page is the update
+ * variant. The page then keeps its instructions and keeps waiting.
+ */
+export function updateStillOpen(variant: FinishVariant | null, check: ServerCheck | null): boolean {
+  return variant?.kind === 'update' && check?.kind === 'ready' && check.update !== null
 }
 
 /** The variant for how a run ended by hand, when the server has not said yet what it has. A refused enable means the plugin is on the server. */
@@ -168,10 +353,13 @@ function commitOf(build: BuildRecord | null): string | null {
  * a missing plugin, one that is turned off, or an outdated git install or
  * manual copy. The setup then runs once the plugin answers. Nothing else
  * records it: not a link, not the failure of an earlier run, not a page that
- * has no answer yet. A restart or a deployment installs nothing.
+ * has no answer yet. A restart or a deployment installs nothing, and neither
+ * does an outdated plugin that is the previous version the app put back
+ * (`wentBack`): the page does not ask to install the failed update again.
  */
-export function pendingCommit(check: ServerCheck | null, build: BuildRecord | null): string | null {
-  const needsSetup = check?.kind === 'missing' || check?.kind === 'disabled' || (check?.kind === 'outdated' && check.installKind !== 'deployment')
+export function pendingCommit(check: ServerCheck | null, build: BuildRecord | null, wentBack: Connection['pluginWentBack'] = undefined): string | null {
+  const outdatedToUpdate = check?.kind === 'outdated' && check.installKind !== 'deployment' && !showsWentBack(check, wentBack)
+  const needsSetup = check?.kind === 'missing' || check?.kind === 'disabled' || outdatedToUpdate
   return needsSetup ? commitOf(build) : null
 }
 
@@ -224,6 +412,9 @@ function refusalLine(refusal: string, detail: string | null): string {
 }
 
 function anchorOf(variant: FinishVariant | null): string {
+  if (variant?.kind === 'not_started') {
+    return variant.goBack ? '#manual' : '#restart'
+  }
   switch (variant?.kind) {
     case undefined:
       return ''
@@ -262,7 +453,11 @@ function instructionsFor(variant: FinishVariant, build: BuildRecord | null): Ins
       return { intro: [`Update the folder you copied or linked the plugin from to ${target}, then restart Hermes.`], command: null, restart: true }
     }
     case 'restart':
-      return { intro: [NOT_LOADED], command: null, restart: true }
+      return { intro: [RESTART_INTRO[variant.after ?? 'none']], command: null, restart: true }
+    case 'not_started':
+      return notStarted(variant)
+    case 'went_back':
+      return { intro: [WENT_BACK_OUTDATED, WENT_BACK_GUIDE], command: null, restart: false }
     case 'deployment': {
       const target = version === undefined ? 'the newest plugin' : `plugin ${version}`
       return { intro: [`This server runs the Ergates deployment, which brings its own plugin. Update the deployment to get ${target}.`], command: null, restart: false }
@@ -270,15 +465,44 @@ function instructionsFor(variant: FinishVariant, build: BuildRecord | null): Ins
   }
 }
 
-function statusOf(check: ServerCheck | null, setup: SetupProgress): string {
+/** Going back by hand needs the full hash the app recorded; the app's own go back checks it again. */
+function notStarted(variant: Extract<FinishVariant, { kind: 'not_started' }>): Instructions {
+  if (!variant.goBack) {
+    return { intro: [DID_NOT_START, CANNOT_GO_BACK], command: null, restart: true }
+  }
+  const command = COMMIT_PATTERN.test(variant.previous) ? installCommand(variant.previous, true) : null
+  return { intro: [DID_NOT_START, GO_BACK_BY_HAND], command, restart: true }
+}
+
+function statusOf(variant: FinishVariant | null, check: ServerCheck | null, setup: SetupProgress): string {
   if (check === null) {
     return CHECKING
   }
-  if (check.kind !== 'ready') {
-    return WAITING
+  if (check.kind === 'ready') {
+    // A ready server is not done until the plugin's setup went through: it is still being asked, or it said no. An update the user has yet to do, or a setup that waits for the new code, keeps it waiting.
+    if (updateStillOpen(variant, check) || setup.state === 'waiting') {
+      return WAITING
+    }
+    return setup.state === 'failed' ? setup.message : CHECKING
   }
-  // A ready server is not done until the plugin's setup went through: it is still being asked, or it said no.
-  return setup.state === 'failed' ? setup.message : CHECKING
+  // During an update the page already says what to do.
+  const updating = variant?.kind === 'not_started' || (variant?.kind === 'restart' && variant.after === 'update')
+  if ((check.kind === 'app_outdated' || check.kind === 'unavailable') && !updating) {
+    return pluginNotice(check)?.text ?? WAITING
+  }
+  return WAITING
+}
+
+/** What a finished go back that did not work says in the status line, or null when the status line says what the server says. */
+function runStatus(outcome: UpdateOutcome | null): string | null {
+  switch (outcome?.kind) {
+    case 'failed':
+      return outcome.message
+    case 'manual':
+      return failureLine(outcome.failure, outcome.detail)
+    default:
+      return null
+  }
 }
 
 /**
@@ -288,22 +512,28 @@ function statusOf(check: ServerCheck | null, setup: SetupProgress): string {
  * how the plugin's setup went after the server answered: the page is done
  * only when it went through, and stays done whatever a later check says; a
  * failure shows its message while the server is ready, and the next ready
- * check tries again.
+ * check tries again. `run` is the go back the user started: its steps show
+ * next to everything else, nothing is offered while it goes, and a run that
+ * failed says so in the status line.
  *
  * Once the server answers (ready), asks for a new sign-in, or the setup is
  * done, the intro, the command and the restart lines are gone: the user did
- * what they were asked.
+ * what they were asked. A working plugin that still has an update the user
+ * has to do by hand keeps them, and so does a ready server whose pending
+ * setup waits for the new code (`setup` is `waiting`).
  */
 export function finishView(
   variant: FinishVariant | null,
   build: BuildRecord | null,
   check: ServerCheck | 'sign_in' | null,
-  setup: SetupProgress = { state: 'pending' }
+  setup: SetupProgress = { state: 'pending' },
+  run: UpdateRunState | null = null
 ): FinishView {
   const title = variant?.kind === 'deployment' ? DEPLOYMENT_TITLE : TITLE
   const guide = { label: GUIDE_LABEL, url: `${SERVER_GUIDE_URL}${anchorOf(variant)}` }
+  const steps = run === null ? null : updateSteps(run, true)
   if (setup.state === 'done') {
-    return { title, intro: [], command: null, restartLines: null, guide, status: READY, done: true, primary: DONE }
+    return { title, intro: [], command: null, restartLines: null, guide, status: variant?.kind === 'went_back' ? WENT_BACK_READY : READY, done: true, steps, primary: DONE }
   }
   if (check === 'sign_in') {
     return {
@@ -314,15 +544,20 @@ export function finishView(
       guide: { label: SIGNED_OUT_HINT.label, url: SIGNED_OUT_HINT.url },
       status: `${SIGNED_OUT} ${SIGNED_OUT_HINT.text}`,
       done: false,
+      steps,
       primary: SIGN_IN
     }
   }
-  const status = statusOf(check, setup)
-  if (variant === null || check?.kind === 'ready') {
-    return { title, intro: [], command: null, restartLines: null, guide, status, done: false, primary: CHECK }
+  if (runIsGoing(run)) {
+    return { title, intro: [], command: null, restartLines: null, guide, status: GOING_BACK, done: false, steps, primary: null }
+  }
+  const status = runStatus(run?.outcome ?? null) ?? statusOf(variant, check, setup)
+  if (variant === null || (check?.kind === 'ready' && !updateStillOpen(variant, check) && setup.state !== 'waiting')) {
+    return { title, intro: [], command: null, restartLines: null, guide, status, done: false, steps, primary: CHECK }
   }
   const { intro, command, restart } = instructionsFor(variant, build)
-  return { title, intro, command, restartLines: restart ? [...RESTART_LINES] : null, guide, status, done: false, primary: CHECK }
+  const primary = variant.kind === 'not_started' && variant.goBack ? GO_BACK : CHECK
+  return { title, intro, command, restartLines: restart ? [...RESTART_LINES] : null, guide, status, done: false, steps, primary }
 }
 
 /** What a failed plugin setup shows in the status line: the gateway's own message, which carries no secrets. */

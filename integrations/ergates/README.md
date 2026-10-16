@@ -152,7 +152,7 @@ integrations/ergates/
     proposals.py       # ergates.agent-proposal.v1 validation, hash, ProposalService
     templates.py       # proposal templates under <root>/ergates/templates/
     setup.py           # installs the shipped templates there, enables the plugin in every profile
-    install_info.py    # how the plugin got onto the server (git install, deployment, manual copy), for `health`
+    install_info.py    # how the plugin got onto the server (git install, deployment, manual copy) and the commit its running code came from, for `health`
     attention.py       # AttentionService: events, outbox rows, prefs, expiry, retention
     delivery.py        # DeliveryWorker: leased outbox delivery to ntfy, deep link
     settings.py        # the install-wide push and sweep settings in the root's config.yaml
@@ -196,6 +196,15 @@ phone does not contact GitHub for the install. The app installs only
 `middelkampdev/hermes-ergates/integrations/ergates`, at the commit its own
 build names, and offers the one tap only on Hermes versions that CI has
 tested. For the others it shows the command below.
+
+The app also updates a plugin it installed. When the plugin is a git install
+and the app's build carries a newer version, or the plugin is too old for the
+app, the app turns the plugin off, installs its own commit over it with
+`force` and turns it on again, because Hermes replaces a plugin over REST only
+while it is turned off. Hermes does not mount new routes into a running
+server, so the old code keeps answering until Hermes restarts: `GET /health`
+shows that as `install.commit` differing from `install.loaded_commit`. A
+deployment and a manual copy are never updated by the app.
 
 To install by hand, run this on the server as the user that runs Hermes:
 
@@ -448,9 +457,9 @@ version of the file (see "What it writes"). The body of a plugin installed
 from a git commit, with the setup finished:
 
 ```json
-{"ok": true, "plugin_version": "<version>", "api_level": 1, "min_api_level": 1, "schema_version": 2,
+{"ok": true, "plugin_version": "<version>", "api_level": 2, "min_api_level": 1, "schema_version": 2,
  "store": {"plugin_schema_version": 2, "min_schema_version": 2, "writable": true},
- "install": {"kind": "git install", "commit": "<40 hex>", "catalog_name": null},
+ "install": {"kind": "git install", "commit": "<40 hex>", "catalog_name": null, "loaded_commit": "<40 hex>"},
  "setup": {"finished": true, "templates": "installed", "profiles": [{"name": "default", "enabled": true}]},
  "push": {"configured": true, "token_set": true, "legacy_config_token": false},
  "sweep": {"interval_seconds": 120, "last_run_at": 1760000000.0, "last_error": null}}
@@ -463,7 +472,9 @@ from a git commit, with the setup finished:
   `MIN_API_LEVEL`, the oldest level this plugin still serves, follows at
   least one release later. A client that needs a level above `api_level`
   needs a newer plugin; one built for a level below `min_api_level` needs a
-  newer client.
+  newer client. Level 2 added `install.loaded_commit`, which the app relies
+  on to see that Hermes has to restart after an update, so a plugin at
+  level 1 is outdated for the current app.
 - `schema_version` is the store file's schema. `store.plugin_schema_version`
   is this plugin's own, `store.min_schema_version` the oldest plugin schema
   allowed to write the store and `store.writable` whether this plugin may
@@ -482,6 +493,18 @@ from a git commit, with the setup finished:
   `manual copy`: anything else, a copied or linked folder included. Only a
   git install has a `commit`. The answer never carries the record's `source`
   or a path.
+
+  `loaded_commit` is the commit the record named when Hermes imported the
+  plugin's package code (`ergates/install_info.py` reads it once, at its own
+  import), so it names the commit of the package code that answers. `commit`
+  is read at every call. A reinstall replaces the files and the record, while
+  a running Hermes keeps the modules it imported. After a reinstall `commit`
+  is the new commit and `loaded_commit` is still the old one: restart Hermes
+  to run the new code. The same holds when Hermes mounts the routes of a new
+  install over package modules that an earlier, failed mount left behind.
+  `loaded_commit` is `null` for a manual copy and a deployment, and when the
+  read at import failed, which never stops the import. A plugin from before
+  API level 2 does not report it.
 - `setup` is the report `POST /setup` would give now, read without writing.
   `finished` is true only when `templates` is `installed`, there is at least
   one profile and every profile is enabled. `templates` is `installed`,
@@ -508,17 +531,19 @@ The app decides from this body whether the plugin fits it. A plugin is
 outdated when its `api_level` is below the app's (a plugin that reports none
 counts as level 0) or when `store.writable` is false. An app is too old for
 the plugin when its level is below `min_api_level`. `install.kind` decides
-what the app tells the user to do about an outdated plugin: run the install
-command with `--force` for a `git install`, update the folder it was copied or
-linked from for a `manual copy`, and update the deployment for a
-`deployment`.
+what the app does about an outdated plugin. For a `git install` it offers to
+update the plugin itself, and where it cannot it tells the user to run the
+install command with `--force`. For a `manual copy` it tells the user to
+update the folder it was copied or linked from, and for a `deployment` to
+update the deployment.
 
 `health` answers 503 `store_unavailable` only when the control store cannot
 be read, so the setup, push and install parts above never turn into an error
 of their own. Checking the plugin in every profile and parsing `config.yaml`
 is slow, so `setup` and `push` are reused for 10 seconds (`POST /setup` and
 `POST /profiles/{profile}/plugin` drop them at once); `store`, `install` and
-`sweep` are read at every call.
+`sweep` are read at every call, except `install.loaded_commit`, which is read
+once when the package is imported.
 
 ## Tools and the tool gate
 

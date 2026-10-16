@@ -7,13 +7,22 @@
 
 import { skipToken, useQuery } from '@tanstack/react-query'
 
+import type { GatewayPort } from '@/gateway/port'
 import { useGatewayRegistry } from '@/gateway/registry'
 import type { Connection } from '@/state/device-store'
 
 import type { BuildRecord } from './build-record'
-import { checkServer, pollInterval } from './server-check'
+import { forgetWentBackIfMoved } from './pending-setup'
+import { checkServer, pollInterval, type ServerCheck } from './server-check'
 
 export const serverCheckKey = (connectionId: string) => ['server-check', connectionId] as const
+
+/** Checks the server, and forgets a going back the answer no longer shows (`forgetWentBackIfMoved`). */
+async function checkAndNote(port: GatewayPort, connectionId: string, build: BuildRecord | null): Promise<ServerCheck> {
+  const check = await checkServer(port, build)
+  forgetWentBackIfMoved(connectionId, check)
+  return check
+}
 
 /**
  * The check of one connection's server; idle without a connection. `poll`
@@ -26,7 +35,7 @@ export function useServerCheck(connection: Connection | null, build: BuildRecord
   const registry = useGatewayRegistry()
   return useQuery({
     queryKey: connection ? serverCheckKey(connection.id) : ['server-check', null],
-    queryFn: connection ? () => checkServer(registry.get(connection), build) : skipToken,
+    queryFn: connection ? () => checkAndNote(registry.get(connection), connection.id, build) : skipToken,
     staleTime: 60_000,
     refetchInterval: query => pollInterval(opts.poll === true, query.state.error),
     retry: false

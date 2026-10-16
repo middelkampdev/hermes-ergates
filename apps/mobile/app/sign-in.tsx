@@ -75,7 +75,7 @@ function SignIn({ connection }: { connection: Connection }) {
       // Everything read while signed out failed; read it again with the new sign-in.
       void queryClient.invalidateQueries()
       // The setup screens act on the primary connection, so another connection goes straight Home.
-      const route = isPrimary ? await afterSignIn(gateway, buildRecord()) : '/'
+      const route = isPrimary ? await afterSignIn(gateway, buildRecord(), connection) : '/'
       // A chat below this screen keeps the session that failed, so Home starts a fresh stack.
       if (router.canDismiss()) {
         router.dismissAll()

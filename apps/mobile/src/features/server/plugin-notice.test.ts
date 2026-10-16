@@ -8,16 +8,22 @@ import { FAKE_PLUGIN_HEALTH } from '@test/fake-gateway/fake-ergates'
 
 import { GatewayError } from '@/gateway/errors'
 
-import { CHECKING_NOTICE, featureNotice, isBareNotFound, MISSING_NOTICE, noticeForError, pluginNotice, pluginRowSubtitle, recheckState } from './plugin-notice'
+import { CHECKING_NOTICE, featureNotice, isBareNotFound, MISSING_NOTICE, noticeForError, pluginNotice, pluginRowRoute, pluginRowSubtitle, recheckState, shouldReloadAfterNotice } from './plugin-notice'
+import type { UpdateOffer } from './plugin-version'
 import type { ServerCheck } from './server-check'
 
 const health = FAKE_PLUGIN_HEALTH
 
-const ready: ServerCheck = { kind: 'ready', health }
+const offer: UpdateOffer = { from: '0.2.0', to: '0.3.0', commit: 'b'.repeat(40), previous: 'a'.repeat(40), previousSchema: 2 }
+
+const ready: ServerCheck = { kind: 'ready', health, update: null, hermesVersion: null }
+const readyWithUpdate: ServerCheck = { kind: 'ready', health, update: offer, hermesVersion: '0.21.6' }
+const restartNeeded: ServerCheck = { kind: 'restart_needed', health, hermesVersion: '0.21.6' }
 const missing: ServerCheck = { kind: 'missing', hermesVersion: '0.21.6', oneTap: true, reason: null }
 const disabled: ServerCheck = { kind: 'disabled', hermesVersion: '0.21.6' }
 const notLoaded: ServerCheck = { kind: 'not_loaded', hermesVersion: '0.21.6' }
-const outdated: ServerCheck = { kind: 'outdated', health, installKind: 'git install', hermesVersion: '0.21.6' }
+const outdated: ServerCheck = { kind: 'outdated', health, installKind: 'git install', update: null, hermesVersion: '0.21.6' }
+const outdatedWithUpdate: ServerCheck = { kind: 'outdated', health, installKind: 'git install', update: offer, hermesVersion: '0.21.6' }
 const appOutdated: ServerCheck = { kind: 'app_outdated', health }
 const unavailable: ServerCheck = { kind: 'unavailable', message: 'The store is locked.' }
 
@@ -44,8 +50,20 @@ describe('pluginNotice', () => {
     expect(pluginNotice(notLoaded)).toEqual({ text: 'Hermes has not loaded the Ergates plugin yet.', action: { label: 'Show me how', route: '/server/finish' } })
   })
 
-  it('offers the Finish screen for a plugin that needs an update', () => {
+  it('offers the Finish screen for a plugin that needs an update the app cannot make', () => {
     expect(pluginNotice(outdated)).toEqual({ text: 'The Ergates plugin on this server needs an update.', action: { label: 'Update', route: '/server/finish' } })
+  })
+
+  it('offers the update itself for a plugin that needs one the app can make', () => {
+    expect(pluginNotice(outdatedWithUpdate)).toEqual({ text: 'The Ergates plugin on this server needs an update.', action: { label: 'Update', route: '/server/update' } })
+  })
+
+  it('asks for a restart of Hermes once the update is installed', () => {
+    expect(pluginNotice(restartNeeded)).toEqual({ text: 'Restart Hermes to finish the plugin update.', action: { label: 'Show me how', route: '/server/finish' } })
+  })
+
+  it('says nothing about a working plugin that has an optional update, which is a line of its own', () => {
+    expect(pluginNotice(readyWithUpdate)).toBeNull()
   })
 
   it('tells the user to update the app when the plugin is newer, with nothing to tap', () => {
@@ -66,8 +84,16 @@ describe('pluginRowSubtitle', () => {
     expect(pluginRowSubtitle(ready, false)).toBe(health.plugin_version)
   })
 
+  it('names the update next to the version when a working plugin has one ready', () => {
+    expect(pluginRowSubtitle(readyWithUpdate, false)).toBe(`${health.plugin_version} (update to ${offer.to} ready)`)
+  })
+
+  it('shows the notice, not the offer, for a plugin that needs the update', () => {
+    expect(pluginRowSubtitle(outdatedWithUpdate, false)).toBe(pluginNotice(outdatedWithUpdate)?.text)
+  })
+
   it('shows the notice text for every kind that has one', () => {
-    for (const check of [missing, disabled, notLoaded, outdated, appOutdated, unavailable]) {
+    for (const check of [missing, disabled, notLoaded, restartNeeded, outdated, outdatedWithUpdate, appOutdated, unavailable]) {
       expect(pluginRowSubtitle(check, false)).toBe(pluginNotice(check)?.text)
     }
   })
@@ -80,6 +106,24 @@ describe('pluginRowSubtitle', () => {
 
   it('keeps the last answer when a later check fails', () => {
     expect(pluginRowSubtitle(ready, true)).toBe(health.plugin_version)
+  })
+})
+
+describe('pluginRowRoute: where the plugin row in Settings leads', () => {
+  it('opens Update ready for a working plugin with an update ready, as its subtitle says', () => {
+    expect(pluginRowRoute(readyWithUpdate)).toBe('/server/update')
+  })
+
+  it('leads nowhere for a working plugin without an update, or before any answer', () => {
+    expect(pluginRowRoute(ready)).toBeNull()
+    expect(pluginRowRoute(undefined)).toBeNull()
+    expect(pluginRowRoute({ kind: 'unknown' })).toBeNull()
+  })
+
+  it('opens the screen of the notice for every other kind', () => {
+    for (const check of [missing, disabled, notLoaded, restartNeeded, outdated, outdatedWithUpdate, appOutdated, unavailable]) {
+      expect(pluginRowRoute(check)).toBe(pluginNotice(check)?.action?.route ?? null)
+    }
   })
 })
 
@@ -137,6 +181,10 @@ describe('featureNotice: a feature whose route is missing while the cached check
     expect(featureNotice(notLoaded, missingRoute, 'not_asked')).toEqual({ notice: pluginNotice(notLoaded), checking: false, recheck: false })
   })
 
+  it('shows the restart notice when a feature fails while the plugin waits for a restart', () => {
+    expect(featureNotice(restartNeeded, missingRoute, 'not_asked')).toEqual({ notice: pluginNotice(restartNeeded), checking: false, recheck: false })
+  })
+
   it("leaves the feature its own error when the fresh check still says ready, and does not ask again", () => {
     expect(featureNotice(ready, missingRoute, 'answered')).toEqual(quiet)
   })
@@ -172,5 +220,24 @@ describe('recheckState', () => {
   it('is asking until the check answers or fails after the moment it asked', () => {
     expect(recheckState({ error, after: 1_000 }, error, 1_000)).toBe('asking')
     expect(recheckState({ error, after: 1_000 }, error, 1_001)).toBe('answered')
+  })
+})
+
+describe('shouldReloadAfterNotice', () => {
+  const failed = new GatewayError('not_found', 'Not Found', { status: 404 })
+
+  it('reloads once the notice that explained the failed read is gone', () => {
+    expect(shouldReloadAfterNotice(true, false, failed)).toBe(true)
+  })
+
+  it('does not reload while the notice stays, appears for the first time, or was never there', () => {
+    expect(shouldReloadAfterNotice(true, true, failed)).toBe(false)
+    expect(shouldReloadAfterNotice(false, true, failed)).toBe(false)
+    expect(shouldReloadAfterNotice(false, false, failed)).toBe(false)
+  })
+
+  it('does not reload a read that went through', () => {
+    expect(shouldReloadAfterNotice(true, false, null)).toBe(false)
+    expect(shouldReloadAfterNotice(true, false, undefined)).toBe(false)
   })
 })
