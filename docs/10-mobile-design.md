@@ -297,18 +297,18 @@ Development builds have Settings › Developer tools › Design system. It opens
 
 Before the app signs in, it grades the server address (03 section 4, ADR-045). The Connect screen (`app/connect.tsx`) asks for a name and a gateway URL. The Check button reads the server's status, and once the server has answered, a grade line appears under the button with a link to the server guide on middelkamp.dev. The sign-in fields and the Connect button come after the line, so the user reads the grade before typing a secret. Changing the URL clears the grade and any refusal.
 
-In the first four lines, `{version}` is the Hermes version the server reported.
+In the first four lines, `{version}` is the Hermes version the server reported. A `*.ts.net` name gets the public line, because the app cannot tell a Tailscale Funnel name from a tailnet-only one (ADR-045).
 
 | Grade | Line | Link |
 |---|---|---|
 | Private, on this device | Hermes {version}. Private: this server runs on this device. | Server guide (`#private-access`) |
-| Private, over Tailscale | Hermes {version}. Private: Tailscale encrypts this connection. | Server guide (`#private-access`) |
+| Private, a Tailscale IP address | Hermes {version}. Private: Tailscale encrypts this connection. | Server guide (`#private-access`) |
 | Private, on the local network | Hermes {version}. Private: a server on your local network. | Server guide (`#private-access`) |
-| Public | Hermes {version}. Ergates treats this address as public, so anyone on the internet may reach it. Use a password of at least 12 characters, or connect over Tailscale. | Server guide (`#public-access`) |
+| Public, also a `*.ts.net` name | Hermes {version}. Ergates treats this address as public, so anyone on the internet may reach it. Use a password of at least 12 characters, or connect over Tailscale. | Server guide (`#public-access`) |
 | Unsafe, a public address over `http` | This address may be on the public internet without encryption. Ergates connects to a public server only over https. | How to stay private (`#private-access`) |
 | Unsafe, a public address that signs in without a password | This public server signs in without a password. Ergates connects to a public server only with a password. | How to stay private (`#private-access`) |
 
-- The public line says what the app does with the address: it treats it as public. It makes no claim about the network itself.
+- The public line says what the app does with the address: it treats it as public.
 - A public address over `http`, and a `*.ts.net` name over `http`, is refused when the user taps Check, before any request. The refusal shows in the error style with its link under it, and the screen shows no sign-in fields and no Connect button.
 - A public address that signs in without a password shows its line and link. The sign-in fields stay hidden and the Connect button stays disabled.
 - On a public server a password under 12 characters is refused before any login request, with "On a public server, use a password of at least 12 characters." in the error style. On Connect the message shows under the Connect button, with the Server guide link above it. The length counts Unicode code points and the password is not trimmed.
@@ -316,7 +316,7 @@ In the first four lines, `{version}` is the Hermes version the server reported.
 
 Sign in again (`app/sign-in.tsx`) applies the same rules to a saved connection. A refusal shows its message in the error style, with the matching link under it ("How to stay private" for an unsafe grade, otherwise "Server guide").
 
-Settings › Gateway has a Connection row with a shield icon between Sign-in and Backend. Its subtitle is the grade label: "Private (this device)", "Private (Tailscale)", "Private (local network)", "Public, encrypted" or "Unsafe". The app works it out from the saved address and the saved sign-in mode, with no request. The Sign-in row's subtitle is "Session token" or "Username and password".
+Settings › Gateway has a Connection row with a shield icon between Sign-in and Backend. Its subtitle is the grade label: "Private (this device)", "Private (Tailscale)" (a Tailscale IP address), "Private (local network)", "Public, encrypted" (a `*.ts.net` name included) or "Unsafe". The app works it out from the saved address and the saved sign-in mode, with no request. The Sign-in row's subtitle is "Session token" or "Username and password".
 
 ### Server plugin screens
 
