@@ -291,13 +291,13 @@ Development builds have Settings › Developer tools › Design system. It opens
 | Reduced motion | Static working indicator; native transitions reduced; no perpetual decorative animation |
 | Server plugin missing, off, not loaded, waiting for a restart, outdated, updatable or unavailable | One short sentence and, when the user can fix it, a button to the screen that does (server plugin screens below). Chat keeps working |
 | Server restarted during setup or an update | The Finish screen says "Your server restarted. Sign in again to continue." with a Sign in again button; the plugin's setup still runs after sign-in |
-| Server address graded unsafe | One sentence says why, with the **How to stay private** link. The sign-in fields stay hidden and no password or token is sent. Connect and Sign in again follow the same rule |
+| Server address graded unsafe | One sentence says why, with the **How to stay private** link, and no password or token is sent. Connect hides the sign-in fields. Sign in again shows them and refuses after the tap. For a connection saved before the app graded addresses, Home shows the plain `http` refusal, and Settings › Gateway shows the link under its Unsafe row |
 
 ### Connect and sign in
 
-Before the app signs in, it grades the server address (03 section 4, ADR-045). The Connect screen (`app/connect.tsx`) asks for a name and a gateway URL. The Check button reads the server's status, and once the server has answered, a grade line appears under the button with a link to the server guide on middelkamp.dev. The sign-in fields and the Connect button come after the line, so the user reads the grade before typing a secret. Changing the URL clears the grade and any refusal.
+Before the app signs in, it grades the server address (03 section 4, ADR-045). The Connect screen (`app/connect.tsx`) asks for a name and a gateway URL. The Check button reads the server's status. It stays disabled until the address has a host, so an empty address or a scheme alone such as `https://` cannot be checked. Once the server has answered, a grade line appears under the button with a link to the server guide on middelkamp.dev. The sign-in fields and the Connect button come after the line, so the user reads the grade before typing a secret. Changing the URL clears the grade and any refusal.
 
-In the first four lines, `{version}` is the Hermes version the server reported. A `*.ts.net` name gets the public line, because the app cannot tell a Tailscale Funnel name from a tailnet-only one (ADR-045).
+In the first four lines, `{version}` is the Hermes version the server reported. A `*.ts.net` name over `https` in password mode gets the public line, because the app cannot tell a Tailscale Funnel name from a tailnet-only one (ADR-045). So a tailnet-only name behind Tailscale Serve needs `https`, Hermes in password mode and a password of at least 12 characters.
 
 | Grade | Line | Link |
 |---|---|---|
@@ -314,9 +314,9 @@ In the first four lines, `{version}` is the Hermes version the server reported. 
 - On a public server a password under 12 characters is refused before any login request, with "On a public server, use a password of at least 12 characters." in the error style. On Connect the message shows under the Connect button, with the Server guide link above it. The length counts Unicode code points and the password is not trimmed.
 - A link that cannot open shows an alert titled "Could not open the guide" with the address.
 
-Sign in again (`app/sign-in.tsx`) applies the same rules to a saved connection. A refusal shows its message in the error style, with the matching link under it ("How to stay private" for an unsafe grade, otherwise "Server guide").
+Sign in again (`app/sign-in.tsx`) applies the same rules to a saved connection. It reads a fresh status and shows the fields for the mode the server signs in with now, or for the saved mode until the server answers. A successful sign-in in the other mode saves that mode on the connection. A refusal shows its message in the error style, with the matching link under it ("How to stay private" for an unsafe grade, otherwise "Server guide").
 
-Settings › Gateway has a Connection row with a shield icon between Sign-in and Backend. Its subtitle is the grade label: "Private (this device)", "Private (Tailscale)" (a Tailscale IP address), "Private (local network)", "Public, encrypted" (a `*.ts.net` name included) or "Unsafe". The app works it out from the saved address and the saved sign-in mode, with no request. The Sign-in row's subtitle is "Session token" or "Username and password".
+Settings › Gateway has a Connection row with a shield icon between Sign-in and Backend. Its subtitle is the grade label: "Private (this device)", "Private (Tailscale)" (a Tailscale IP address), "Private (local network)", "Public, encrypted" (a `*.ts.net` name included) or "Unsafe". The app works it out from the saved address and the saved sign-in mode, with no request. Under "Unsafe" the row shows the **How to stay private** link. The Sign-in row's subtitle is "Session token" or "Username and password".
 
 ### Server plugin screens
 
