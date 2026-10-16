@@ -12,7 +12,20 @@ import React, { useEffect, useState } from 'react'
 import { Alert, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { afterSignIn, SIGNED_OUT_HINT } from '@/features/server'
-import { BLANK_CREDENTIALS, connectionToSignIn, credentialsFrom, credentialsReady, firstProvider, signInAgain, usePrimaryConnection, type CredentialValues } from '@/features/settings'
+import {
+  BLANK_CREDENTIALS,
+  connectionToSignIn,
+  credentialsFrom,
+  credentialsReady,
+  firstProvider,
+  GRADE_GUIDE,
+  guideLabel,
+  signInAgain,
+  SignInRefused,
+  usePrimaryConnection,
+  type ConnectionGrade,
+  type CredentialValues
+} from '@/features/settings'
 import { useGateway, useGatewayRegistry } from '@/gateway/registry'
 import { buildRecord } from '@/lib/build-info'
 import { useDeviceStore, type Connection } from '@/state/device-store'
@@ -21,6 +34,7 @@ import { useTheme } from '@/theme/provider'
 import { LEADING, SPACE, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
 import { CredentialFields } from '@/ui/CredentialFields'
+import { GuideLink } from '@/ui/GuideLink'
 import { Screen } from '@/ui/Screen'
 import { useBottomInset } from '@/ui/use-bottom-inset'
 
@@ -45,6 +59,8 @@ function SignIn({ connection }: { connection: Connection }) {
   const [credentials, setCredentials] = useState<CredentialValues>(BLANK_CREDENTIALS)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The grade behind `error` when the app refused the server or the password, so the guide can be offered.
+  const [refused, setRefused] = useState<ConnectionGrade | null>(null)
 
   // Preselect the gateway's first provider, as Connect does. Unreachable is fine
   // here: signing in reports it.
@@ -70,6 +86,7 @@ function SignIn({ connection }: { connection: Connection }) {
   const signIn = async () => {
     setBusy(true)
     setError(null)
+    setRefused(null)
     try {
       await signInAgain(registry, connection, credentialsFrom(mode, credentials))
       // Everything read while signed out failed; read it again with the new sign-in.
@@ -83,6 +100,7 @@ function SignIn({ connection }: { connection: Connection }) {
       router.replace(route)
     } catch (err) {
       setError((err as Error).message)
+      setRefused(err instanceof SignInRefused ? err.grade : null)
     } finally {
       setBusy(false)
     }
@@ -119,6 +137,7 @@ function SignIn({ connection }: { connection: Connection }) {
               {error}
             </Text>
           ) : null}
+          {refused ? <GuideLink label={guideLabel(refused)} url={GRADE_GUIDE[refused.kind]} /> : null}
           {/* Settings acts on the primary connection only. Home replaces itself with this screen for the primary
               one, so there Settings is the only way to Sign out or the gateway details; any other connection
               arrives here pushed from its chat, where Back still works. */}

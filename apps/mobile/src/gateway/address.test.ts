@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { addressKind, isTailscaleName, normalizeBaseUrl, usesHttps, type AddressKind } from './address'
+import { addressKind, allowsPlainHttp, isTailscaleName, normalizeBaseUrl, PUBLIC_HTTP_REFUSAL, usesHttps, type AddressKind } from './address'
 
 type Row = [address: string, kind: AddressKind]
 
@@ -218,5 +218,61 @@ describe('normalizeBaseUrl', () => {
     expect(normalizeBaseUrl('https://gw.tail.net')).toBe('https://gw.tail.net')
     expect(normalizeBaseUrl('HTTPS://gw.tail.net/')).toBe('HTTPS://gw.tail.net')
     expect(normalizeBaseUrl('http://gw.tail.net')).toBe('http://gw.tail.net')
+  })
+
+  it('never eats a scheme that was typed without a host after it', () => {
+    expect(normalizeBaseUrl('https://')).toBe('https://')
+    expect(normalizeBaseUrl('http://')).toBe('http://')
+    expect(normalizeBaseUrl('  HTTPS://  ')).toBe('HTTPS://')
+    expect(normalizeBaseUrl('https:///')).toBe('https://')
+  })
+
+  it('reads an empty or slash-only text as http with no host', () => {
+    expect(normalizeBaseUrl('')).toBe('http://')
+    expect(normalizeBaseUrl('   ')).toBe('http://')
+    expect(normalizeBaseUrl('/')).toBe('http://')
+  })
+})
+
+describe('allowsPlainHttp', () => {
+  it.each([
+    'http://127.0.0.1:9119',
+    'http://localhost:9119',
+    'http://[::1]:9119',
+    'http://192.168.1.10:9119',
+    'http://10.1.2.3',
+    'http://hermes.local',
+    'http://hermes',
+    'http://100.101.102.103:9119',
+    'http://[fd7a:115c:a1e0::1]:9119',
+    '192.168.1.10:9119'
+  ])('allows %s', address => {
+    expect(allowsPlainHttp(address)).toBe(true)
+  })
+
+  it.each([
+    'http://8.8.8.8:9119',
+    'http://hermes.example.com',
+    'hermes.example.com',
+    'http://100.128.0.1',
+    'http://hermes.tail1234.ts.net',
+    'http://HERMES.TAIL1234.TS.NET:9119',
+    'http://user:pw@192.168.1.10',
+    'http://012.0.0.1',
+    'http://',
+    ''
+  ])('refuses %j', address => {
+    expect(allowsPlainHttp(address)).toBe(false)
+  })
+
+  it('judges the host alone, whatever the scheme', () => {
+    expect(allowsPlainHttp('https://192.168.1.10')).toBe(true)
+    expect(allowsPlainHttp('https://hermes.example.com')).toBe(false)
+  })
+})
+
+describe('PUBLIC_HTTP_REFUSAL', () => {
+  it('says why the app does not connect to a public address over plain http', () => {
+    expect(PUBLIC_HTTP_REFUSAL).toBe('This address may be on the public internet without encryption. Ergates connects to a public server only over https.')
   })
 })

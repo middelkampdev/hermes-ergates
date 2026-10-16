@@ -6,10 +6,11 @@ export {
   GRADE_GUIDE,
   gradeLabel,
   gradeLine,
+  guideLabel,
   MIN_PUBLIC_PASSWORD,
   PASSWORD_TOO_SHORT,
   passwordProblem,
   type ConnectionGrade
 } from './connection-grade'
-export { connectGateway, connectionToSignIn, probeGateway, signInAgain, signOut, usePrimaryConnection } from './connections'
+export { connectGateway, connectionToSignIn, probeGateway, signInAgain, SignInRefused, signOut, usePrimaryConnection } from './connections'
 export { BLANK_CREDENTIALS, credentialsFrom, credentialsReady, firstProvider, type CredentialValues, type SignInMode } from './credentials'

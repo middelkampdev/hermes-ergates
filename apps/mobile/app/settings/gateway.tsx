@@ -8,7 +8,7 @@ import { useRouter } from 'expo-router'
 import React, { useMemo } from 'react'
 
 import { pluginRowRoute, pluginRowSubtitle, useServerCheck, type NoticeRoute } from '@/features/server'
-import { usePrimaryConnection } from '@/features/settings'
+import { connectionGrade, gradeLabel, usePrimaryConnection } from '@/features/settings'
 import { useGateway } from '@/gateway/registry'
 import { buildRecord } from '@/lib/build-info'
 import { AutoUpdateSwitch } from '@/ui/AutoUpdateSwitch'
@@ -40,7 +40,9 @@ function GatewaySettings({ connection, onBack, onOpenSetup }: GatewaySettingsPro
   return (
     <Page title="Gateway" onBack={onBack}>
       <Group>
-        <ListRow title="Sign-in" subtitle={connection.authMode === 'token' ? 'Session token (private loopback)' : 'Username and password'} icon="key" />
+        <ListRow title="Sign-in" subtitle={connection.authMode === 'token' ? 'Session token' : 'Username and password'} icon="key" />
+        {/* Worked out from the saved address and sign-in mode alone: this screen makes no request for it. */}
+        <ListRow title="Connection" subtitle={gradeLabel(connectionGrade(connection.baseUrl, { auth_required: connection.authMode === 'password' }))} icon="shield" />
         <ListRow title="Backend" subtitle={status.data ? `Hermes ${status.data.version}` : status.isError ? 'Unreachable' : 'Checking…'} icon="cpu" />
         {/* A plugin that cannot do its job says why here, and the row opens the screen that fixes it, or Update ready when an update is ready. */}
         <ListRow

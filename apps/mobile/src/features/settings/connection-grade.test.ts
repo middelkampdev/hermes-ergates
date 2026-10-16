@@ -6,6 +6,7 @@ import {
   GRADE_GUIDE,
   gradeLabel,
   gradeLine,
+  guideLabel,
   MIN_PUBLIC_PASSWORD,
   PASSWORD_TOO_SHORT,
   passwordProblem,
@@ -92,8 +93,9 @@ describe('addressGrade', () => {
     expect(addressGrade('')).toEqual(PUBLIC_HTTP)
   })
 
-  it('grades a bare https:// as a local name, since normalizing leaves http://https: and a name without a dot is local', () => {
-    expect(addressGrade('https://')).toEqual(LAN)
+  it('needs the server to answer for a bare https://, which keeps its scheme and has no readable host', () => {
+    expect(addressGrade('https://')).toBeNull()
+    expect(addressGrade('http://')).toEqual(PUBLIC_HTTP)
   })
 
   it.each([`http://x.ts.net\\@evil.com`, `http://${TAILSCALE_NAME}\\@evil.com`])('refuses a backslash after an http host: %s', address => {
@@ -237,5 +239,16 @@ describe('GRADE_GUIDE', () => {
       public: 'https://middelkamp.dev/ergates/server/#public-access',
       unsafe: 'https://middelkamp.dev/ergates/server/#private-access'
     })
+  })
+})
+
+describe('guideLabel', () => {
+  it('offers how to stay private for an unsafe grade, and the server guide for any other', () => {
+    expect(guideLabel(PUBLIC_HTTP)).toBe('How to stay private')
+    expect(guideLabel(PUBLIC_TOKEN)).toBe('How to stay private')
+    expect(guideLabel(PUBLIC)).toBe('Server guide')
+    expect(guideLabel(LOOPBACK)).toBe('Server guide')
+    expect(guideLabel(TAILSCALE)).toBe('Server guide')
+    expect(guideLabel(LAN)).toBe('Server guide')
   })
 })

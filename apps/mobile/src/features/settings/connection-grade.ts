@@ -5,7 +5,7 @@
  * server, and never connects to a public server that signs in without one.
  */
 
-import { addressKind, isTailscaleName, usesHttps } from '@/gateway/address'
+import { addressKind, allowsPlainHttp, isTailscaleName, PUBLIC_HTTP_REFUSAL, usesHttps } from '@/gateway/address'
 import type { BackendStatus } from '@/gateway/types'
 
 /** The shortest password the app accepts on a public server, counted in Unicode code points. */
@@ -33,14 +33,8 @@ export const PASSWORD_TOO_SHORT = `On a public server, use a password of at leas
  */
 export function addressGrade(baseUrl: string): ConnectionGrade | null {
   const kind = addressKind(baseUrl)
-  if (kind === 'loopback') {
-    return { kind: 'private', via: 'loopback' }
-  }
-  if (kind === 'private') {
-    return { kind: 'private', via: 'lan' }
-  }
-  if (kind === 'tailscale' && !isTailscaleName(baseUrl)) {
-    return { kind: 'private', via: 'tailscale' }
+  if (kind !== 'public' && allowsPlainHttp(baseUrl)) {
+    return { kind: 'private', via: PRIVATE_VIA[kind] }
   }
   // What is left is a public address or a `*.ts.net` name, which only https may go on to ask.
   return usesHttps(baseUrl) ? null : { kind: 'unsafe', reason: 'public_http' }
@@ -79,6 +73,11 @@ export function gradeLine(grade: ConnectionGrade, version: string): string {
   }
 }
 
+/** The label of the guide link under a grade line: an unsafe server gets the way to stay private. */
+export function guideLabel(grade: ConnectionGrade): string {
+  return grade.kind === 'unsafe' ? 'How to stay private' : 'Server guide'
+}
+
 export function gradeLabel(grade: ConnectionGrade): string {
   switch (grade.kind) {
     case 'private':
@@ -89,6 +88,9 @@ export function gradeLabel(grade: ConnectionGrade): string {
       return 'Unsafe'
   }
 }
+
+/** Which private grade each kind of address that allows plain http gets. */
+const PRIVATE_VIA = { loopback: 'loopback', private: 'lan', tailscale: 'tailscale' } as const
 
 const PRIVATE_LINES = {
   loopback: 'Private: this server runs on this device.',
@@ -103,7 +105,7 @@ const PRIVATE_LABELS = {
 } satisfies Record<Extract<ConnectionGrade, { kind: 'private' }>['via'], string>
 
 const UNSAFE_LINES = {
-  public_http: 'This address may be on the public internet without encryption. Ergates connects to a public server only over https.',
+  public_http: PUBLIC_HTTP_REFUSAL,
   public_token: 'This public server signs in without a password. Ergates connects to a public server only with a password.'
 } satisfies Record<Extract<ConnectionGrade, { kind: 'unsafe' }>['reason'], string>
 

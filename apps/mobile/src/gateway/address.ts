@@ -15,14 +15,32 @@ const TAILSCALE_NAME_ENDING = '.ts.net'
 /** Anything outside printable ASCII. The app's URL parser does not convert Unicode hosts, the phone's network stack does. */
 const NON_ASCII = /[^ -~]/
 
-/** The address as the app sends requests to it: trimmed, no trailing slash, `http://` when no scheme was typed. */
+/** Why the app does not connect to an address that may be on the public internet over plain `http`. */
+export const PUBLIC_HTTP_REFUSAL = 'This address may be on the public internet without encryption. Ergates connects to a public server only over https.'
+
+/**
+ * The address as the app sends requests to it: trimmed, no trailing slash, `http://` when no scheme was
+ * typed. The scheme is split off first, so slashes only count after it and `https://` stays `https://`.
+ */
 export function normalizeBaseUrl(text: string): string {
-  const trimmed = text.trim().replace(/\/+$/, '')
-  return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
+  const trimmed = text.trim()
+  const scheme = /^https?:\/\//i.exec(trimmed)?.[0]
+  const rest = trimmed.slice(scheme?.length ?? 0).replace(/\/+$/, '')
+  return `${scheme ?? 'http://'}${rest}`
 }
 
 export function usesHttps(baseUrl: string): boolean {
   return /^https:\/\//i.test(normalizeBaseUrl(baseUrl))
+}
+
+/**
+ * True when plain `http` to this address stays on a private network: loopback, a private address, or a
+ * Tailscale IP address, which Tailscale encrypts. False for a public address and for a `*.ts.net` name,
+ * which resolves through the local network's DNS when Tailscale is off and can be published by Funnel.
+ */
+export function allowsPlainHttp(baseUrl: string): boolean {
+  const kind = addressKind(baseUrl)
+  return kind === 'loopback' || kind === 'private' || (kind === 'tailscale' && !isTailscaleName(baseUrl))
 }
 
 /**

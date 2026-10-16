@@ -5,6 +5,9 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { FakeGateway } from '@test/fake-gateway/fake-gateway'
+
+import { PUBLIC_HTTP_REFUSAL } from '@/gateway/address'
 import { GatewayError } from '@/gateway/errors'
 import type { ConnectedGateway } from '@/gateway/port'
 import type { GatewayRegistry } from '@/gateway/registry'
@@ -12,7 +15,8 @@ import type { Credentials } from '@/gateway/types'
 import { draftKey, useDeviceStore, type Connection } from '@/state/device-store'
 import type { OutboxItem } from '@/state/outbox'
 
-import { connectionToSignIn, signInAgain } from './connections'
+import { PASSWORD_TOO_SHORT } from './connection-grade'
+import { connectGateway, connectionToSignIn, probeGateway, signInAgain, SignInRefused, type ConnectInput } from './connections'
 
 const saved: Connection = { id: 'c-1', label: 'Home server', baseUrl: 'http://100.64.0.1:9119', authMode: 'password', primary: true, createdAt: 1 }
 const queued: OutboxItem = { localId: 'o-1', connectionId: 'c-1', profile: 'alice', text: 'ask about the invoice', createdAt: 2, status: 'queued_unsent' }
@@ -24,8 +28,187 @@ function registryWith(login: ConnectedGateway['login']) {
   return { get: vi.fn(() => gateway), probe: vi.fn(), forget: vi.fn() } satisfies GatewayRegistry
 }
 
+/** A registry that hands the one fake gateway to every connection, saved or not. */
+function registryOver(gateway: FakeGateway) {
+  const port = gateway as unknown as ConnectedGateway
+  return { get: vi.fn(() => port), probe: vi.fn(() => port), forget: vi.fn() } satisfies GatewayRegistry
+}
+
+/** A fake gateway that asks for a username and password, as a public server must. */
+function gatedGateway(): FakeGateway {
+  const gateway = new FakeGateway()
+  gateway.requirePassword()
+  return gateway
+}
+
+const PUBLIC_HTTPS = 'https://hermes.example.com'
+const NO_PASSWORD_PUBLIC = 'This public server signs in without a password. Ergates connects to a public server only with a password.'
+
+function passwordInput(baseUrl: string, password: string): ConnectInput {
+  return { label: 'Office', baseUrl, mode: 'password', provider: 'basic', username: 'jop', password }
+}
+
+function passwordCreds(password: string): Credentials {
+  return { mode: 'password', provider: 'basic', username: 'jop', password }
+}
+
 beforeEach(() => {
   useDeviceStore.setState({ connections: [saved], drafts: { [draftKey('c-1', 'alice')]: 'half a reply' }, outbox: [queued] })
+})
+
+describe('probeGateway', () => {
+  it('refuses a public address over http without asking the server', async () => {
+    const gateway = new FakeGateway()
+    const registry = registryOver(gateway)
+
+    const attempt = probeGateway(registry, 'http://8.8.8.8:9119')
+
+    await expect(attempt).rejects.toThrow(PUBLIC_HTTP_REFUSAL)
+    await expect(attempt).rejects.toBeInstanceOf(SignInRefused)
+    expect(gateway.statusCalls).toBe(0)
+    expect(registry.probe).not.toHaveBeenCalled()
+  })
+
+  it('refuses an address typed without a scheme, and a Tailscale name over http', async () => {
+    const gateway = new FakeGateway()
+    const registry = registryOver(gateway)
+
+    await expect(probeGateway(registry, '8.8.8.8:9119')).rejects.toThrow(PUBLIC_HTTP_REFUSAL)
+    await expect(probeGateway(registry, 'http://hermes.tail1234.ts.net')).rejects.toThrow(PUBLIC_HTTP_REFUSAL)
+
+    expect(gateway.statusCalls).toBe(0)
+  })
+
+  it('asks a private address and a public https address for their status', async () => {
+    const gateway = new FakeGateway()
+    const registry = registryOver(gateway)
+
+    await expect(probeGateway(registry, 'http://192.168.1.10:9119')).resolves.toMatchObject({ auth_required: false })
+    await expect(probeGateway(registry, PUBLIC_HTTPS)).resolves.toMatchObject({ auth_required: false })
+
+    expect(gateway.statusCalls).toBe(2)
+  })
+})
+
+describe('connectGateway', () => {
+  it('refuses a short password on a public server before it signs in, and saves nothing', async () => {
+    const gateway = gatedGateway()
+    const registry = registryOver(gateway)
+
+    const attempt = connectGateway(registry, passwordInput(PUBLIC_HTTPS, 'a'.repeat(11)))
+
+    await expect(attempt).rejects.toThrow(PASSWORD_TOO_SHORT)
+    expect(gateway.loginCalls).toBe(0)
+    expect(useDeviceStore.getState().connections).toEqual([saved])
+    expect(registry.forget).toHaveBeenCalledTimes(1)
+  })
+
+  it('tells the screen which grade it refused, so it can offer the guide', async () => {
+    const attempt = connectGateway(registryOver(gatedGateway()), passwordInput(PUBLIC_HTTPS, 'short'))
+
+    await expect(attempt).rejects.toMatchObject({ name: 'SignInRefused', grade: { kind: 'public' } })
+  })
+
+  it('signs in to a public server with a password of 12 characters', async () => {
+    const gateway = gatedGateway()
+    const registry = registryOver(gateway)
+
+    const record = await connectGateway(registry, passwordInput(PUBLIC_HTTPS, 'a'.repeat(12)))
+
+    expect(gateway.loginCalls).toBe(1)
+    expect(record).toMatchObject({ baseUrl: PUBLIC_HTTPS, authMode: 'password', primary: true })
+    const { connections } = useDeviceStore.getState()
+    expect(connections.map(c => c.id)).toEqual(['c-1', record.id])
+    expect(connections.find(c => c.id === record.id)?.primary).toBe(true)
+    expect(registry.forget).not.toHaveBeenCalled()
+  })
+
+  it('counts a password in characters, not bytes, so 12 emoji pass and 11 do not', async () => {
+    const gateway = gatedGateway()
+    const registry = registryOver(gateway)
+
+    await expect(connectGateway(registry, passwordInput(PUBLIC_HTTPS, '😀'.repeat(11)))).rejects.toThrow(PASSWORD_TOO_SHORT)
+    await expect(connectGateway(registry, passwordInput(PUBLIC_HTTPS, '😀'.repeat(12)))).resolves.toMatchObject({ baseUrl: PUBLIC_HTTPS })
+
+    expect(gateway.loginCalls).toBe(1)
+  })
+
+  it('signs in to a private address with a short password, without asking its status', async () => {
+    const gateway = new FakeGateway()
+
+    await connectGateway(registryOver(gateway), passwordInput('http://192.168.1.10:9119', 'x'))
+
+    expect(gateway.loginCalls).toBe(1)
+    expect(gateway.statusCalls).toBe(0)
+  })
+
+  it('signs in to a Tailscale name over https with a short password when it asks for one', async () => {
+    const gateway = gatedGateway()
+
+    await connectGateway(registryOver(gateway), passwordInput('https://hermes.tail1234.ts.net', 'x'))
+
+    expect(gateway.loginCalls).toBe(1)
+  })
+
+  it('refuses a public address over http before any request, and saves nothing', async () => {
+    const gateway = gatedGateway()
+    const registry = registryOver(gateway)
+
+    const attempt = connectGateway(registry, passwordInput('http://8.8.8.8:9119', 'a'.repeat(40)))
+
+    await expect(attempt).rejects.toThrow(PUBLIC_HTTP_REFUSAL)
+    await expect(attempt).rejects.toMatchObject({ grade: { kind: 'unsafe', reason: 'public_http' } })
+    expect(gateway.statusCalls).toBe(0)
+    expect(gateway.loginCalls).toBe(0)
+    expect(useDeviceStore.getState().connections).toEqual([saved])
+  })
+
+  it('refuses a public server that signs in without a password, before it sends the token', async () => {
+    const gateway = new FakeGateway()
+    const registry = registryOver(gateway)
+
+    const attempt = connectGateway(registry, { label: 'Office', baseUrl: PUBLIC_HTTPS, mode: 'token', token: 'tok-1' })
+
+    await expect(attempt).rejects.toThrow(NO_PASSWORD_PUBLIC)
+    expect(gateway.statusCalls).toBe(1)
+    expect(gateway.loginCalls).toBe(0)
+    expect(useDeviceStore.getState().connections).toEqual([saved])
+    expect(registry.forget).toHaveBeenCalledTimes(1)
+  })
+
+  it('signs in to a loopback server with a session token, as the development hook does', async () => {
+    const gateway = new FakeGateway()
+
+    await connectGateway(registryOver(gateway), { label: 'Local Hermes', baseUrl: 'http://127.0.0.1:9119', mode: 'token', token: 'tok-1' })
+
+    expect(gateway.loginCalls).toBe(1)
+    expect(gateway.statusCalls).toBe(0)
+  })
+
+  it('says so when the server cannot be asked, and signs in to nothing', async () => {
+    const gateway = gatedGateway()
+    gateway.setHermesVersion(new GatewayError('network', 'x'))
+    const registry = registryOver(gateway)
+
+    await expect(connectGateway(registry, passwordInput(PUBLIC_HTTPS, 'a'.repeat(12)))).rejects.toThrow('No connection to the gateway.')
+
+    expect(gateway.loginCalls).toBe(0)
+    expect(useDeviceStore.getState().connections).toEqual([saved])
+    expect(registry.forget).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps nothing when the server rejects the sign-in', async () => {
+    const registry = registryWith(
+      vi.fn(async () => {
+        throw new GatewayError('unauthorized', 'x')
+      })
+    )
+
+    await expect(connectGateway(registry, passwordInput('http://192.168.1.10:9119', 'x'))).rejects.toThrow('Sign-in required.')
+
+    expect(useDeviceStore.getState().connections).toEqual([saved])
+    expect(registry.forget).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('signInAgain', () => {
@@ -59,6 +242,69 @@ describe('signInAgain', () => {
     expect(useDeviceStore.getState().connections).toEqual([saved])
     expect(useDeviceStore.getState().drafts).toEqual({ [draftKey('c-1', 'alice')]: 'half a reply' })
     expect(useDeviceStore.getState().outbox).toEqual([queued])
+  })
+
+  it('refuses a short password on a saved public connection before it signs in', async () => {
+    const gateway = gatedGateway()
+    const registry = registryOver(gateway)
+    const publicServer: Connection = { ...saved, baseUrl: PUBLIC_HTTPS }
+
+    const attempt = signInAgain(registry, publicServer, passwordCreds('a'.repeat(11)))
+
+    await expect(attempt).rejects.toThrow(PASSWORD_TOO_SHORT)
+    await expect(attempt).rejects.toMatchObject({ grade: { kind: 'public' } })
+    expect(gateway.loginCalls).toBe(0)
+    expect(registry.forget).not.toHaveBeenCalled()
+    expect(useDeviceStore.getState().connections).toEqual([saved])
+  })
+
+  it('signs in to a saved public connection with a password of 12 characters, after a fresh status read', async () => {
+    const gateway = gatedGateway()
+    const publicServer: Connection = { ...saved, baseUrl: PUBLIC_HTTPS }
+
+    await signInAgain(registryOver(gateway), publicServer, passwordCreds('a'.repeat(12)))
+
+    expect(gateway.statusCalls).toBe(1)
+    expect(gateway.loginCalls).toBe(1)
+  })
+
+  it('refuses a saved public address over http before any request', async () => {
+    const gateway = gatedGateway()
+    const old: Connection = { ...saved, baseUrl: 'http://8.8.8.8:9119' }
+
+    await expect(signInAgain(registryOver(gateway), old, passwordCreds('a'.repeat(40)))).rejects.toThrow(PUBLIC_HTTP_REFUSAL)
+
+    expect(gateway.statusCalls).toBe(0)
+    expect(gateway.loginCalls).toBe(0)
+  })
+
+  it('refuses a saved public connection whose server now signs in without a password', async () => {
+    const gateway = new FakeGateway()
+    const publicServer: Connection = { ...saved, baseUrl: PUBLIC_HTTPS, authMode: 'token' }
+
+    await expect(signInAgain(registryOver(gateway), publicServer, { mode: 'token', token: 'tok-1' })).rejects.toThrow(NO_PASSWORD_PUBLIC)
+
+    expect(gateway.statusCalls).toBe(1)
+    expect(gateway.loginCalls).toBe(0)
+  })
+
+  it('says so when the saved server cannot be asked, and signs in to nothing', async () => {
+    const gateway = gatedGateway()
+    gateway.setHermesVersion(new GatewayError('timeout', 'x'))
+    const publicServer: Connection = { ...saved, baseUrl: PUBLIC_HTTPS }
+
+    await expect(signInAgain(registryOver(gateway), publicServer, passwordCreds('a'.repeat(12)))).rejects.toThrow('The gateway did not answer in time.')
+
+    expect(gateway.loginCalls).toBe(0)
+  })
+
+  it('signs in to a saved private connection with a short password, without asking its status', async () => {
+    const gateway = new FakeGateway()
+
+    await signInAgain(registryOver(gateway), saved, passwordCreds('x'))
+
+    expect(gateway.loginCalls).toBe(1)
+    expect(gateway.statusCalls).toBe(0)
   })
 
   it('drops the spaces a pasted session token picks up, as Connect does', async () => {

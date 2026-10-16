@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { isGatewayError } from '../errors'
+import { PUBLIC_HTTP_REFUSAL } from '../address'
+import { InsecureTransportError, isGatewayError } from '../errors'
 import { HttpClient, mergeCookieHeader, normalizeBaseUrl, splitSetCookie, type HttpAuthState } from './http'
 
 function fetchStub(status: number, body: unknown, headers: Record<string, string> = {}) {
@@ -125,6 +126,45 @@ describe('HttpClient', () => {
     }) as unknown as typeof fetch
     const http = new HttpClient({ baseUrl: 'http://x', getAuth: () => ({ mode: 'none' }), fetchImpl: impl })
     await expect(http.get('/api/status')).rejects.toSatisfy((e: unknown) => isGatewayError(e) && e.kind === 'network')
+  })
+})
+
+describe('HttpClient transport guard', () => {
+  const client = (baseUrl: string, impl: typeof fetch) => new HttpClient({ baseUrl, getAuth: () => ({ mode: 'token', token: 'tok-1' }), fetchImpl: impl })
+
+  it.each(['http://8.8.8.8:9119', 'http://hermes.example.com', 'hermes.example.com:9119', 'http://hermes.tail1234.ts.net', 'http://HERMES.TAIL1234.TS.NET:9119'])(
+    'refuses %s over plain http before fetch is called',
+    async baseUrl => {
+      const { impl, calls } = fetchStub(200, { ok: true })
+      const http = client(baseUrl, impl)
+
+      await expect(http.get('/api/status')).rejects.toBeInstanceOf(InsecureTransportError)
+      await expect(http.post('/auth/password-login', { password: 'p' })).rejects.toThrow(PUBLIC_HTTP_REFUSAL)
+      await expect(http.exchange('GET', '/api/status')).rejects.toBeInstanceOf(InsecureTransportError)
+
+      expect(impl).not.toHaveBeenCalled()
+      expect(calls).toHaveLength(0)
+    }
+  )
+
+  it.each(['http://192.168.1.10:9119', 'http://100.101.102.103:9119', 'http://127.0.0.1:9119', 'http://hermes.local'])('sends %s over plain http', async baseUrl => {
+    const { impl, calls } = fetchStub(200, { ok: true })
+
+    await client(baseUrl, impl).get('/api/status')
+
+    expect(calls[0]?.url).toBe(`${baseUrl}/api/status`)
+  })
+
+  it.each(['https://hermes.example.com', 'https://hermes.tail1234.ts.net', 'https://8.8.8.8:9119'])('sends %s over https', async baseUrl => {
+    const { impl, calls } = fetchStub(200, { ok: true })
+
+    await client(baseUrl, impl).get('/api/status')
+
+    expect(calls[0]?.url).toBe(`${baseUrl}/api/status`)
+  })
+
+  it('builds a client for any address and refuses only when it sends', () => {
+    expect(() => client('http://8.8.8.8:9119', vi.fn() as unknown as typeof fetch)).not.toThrow()
   })
 })
 

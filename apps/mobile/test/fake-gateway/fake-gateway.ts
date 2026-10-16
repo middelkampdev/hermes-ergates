@@ -26,6 +26,7 @@ import profilesListFixture from '../fixtures/profiles-list.json'
 import sessionCreateFixture from '../fixtures/session-create.json'
 import skillsFixture from '../fixtures/skills.json'
 import statusFixture from '../fixtures/status.json'
+import statusGatedFixture from '../fixtures/status-gated.json'
 import toolsetsFixture from '../fixtures/toolsets.json'
 import transcriptSenderFixture from '../fixtures/agent-traffic/transcript-sender.json'
 
@@ -341,17 +342,29 @@ export class FakeGateway implements GatewayPort {
   profilesOffline = false
   /** What `setHermesVersion` set; null keeps the version of the recorded status. */
   private hermesVersion: string | Error | null = null
+  /** True once `requirePassword` made `status` answer like a gated server. */
+  private passwordRequired = false
+  /** How many times `status` was called, whether it answered or rejected. */
+  statusCalls = 0
+  /** How many times `login` was called. */
+  loginCalls = 0
 
   constructor(script: FakeScript = {}) {
     this.script = script
   }
 
   async status(): Promise<T.BackendStatus> {
+    this.statusCalls += 1
     if (this.hermesVersion instanceof Error) {
       throw this.hermesVersion
     }
-    const status = clone<T.BackendStatus>(statusFixture)
+    const status = clone<T.BackendStatus>(this.passwordRequired ? statusGatedFixture : statusFixture)
     return this.hermesVersion === null ? status : { ...status, version: this.hermesVersion }
+  }
+
+  /** Test hook: `status` answers like a gated server (it asks for a username and password) from now on. */
+  requirePassword(): void {
+    this.passwordRequired = true
   }
 
   /** Test hook: the Hermes version `status` reports from now on (as the server words it, `unknown` included), or an error it rejects with. */
@@ -360,6 +373,7 @@ export class FakeGateway implements GatewayPort {
   }
 
   async login(): Promise<T.AuthIdentity | null> {
+    this.loginCalls += 1
     return null
   }
 

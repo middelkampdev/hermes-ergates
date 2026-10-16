@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import { jsonRpcErrorFromFrame } from '@vendor/hermes/shared/json-rpc-channel'
 
-import { GatewayError, mapErgatesError, mapHttpError, mapRpcError, mapSocketClose, redact, userMessage } from './errors'
+import { PUBLIC_HTTP_REFUSAL } from './address'
+import { GatewayError, InsecureTransportError, mapErgatesError, mapHttpError, mapRpcError, mapSocketClose, redact, requireSecureTransport, userMessage } from './errors'
 
 describe('mapHttpError', () => {
   it('maps 401 to unauthorized', () => {
@@ -81,5 +82,28 @@ describe('redaction', () => {
   it('never leaks a token through userMessage', () => {
     const text = userMessage(new Error('bad url ws://h/api/ws?token=secret-value'))
     expect(text).not.toContain('secret-value')
+  })
+})
+
+describe('requireSecureTransport', () => {
+  it.each(['http://127.0.0.1:9119', 'http://192.168.1.10:9119', 'http://100.101.102.103:9119', 'http://hermes.local', 'https://hermes.example.com', 'https://hermes.tail1234.ts.net'])(
+    'lets %s through',
+    baseUrl => {
+      expect(() => requireSecureTransport(baseUrl)).not.toThrow()
+    }
+  )
+
+  it.each(['http://8.8.8.8:9119', 'http://hermes.example.com', 'http://hermes.tail1234.ts.net', 'hermes.example.com', 'http://'])('refuses %s with the public http copy', baseUrl => {
+    expect(() => requireSecureTransport(baseUrl)).toThrow(InsecureTransportError)
+    expect(() => requireSecureTransport(baseUrl)).toThrow(PUBLIC_HTTP_REFUSAL)
+  })
+})
+
+describe('InsecureTransportError', () => {
+  it('is an Error that carries the public http copy and says so in userMessage', () => {
+    const error = new InsecureTransportError()
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toBe(PUBLIC_HTTP_REFUSAL)
+    expect(userMessage(error)).toBe(PUBLIC_HTTP_REFUSAL)
   })
 })
