@@ -3,7 +3,9 @@
  * app.config.ts adds the build record to the app: which Ergates plugin the
  * app needs (read from the plugin's own files, so a version bump follows) and
  * the Hermes versions CI has tested. The app reads it back as
- * `Constants.expoConfig.extra.ergates`.
+ * `Constants.expoConfig.extra.ergates`. It also pins the transport settings in
+ * app.json: Android cleartext traffic on, iOS plain http for the local network
+ * only.
  */
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -68,6 +70,22 @@ describe('readBuildRecord', () => {
 
   it.each(['0.21.6', '0', 'v0.21', '', 'latest'])('throws when the tested range is "%s", not X.Y', value => {
     expect(() => readBuildRecord(ROOT, value, null)).toThrow(/X\.Y/)
+  })
+})
+
+describe('transport security', () => {
+  // Android blocks cleartext traffic from API 28 on, and the app targets API 36,
+  // so a release build only reaches a private server over http when the manifest
+  // allows it. The connection grade refuses plain http to a public address
+  // before a request goes out; that is what makes this switch safe.
+  it('lets Android release builds reach a private server over http', () => {
+    const entry = EXPO_CONFIG.plugins.find((plugin: unknown) => Array.isArray(plugin) && plugin[0] === 'expo-build-properties')
+
+    expect(entry[1].android.usesCleartextTraffic).toBe(true)
+  })
+
+  it('limits iOS plain http to the local network, with no blanket or per-domain exception', () => {
+    expect(EXPO_CONFIG.ios.infoPlist.NSAppTransportSecurity).toStrictEqual({ NSAllowsLocalNetworking: true })
   })
 })
 
