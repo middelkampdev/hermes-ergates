@@ -54,10 +54,17 @@ describe('addressGrade', () => {
     }
   )
 
-  it.each([`http://${TAILSCALE_NAME}`, `https://${TAILSCALE_NAME}`, `https://${TAILSCALE_NAME}.`, `https://${TAILSCALE_NAME.toUpperCase()}`])(
-    'needs the server to answer for a Tailscale name, since Funnel can publish it: %s',
+  it.each([`https://${TAILSCALE_NAME}`, `https://${TAILSCALE_NAME}.`, `https://${TAILSCALE_NAME.toUpperCase()}`])(
+    'needs the server to answer for a Tailscale name over https, since Funnel can publish it: %s',
     address => {
       expect(addressGrade(address)).toBeNull()
+    }
+  )
+
+  it.each([`http://${TAILSCALE_NAME}`, `http://${TAILSCALE_NAME}:9119`, `http://${TAILSCALE_NAME}.`, `http://${TAILSCALE_NAME.toUpperCase()}`])(
+    'refuses a Tailscale name over http, since without Tailscale a spoofer on the local network could answer for it: %s',
+    address => {
+      expect(addressGrade(address)).toEqual(PUBLIC_HTTP)
     }
   )
 
@@ -80,26 +87,42 @@ describe('addressGrade', () => {
     expect(addressGrade(`http://user@${TAILSCALE_NAME}`)).toEqual(PUBLIC_HTTP)
     expect(addressGrade(`https://user@${TAILSCALE_NAME}`)).toBeNull()
   })
+
+  it('refuses an empty address, which reads as public over http', () => {
+    expect(addressGrade('')).toEqual(PUBLIC_HTTP)
+  })
+
+  it('grades a bare https:// as a local name, since normalizing leaves http://https: and a name without a dot is local', () => {
+    expect(addressGrade('https://')).toEqual(LAN)
+  })
+
+  it.each([`http://x.ts.net\\@evil.com`, `http://${TAILSCALE_NAME}\\@evil.com`])('refuses a backslash after an http host: %s', address => {
+    expect(addressGrade(address)).toEqual(PUBLIC_HTTP)
+  })
 })
 
 describe('connectionGrade', () => {
   it.each([
     ['http://127.0.0.1:9119', LOOPBACK],
     ['http://192.168.1.10:9119', LAN],
-    ['http://100.101.102.103:9119', TAILSCALE]
+    ['http://100.101.102.103:9119', TAILSCALE],
+    ['http://[fd7a:115c:a1e0::1]:9119', TAILSCALE],
+    ['https://127.0.0.1', LOOPBACK],
+    ['https://192.168.1.10', LAN],
+    ['https://100.101.102.103', TAILSCALE]
   ])('keeps %s private whether or not the server asks for a password', (address, grade) => {
     expect(gradeOf(address, true)).toEqual(grade)
     expect(gradeOf(address, false)).toEqual(grade)
   })
 
-  it('keeps a Tailscale address in token mode private', () => {
-    expect(gradeOf('http://100.101.102.103:9119', false)).toEqual(TAILSCALE)
-    expect(gradeOf('http://[fd7a:115c:a1e0::1]:9119', false)).toEqual(TAILSCALE)
+  it('trusts a Tailscale name over https only when it asks for a password', () => {
+    expect(gradeOf(`https://${TAILSCALE_NAME}`, true)).toEqual(TAILSCALE)
+    expect(gradeOf(`https://${TAILSCALE_NAME}`, false)).toEqual(PUBLIC_TOKEN)
   })
 
-  it.each([`http://${TAILSCALE_NAME}`, `https://${TAILSCALE_NAME}`])('trusts a Tailscale name only when it asks for a password: %s', address => {
-    expect(gradeOf(address, true)).toEqual(TAILSCALE)
-    expect(gradeOf(address, false)).toEqual(PUBLIC_TOKEN)
+  it('refuses a Tailscale name over http whatever the server says', () => {
+    expect(gradeOf('http://hermes.tailnet.ts.net', true)).toEqual(PUBLIC_HTTP)
+    expect(gradeOf('http://hermes.tailnet.ts.net', false)).toEqual(PUBLIC_HTTP)
   })
 
   it('grades a public address over https public when it asks for a password', () => {
@@ -115,6 +138,16 @@ describe('connectionGrade', () => {
   it('refuses a public address over http whatever the server says', () => {
     expect(gradeOf('http://hermes.example.com', true)).toEqual(PUBLIC_HTTP)
     expect(gradeOf('http://hermes.example.com', false)).toEqual(PUBLIC_HTTP)
+  })
+
+  it('fails closed when the server does not say whether it asks for a password', () => {
+    expect(connectionGrade('https://hermes.example.com', {} as never)).toEqual(PUBLIC_TOKEN)
+    expect(connectionGrade(`https://${TAILSCALE_NAME}`, {} as never)).toEqual(PUBLIC_TOKEN)
+  })
+
+  it.each([`https://x.ts.net\\@evil.com`, `https://${TAILSCALE_NAME}\\@evil.com`])('never grades a backslash after the host private: %s', address => {
+    expect(gradeOf(address, true)).toEqual(PUBLIC)
+    expect(gradeOf(address, false)).toEqual(PUBLIC_TOKEN)
   })
 
   it('grades a Tailscale name behind a user name as public, since the host is not trusted', () => {
@@ -198,11 +231,11 @@ describe('gradeLabel', () => {
 })
 
 describe('GRADE_GUIDE', () => {
-  it('points a private grade at private access and a public or unsafe one at public access', () => {
+  it('points a public grade at public access, and a private or unsafe one at how to stay private', () => {
     expect(GRADE_GUIDE).toEqual({
       private: 'https://middelkamp.dev/ergates/server/#private-access',
       public: 'https://middelkamp.dev/ergates/server/#public-access',
-      unsafe: 'https://middelkamp.dev/ergates/server/#public-access'
+      unsafe: 'https://middelkamp.dev/ergates/server/#private-access'
     })
   })
 })

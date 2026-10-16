@@ -8,7 +8,7 @@
 import { addressKind, isTailscaleName, usesHttps } from '@/gateway/address'
 import type { BackendStatus } from '@/gateway/types'
 
-/** The shortest password the app accepts on a public server, counted in characters as a person sees them. */
+/** The shortest password the app accepts on a public server, counted in Unicode code points. */
 export const MIN_PUBLIC_PASSWORD = 12
 
 export type ConnectionGrade =
@@ -16,21 +16,20 @@ export type ConnectionGrade =
   | { kind: 'public' }
   | { kind: 'unsafe'; reason: 'public_http' | 'public_token' }
 
-/** Where to read about each grade. A public or unsafe server needs the same fix. */
+/** Where to read about each grade. An unsafe server gets the way to stay private. */
 export const GRADE_GUIDE: Record<ConnectionGrade['kind'], string> = {
   private: 'https://middelkamp.dev/ergates/server/#private-access',
   public: 'https://middelkamp.dev/ergates/server/#public-access',
-  unsafe: 'https://middelkamp.dev/ergates/server/#public-access'
+  unsafe: 'https://middelkamp.dev/ergates/server/#private-access'
 }
 
 export const PASSWORD_TOO_SHORT = `On a public server, use a password of at least ${MIN_PUBLIC_PASSWORD} characters.`
 
-const PUBLIC_HTTP: ConnectionGrade = { kind: 'unsafe', reason: 'public_http' }
-const PUBLIC_TOKEN: ConnectionGrade = { kind: 'unsafe', reason: 'public_token' }
-
 /**
  * The grade the address alone gives, or null when the server has to say whether it asks for a password.
  * A public `http` address is unsafe without a question: asking it would already send a request in plain text.
+ * So is a `*.ts.net` name over `http`: without Tailscale on the phone, the name resolves through the local
+ * network's DNS, where a spoofer could answer the question and receive the password in plain text.
  */
 export function addressGrade(baseUrl: string): ConnectionGrade | null {
   const kind = addressKind(baseUrl)
@@ -40,19 +39,17 @@ export function addressGrade(baseUrl: string): ConnectionGrade | null {
   if (kind === 'private') {
     return { kind: 'private', via: 'lan' }
   }
-  if (kind === 'tailscale' && !isTailscaleHost(baseUrl)) {
+  if (kind === 'tailscale' && !isTailscaleName(baseUrl)) {
     return { kind: 'private', via: 'tailscale' }
   }
-  if (kind === 'public' && !usesHttps(baseUrl)) {
-    return PUBLIC_HTTP
-  }
-  return null
+  // What is left is a public address or a `*.ts.net` name, which only https may go on to ask.
+  return usesHttps(baseUrl) ? null : { kind: 'unsafe', reason: 'public_http' }
 }
 
 /**
  * The grade once the server has said whether it asks for a password. A public address that signs in
- * without a password is unsafe. A `*.ts.net` name counts as private only when it asks for one, because
- * Tailscale Funnel can publish such a name on the open internet.
+ * without a password is unsafe. A `*.ts.net` name over https counts as private only when it asks for one,
+ * because Tailscale Funnel can publish such a name on the open internet.
  */
 export function connectionGrade(baseUrl: string, status: Pick<BackendStatus, 'auth_required'>): ConnectionGrade {
   const byAddress = addressGrade(baseUrl)
@@ -60,7 +57,7 @@ export function connectionGrade(baseUrl: string, status: Pick<BackendStatus, 'au
     return byAddress
   }
   if (!status.auth_required) {
-    return PUBLIC_TOKEN
+    return { kind: 'unsafe', reason: 'public_token' }
   }
   return isTailscaleHost(baseUrl) ? { kind: 'private', via: 'tailscale' } : { kind: 'public' }
 }
