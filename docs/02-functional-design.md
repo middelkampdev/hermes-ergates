@@ -215,7 +215,7 @@ Requirement IDs: **FR-xxx** functional, **NFR-xxx** non-functional, **BR-xx** bu
 |---|---|---|---|
 | FR-240 | Usage view: tokens and estimated cost per agent from `session.usage` and Hermes analytics; a configurable monthly warning threshold. | S | P7 |
 | FR-241 | Settings: gateways (connection registry), theme, language, notifications, per-agent provider and model, tools and connectors, link to the Hermes dashboard for server-side settings, version of app and backend. | M | F20 |
-| FR-242 | Auth: Hermes auth gate. Phases 0-2 username and password over Tailscale; Phase 3 OAuth or OIDC with native PKCE sign-in. | M | |
+| FR-242 | Auth: Hermes auth gate. The app grades the server address before it signs in (ADR-045). A private address (this device, Tailscale, the local network) accepts the session token or a username and password. A public address is accepted only over `https` in password mode, with a password of at least 12 characters. The app refuses an unsafe address: a public address over plain `http`, which it refuses before any request, and a public address that signs in without a password. Phase 3: OAuth or OIDC with native PKCE sign-in. | M | |
 
 ### 3.14 Mobile design
 | ID | Requirement | Pri | BR |

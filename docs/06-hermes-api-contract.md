@@ -30,6 +30,10 @@ Basic login is JSON, not HTTP Basic Authorization. The app keeps the session coo
 
 A restart ends a session unless the server pins the key that signs it. In loopback mode the session token is random for each start unless `HERMES_DASHBOARD_SESSION_TOKEN` is set (`hermes_cli/web_server.py:380-383`). A basic-provider session survives a restart only when `dashboard.basic_auth.secret` or `HERMES_DASHBOARD_BASIC_AUTH_SECRET` is set; without one the provider signs with a random per-process key (`plugins/dashboard_auth/basic/__init__.py:191-198`). Otherwise every call after the restart answers 401, and the app asks the user to sign in again.
 
+What `auth_required` means. Hermes sets it true for any non-loopback bind and for a non-loopback `dashboard.public_url` (`hermes_cli/web_server.py:522-543`). It says only that the dashboard asks for a sign-in; it says nothing about TLS or about where the server sits. A Hermes bound to loopback behind a reverse proxy reports `false` and accepts the session token, which has no rate limit. The app reads `auth_required` for the sign-in mode (`false`: token, `true`: password) and as a safety signal: a public address that answers `false` is graded unsafe and refused (ADR-045). Hermes does not terminate TLS (`hermes_cli/web_server.py:1257-1274`) and has no IP allowlist, so a public `https` address means a reverse proxy in front of Hermes.
+
+Login limit. `POST /auth/password-login` allows 10 attempts per 60 seconds for each client IP and then answers 429 (`hermes_cli/dashboard_auth/routes.py:383-437`). The count is in memory and starts again when Hermes restarts. It includes successful logins, and there is no lockout and no count for each user name. Passwords are hashed with scrypt and compared with `hmac.compare_digest`. Hermes documents the password provider as "not for public-internet exposure" (`website/docs/user-guide/features/web-dashboard.md:638,1154-1156`). The app shows a 429 as "Too many attempts. Wait a moment and try again." and, on a public server, asks for a password of at least 12 characters before it sends one (ADR-045).
+
 After login, mint a fresh ticket and open:
 
 ```text
