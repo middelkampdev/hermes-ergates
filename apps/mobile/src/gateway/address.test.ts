@@ -41,7 +41,7 @@ const PRIVATE: Row[] = [
 ]
 
 const PUBLIC: Row[] = [
-  ['https://167.233.238.119', 'public'],
+  ['https://203.0.113.10', 'public'],
   ['https://hermes.example.com', 'public'],
   ['http://100.128.0.1', 'public'],
   ['http://100.63.255.255', 'public'],

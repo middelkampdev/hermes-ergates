@@ -15,7 +15,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import * as Clipboard from 'expo-clipboard'
 import { Redirect, useIsFocused, useRouter } from 'expo-router'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Linking, Platform, StyleSheet, Text, View } from 'react-native'
+import { Platform, StyleSheet, Text, View } from 'react-native'
 
 import {
   finishDone,
@@ -53,6 +53,7 @@ import type { Connection } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
 import { LEADING, RADIUS, SPACE, TYPE } from '@/theme/tokens'
 import { Button } from '@/ui/Button'
+import { openGuide } from '@/ui/GuideLink'
 import { Page } from '@/ui/Page'
 import { StepList } from '@/ui/StepList'
 
@@ -212,10 +213,6 @@ function FinishOnServer({ connection }: { connection: Connection }) {
     }
   }
 
-  const openGuide = () => {
-    Linking.openURL(view.guide.url).catch(() => Alert.alert('Could not open the guide', view.guide.url))
-  }
-
   const { command, primary } = view
   return (
     <Page
@@ -256,7 +253,7 @@ function FinishOnServer({ connection }: { connection: Connection }) {
       <Text accessibilityLiveRegion="polite" style={view.done ? [styles.ready, { color: theme.colors.foreground }] : [styles.status, { color: theme.colors.mutedForeground }]}>
         {view.status}
       </Text>
-      {view.done ? null : <Button label={view.guide.label} variant="secondary" onPress={openGuide} />}
+      {view.done ? null : <Button label={view.guide.label} variant="secondary" onPress={() => openGuide(view.guide.url)} />}
     </Page>
   )
 }

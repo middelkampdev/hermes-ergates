@@ -235,6 +235,24 @@ describe('a connection saved before the app graded addresses', () => {
   })
 })
 
+describe('discardStoredSecrets', () => {
+  it('removes what this phone stores for the id, without a request', async () => {
+    const { gateway, secrets, seen } = gatewayWith({
+      '/auth/password-login': { status: 200, body: { ok: true }, headers: { 'set-cookie': 'hermes_session_at=abc; Path=/' } },
+      '/api/auth/me': { status: 200, body: { user_id: 'u1' } }
+    })
+    await gateway.login({ mode: 'password', provider: 'basic', username: 'u', password: 'p' })
+    await secrets.set('ergates.c1.token', 'tok-old')
+    const requests = seen.length
+
+    await gateway.discardStoredSecrets()
+
+    expect(await storedKeys(secrets)).toEqual([])
+    expect(seen).toHaveLength(requests)
+    expect(gateway.authMode).toBe('none')
+  })
+})
+
 describe('logout', () => {
   it('revokes, then clears the cookie and all three secrets even when the revoke fails', async () => {
     const { gateway, secrets, seen } = gatewayWith({

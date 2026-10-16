@@ -389,6 +389,9 @@ export class FakeGateway implements GatewayPort {
   /** How many times the platform cookie jar would have been cleared. */
   cookiesCleared = 0
 
+  /** The fake stores no secrets, so there is nothing to discard. */
+  async discardStoredSecrets(): Promise<void> {}
+
   async clearCookies(): Promise<void> {
     this.cookiesCleared += 1
   }

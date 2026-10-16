@@ -43,14 +43,14 @@ describe('addressGrade', () => {
     expect(addressGrade(address)).toEqual(grade)
   })
 
-  it.each(['http://167.233.238.119', 'http://hermes.example.com', 'http://hermes.example.com:9119', 'hermes.example.com', 'http://100.128.0.1'])(
+  it.each(['http://203.0.113.10', 'http://hermes.example.com', 'http://hermes.example.com:9119', 'hermes.example.com', 'http://100.128.0.1'])(
     'refuses a public address over http: %s',
     address => {
       expect(addressGrade(address)).toEqual(PUBLIC_HTTP)
     }
   )
 
-  it.each(['https://167.233.238.119', 'https://hermes.example.com', 'https://hermes.example.com:9119', 'https://ts.net'])(
+  it.each(['https://203.0.113.10', 'https://hermes.example.com', 'https://hermes.example.com:9119', 'https://ts.net'])(
     'needs the server to answer for a public address over https: %s',
     address => {
       expect(addressGrade(address)).toBeNull()
@@ -142,12 +142,12 @@ describe('connectionGrade', () => {
 
   it('grades a public address over https public when it asks for a password', () => {
     expect(gradeOf('https://hermes.example.com', true)).toEqual(PUBLIC)
-    expect(gradeOf('https://167.233.238.119:9119', true)).toEqual(PUBLIC)
+    expect(gradeOf('https://203.0.113.10:9119', true)).toEqual(PUBLIC)
   })
 
   it('refuses a public address over https that signs in without a password', () => {
     expect(gradeOf('https://hermes.example.com', false)).toEqual(PUBLIC_TOKEN)
-    expect(gradeOf('https://167.233.238.119:9119', false)).toEqual(PUBLIC_TOKEN)
+    expect(gradeOf('https://203.0.113.10:9119', false)).toEqual(PUBLIC_TOKEN)
   })
 
   it('refuses a public address over http whatever the server says', () => {

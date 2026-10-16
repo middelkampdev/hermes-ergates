@@ -141,6 +141,11 @@ export class RealGateway implements GatewayPort {
     }
   }
 
+  async discardStoredSecrets(): Promise<void> {
+    this.auth = { mode: 'none' }
+    await this.forgetSecrets()
+  }
+
   private async forgetSecrets(): Promise<void> {
     await Promise.all([
       this.options.secrets.remove(this.key('mode')),

@@ -27,9 +27,9 @@ const saved: Connection = { id: 'c-1', label: 'Home server', baseUrl: 'http://10
 const queued: OutboxItem = { localId: 'o-1', connectionId: 'c-1', profile: 'alice', text: 'ask about the invoice', createdAt: 2, status: 'queued_unsent' }
 const creds: Credentials = { mode: 'password', provider: 'basic', username: 'jop', password: 'hunter2' }
 
-/** A registry whose one gateway only knows `login` and `logout`. */
+/** A registry whose one gateway only knows `login`, `logout` and how to discard its stored secrets. */
 function registryWith(login: ConnectedGateway['login']) {
-  const gateway = { login, logout: async () => undefined } as unknown as ConnectedGateway
+  const gateway = { login, logout: async () => undefined, discardStoredSecrets: async () => undefined } as unknown as ConnectedGateway
   return { get: vi.fn(() => gateway), probe: vi.fn(), forget: vi.fn() } satisfies GatewayRegistry
 }
 
@@ -115,6 +115,17 @@ describe('probeGateway', () => {
     expect([...stored.keys()]).toEqual([])
   })
 
+  it('discards what the throwaway gateway stored without signing it out', async () => {
+    const gateway = new FakeGateway()
+    const discard = vi.spyOn(gateway, 'discardStoredSecrets')
+    const logout = vi.spyOn(gateway, 'logout')
+
+    await probeGateway(registryOver(gateway), PUBLIC_HTTPS)
+
+    expect(discard).toHaveBeenCalledTimes(1)
+    expect(logout).not.toHaveBeenCalled()
+  })
+
   it('asks a private address and a public https address for their status', async () => {
     const gateway = new FakeGateway()
     const registry = registryOver(gateway)
@@ -137,6 +148,17 @@ describe('connectGateway', () => {
     expect(gateway.loginCalls).toBe(0)
     expect(useDeviceStore.getState().connections).toEqual([saved])
     expect(registry.forget).toHaveBeenCalledTimes(1)
+  })
+
+  it('discards what the refused gateway stored without signing it out', async () => {
+    const gateway = gatedGateway()
+    const discard = vi.spyOn(gateway, 'discardStoredSecrets')
+    const logout = vi.spyOn(gateway, 'logout')
+
+    await expect(connectGateway(registryOver(gateway), passwordInput(PUBLIC_HTTPS, 'a'.repeat(11)))).rejects.toThrow(PASSWORD_TOO_SHORT)
+
+    expect(discard).toHaveBeenCalledTimes(1)
+    expect(logout).not.toHaveBeenCalled()
   })
 
   it('removes the cookie a status read stored for the id it discards, when it refuses a short password', async () => {

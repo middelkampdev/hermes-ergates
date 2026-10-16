@@ -66,11 +66,11 @@ export async function probeGateway(registry: GatewayRegistry, baseUrl: string): 
 
 /**
  * A server may set a session cookie on any answer, and the gateway stores it under its connection id. A
- * gateway that never becomes a saved connection must not leave that cookie behind. It has not signed in,
- * so signing it out sends no request: it only removes what is stored for its id.
+ * gateway that never becomes a saved connection must not leave that cookie behind, so what is stored for
+ * its id is discarded, with no request.
  */
 async function removeStoredSecrets(gateway: ConnectedGateway): Promise<void> {
-  await gateway.logout().catch(() => undefined)
+  await gateway.discardStoredSecrets().catch(() => undefined)
 }
 
 /**
