@@ -198,12 +198,31 @@ describe('connectGateway', () => {
     expect(gateway.statusCalls).toBe(0)
   })
 
-  it('signs in to a Tailscale name over https with a short password when it asks for one', async () => {
+  it('refuses a short password on a Tailscale name over https, since Funnel can publish it', async () => {
     const gateway = gatedGateway()
 
-    await connectGateway(registryOver(gateway), passwordInput('https://hermes.tail1234.ts.net', 'x'))
+    const attempt = connectGateway(registryOver(gateway), passwordInput('https://hermes.tail1234.ts.net', 'a'.repeat(11)))
+
+    await expect(attempt).rejects.toThrow(PASSWORD_TOO_SHORT)
+    await expect(attempt).rejects.toMatchObject({ grade: { kind: 'public' } })
+    expect(gateway.loginCalls).toBe(0)
+  })
+
+  it('signs in to a Tailscale name over https with a password of 12 characters', async () => {
+    const gateway = gatedGateway()
+
+    await connectGateway(registryOver(gateway), passwordInput('https://hermes.tail1234.ts.net', 'a'.repeat(12)))
 
     expect(gateway.loginCalls).toBe(1)
+  })
+
+  it('signs in to a Tailscale IP address over http with a short password, without asking its status', async () => {
+    const gateway = gatedGateway()
+
+    await connectGateway(registryOver(gateway), passwordInput('http://100.101.102.103:9119', 'x'))
+
+    expect(gateway.loginCalls).toBe(1)
+    expect(gateway.statusCalls).toBe(0)
   })
 
   it('refuses a public address over http before any request, and saves nothing', async () => {

@@ -117,8 +117,8 @@ describe('connectionGrade', () => {
     expect(gradeOf(address, false)).toEqual(grade)
   })
 
-  it('trusts a Tailscale name over https only when it asks for a password', () => {
-    expect(gradeOf(`https://${TAILSCALE_NAME}`, true)).toEqual(TAILSCALE)
+  it('grades a Tailscale name over https like any public name, since Funnel can publish it', () => {
+    expect(gradeOf(`https://${TAILSCALE_NAME}`, true)).toEqual(PUBLIC)
     expect(gradeOf(`https://${TAILSCALE_NAME}`, false)).toEqual(PUBLIC_TOKEN)
   })
 
@@ -152,7 +152,7 @@ describe('connectionGrade', () => {
     expect(gradeOf(address, false)).toEqual(PUBLIC_TOKEN)
   })
 
-  it('grades a Tailscale name behind a user name as public, since the host is not trusted', () => {
+  it('grades a Tailscale name behind a user name as public, and refuses it over http', () => {
     expect(gradeOf(`https://user@${TAILSCALE_NAME}`, true)).toEqual(PUBLIC)
     expect(gradeOf(`https://user@${TAILSCALE_NAME}`, false)).toEqual(PUBLIC_TOKEN)
     expect(gradeOf(`http://user@${TAILSCALE_NAME}`, true)).toEqual(PUBLIC_HTTP)
@@ -166,6 +166,13 @@ describe('passwordProblem', () => {
     expect(passwordProblem(PUBLIC, 'a'.repeat(11))).toBe('too_short')
     expect(passwordProblem(PUBLIC, 'a'.repeat(12))).toBeNull()
     expect(passwordProblem(PUBLIC, 'a'.repeat(40))).toBeNull()
+  })
+
+  it('asks a Tailscale name for the same 12 characters, since Funnel can publish it', () => {
+    const grade = gradeOf(`https://${TAILSCALE_NAME}`, true)
+
+    expect(passwordProblem(grade, 'a'.repeat(11))).toBe('too_short')
+    expect(passwordProblem(grade, 'a'.repeat(12))).toBeNull()
   })
 
   it('counts each emoji as one character', () => {
