@@ -54,6 +54,22 @@ export function connectionGrade(baseUrl: string, status: Pick<BackendStatus, 'au
   return status.auth_required ? { kind: 'public' } : { kind: 'unsafe', reason: 'public_token' }
 }
 
+/**
+ * The grade Settings › Gateway shows for a saved connection, from its address and saved sign-in mode alone,
+ * with no request. The saved mode records what the server answered when the app signed in.
+ */
+export function savedConnectionGrade(connection: { baseUrl: string; authMode: 'token' | 'password' }): ConnectionGrade {
+  return connectionGrade(connection.baseUrl, { auth_required: connection.authMode === 'password' })
+}
+
+/**
+ * The guide link under the Connection row in Settings › Gateway. Only an unsafe grade gets one: a connection
+ * saved before the app graded addresses can grade unsafe, and the link says how to stay private.
+ */
+export function savedGradeGuide(grade: ConnectionGrade): { label: string; url: string } | null {
+  return grade.kind === 'unsafe' ? { label: guideLabel(grade), url: GRADE_GUIDE[grade.kind] } : null
+}
+
 /** Only a public server sets a minimum, counted in code points so an emoji is one character. The password is not trimmed. */
 export function passwordProblem(grade: ConnectionGrade, password: string): 'too_short' | null {
   return grade.kind === 'public' && Array.from(password).length < MIN_PUBLIC_PASSWORD ? 'too_short' : null

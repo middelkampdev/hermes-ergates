@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { jsonRpcErrorFromFrame } from '@vendor/hermes/shared/json-rpc-channel'
 
 import { PUBLIC_HTTP_REFUSAL } from './address'
-import { GatewayError, InsecureTransportError, mapErgatesError, mapHttpError, mapRpcError, mapSocketClose, redact, requireSecureTransport, userMessage } from './errors'
+import { GatewayError, InsecureTransportError, isGatewayError, mapErgatesError, mapHttpError, mapRpcError, mapSocketClose, redact, requireSecureTransport, userMessage } from './errors'
 
 describe('mapHttpError', () => {
   it('maps 401 to unauthorized', () => {
@@ -105,5 +105,17 @@ describe('InsecureTransportError', () => {
     expect(error).toBeInstanceOf(Error)
     expect(error.message).toBe(PUBLIC_HTTP_REFUSAL)
     expect(userMessage(error)).toBe(PUBLIC_HTTP_REFUSAL)
+  })
+
+  // Every screen that maps gateway errors by kind (Home, Settings, the chat) then shows the refusal, not a generic failure.
+  it('is a gateway error of the insecure_transport kind', () => {
+    const error = new InsecureTransportError()
+    expect(isGatewayError(error)).toBe(true)
+    expect(error.kind).toBe('insecure_transport')
+    expect(mapRpcError(error)).toBe(error)
+  })
+
+  it('maps the insecure_transport kind to the public http copy in userMessage, whatever the message', () => {
+    expect(userMessage(new GatewayError('insecure_transport', 'x'))).toBe(PUBLIC_HTTP_REFUSAL)
   })
 })

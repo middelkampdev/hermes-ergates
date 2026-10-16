@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { FakeWebSocket, fakeSocketFactory, flush, installFakeWebSocket } from '@test/fake-gateway/fake-websocket'
 
-import { isGatewayError } from '../errors'
+import { PUBLIC_HTTP_REFUSAL } from '../address'
+import { isGatewayError, userMessage } from '../errors'
 import { createAuthSecretStore } from '../secrets'
 import { RealGateway } from './real-gateway'
 import { MemorySecretStore, type SecretStore } from './secrets'
@@ -210,6 +211,27 @@ describe('sessions.transcript', () => {
       { id: 2, role: 'assistant', text: 'hello', content: 'hello', at: 2 }
     ])
     expect(page.page).toEqual({ limit: 50, offset: 0, returned: 2 })
+  })
+})
+
+describe('a connection saved before the app graded addresses', () => {
+  it('fails the roster, the status and an Ergates read of a public address over plain http with the refusal, and sends nothing', async () => {
+    const secrets = new MemorySecretStore()
+    await secrets.set('ergates.c1.mode', 'token')
+    await secrets.set('ergates.c1.token', 'tok-1')
+    const { impl } = routes({})
+    installFakeWebSocket({})
+    const socketFactory = vi.fn(fakeSocketFactory)
+    const gateway = new RealGateway({ connectionId: 'c1', baseUrl: 'http://203.0.113.10:9119', secrets, fetchImpl: impl, socketFactory })
+
+    const failures = await Promise.all([gateway.profiles.list(), gateway.status(), gateway.ergates.health()].map(read => read.then(() => null, (err: unknown) => err)))
+
+    for (const failure of failures) {
+      expect(isGatewayError(failure) && failure.kind).toBe('insecure_transport')
+      expect(userMessage(failure)).toBe(PUBLIC_HTTP_REFUSAL)
+    }
+    expect(impl).not.toHaveBeenCalled()
+    expect(socketFactory).not.toHaveBeenCalled()
   })
 })
 

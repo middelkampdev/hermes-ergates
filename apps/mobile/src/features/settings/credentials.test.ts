@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ConnectionGrade } from './connection-grade'
-import { BLANK_CREDENTIALS, canConnect, credentialsFrom, credentialsReady, firstProvider } from './credentials'
+import { BLANK_CREDENTIALS, canConnect, credentialsFrom, credentialsReady, firstProvider, signInModeFrom } from './credentials'
 
 describe('the sign-in fields', () => {
   it('start empty, with the basic provider until the gateway names its own', () => {
@@ -60,5 +60,18 @@ describe('firstProvider', () => {
   it('is the provider the gateway lists first, or none', () => {
     expect(firstProvider({ auth_providers: ['github', 'basic'] })).toBe('github')
     expect(firstProvider({ auth_providers: [] })).toBeUndefined()
+  })
+})
+
+describe('signInModeFrom', () => {
+  it('follows how the server signs in now, whatever mode was saved', () => {
+    expect(signInModeFrom({ auth_required: true }, 'token')).toBe('password')
+    expect(signInModeFrom({ auth_required: false }, 'password')).toBe('token')
+    expect(signInModeFrom({ auth_required: true }, 'password')).toBe('password')
+  })
+
+  it('keeps the saved mode until the server has answered, or when it cannot be asked', () => {
+    expect(signInModeFrom(null, 'token')).toBe('token')
+    expect(signInModeFrom(null, 'password')).toBe('password')
   })
 })

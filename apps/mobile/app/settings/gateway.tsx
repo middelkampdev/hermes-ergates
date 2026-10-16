@@ -6,13 +6,16 @@
 import { useQuery } from '@tanstack/react-query'
 import { useRouter } from 'expo-router'
 import React, { useMemo } from 'react'
+import { StyleSheet, View } from 'react-native'
 
 import { pluginRowRoute, pluginRowSubtitle, useServerCheck, type NoticeRoute } from '@/features/server'
-import { connectionGrade, gradeLabel, usePrimaryConnection } from '@/features/settings'
+import { gradeLabel, savedConnectionGrade, savedGradeGuide, usePrimaryConnection } from '@/features/settings'
 import { useGateway } from '@/gateway/registry'
 import { buildRecord } from '@/lib/build-info'
+import { ICON_SIZE, SPACE } from '@/theme/tokens'
 import { AutoUpdateSwitch } from '@/ui/AutoUpdateSwitch'
 import { Group } from '@/ui/Group'
+import { GuideLink } from '@/ui/GuideLink'
 import { ListRow } from '@/ui/ListRow'
 import { Page } from '@/ui/Page'
 
@@ -37,12 +40,22 @@ function GatewaySettings({ connection, onBack, onOpenSetup }: GatewaySettingsPro
   const build = useMemo(() => buildRecord(), [])
   const plugin = useServerCheck(connection, build)
   const pluginRoute = pluginRowRoute(plugin.data)
+  const grade = savedConnectionGrade(connection)
+  const guide = savedGradeGuide(grade)
   return (
     <Page title="Gateway" onBack={onBack}>
       <Group>
         <ListRow title="Sign-in" subtitle={connection.authMode === 'token' ? 'Session token' : 'Username and password'} icon="key" />
-        {/* Worked out from the saved address and sign-in mode alone: this screen makes no request for it. */}
-        <ListRow title="Connection" subtitle={gradeLabel(connectionGrade(connection.baseUrl, { auth_required: connection.authMode === 'password' }))} icon="shield" />
+        {/* Worked out from the saved address and sign-in mode alone: this screen makes no request for it. An unsafe
+            grade (a connection saved before the app graded addresses) gets the guide under the row, in the same cell. */}
+        <View>
+          <ListRow title="Connection" subtitle={gradeLabel(grade)} icon="shield" />
+          {guide ? (
+            <View style={styles.guide}>
+              <GuideLink label={guide.label} url={guide.url} />
+            </View>
+          ) : null}
+        </View>
         <ListRow title="Backend" subtitle={status.data ? `Hermes ${status.data.version}` : status.isError ? 'Unreachable' : 'Checking…'} icon="cpu" />
         {/* A plugin that cannot do its job says why here, and the row opens the screen that fixes it, or Update ready when an update is ready. */}
         <ListRow
@@ -59,3 +72,8 @@ function GatewaySettings({ connection, onBack, onOpenSetup }: GatewaySettingsPro
     </Page>
   )
 }
+
+const styles = StyleSheet.create({
+  // Under the row's text: past the row padding, the icon and the gap.
+  guide: { paddingLeft: SPACE.large + ICON_SIZE.medium + SPACE.medium, paddingBottom: SPACE.small }
+})

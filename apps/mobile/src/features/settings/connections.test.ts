@@ -385,6 +385,57 @@ describe('signInAgain', () => {
     expect(gateway.statusCalls).toBe(0)
   })
 
+  it('signs a saved token connection in with a password once the server asks for one, and saves the new mode in place', async () => {
+    // Saved before the server moved to password mode: the screen now shows the password fields (signInModeFrom).
+    const gateway = gatedGateway()
+    const tokenSaved: Connection = { ...saved, baseUrl: PUBLIC_HTTPS, authMode: 'token' }
+    useDeviceStore.setState({ connections: [tokenSaved] })
+    const before = useDeviceStore.getState()
+
+    await signInAgain(registryOver(gateway), tokenSaved, passwordCreds('a'.repeat(12)))
+
+    expect(gateway.loginCalls).toBe(1)
+    const after = useDeviceStore.getState()
+    expect(after.connections).toEqual([{ ...tokenSaved, authMode: 'password' }])
+    expect(after.drafts).toBe(before.drafts)
+    expect(after.outbox).toBe(before.outbox)
+  })
+
+  it('saves the new mode for a private address too, where any password goes', async () => {
+    const gateway = gatedGateway()
+    const tokenSaved: Connection = { ...saved, authMode: 'token' }
+    useDeviceStore.setState({ connections: [tokenSaved] })
+
+    await signInAgain(registryOver(gateway), tokenSaved, passwordCreds('x'))
+
+    expect(useDeviceStore.getState().connections).toEqual([{ ...tokenSaved, authMode: 'password' }])
+  })
+
+  it('saves the token mode for a saved password connection whose private server now takes a token', async () => {
+    const login = vi.fn(async () => null)
+
+    await signInAgain(registryWith(login), saved, { mode: 'token', token: 'tok-1' })
+
+    expect(useDeviceStore.getState().connections).toEqual([{ ...saved, authMode: 'token' }])
+  })
+
+  it('keeps the saved mode when the sign-in in the other mode is refused or rejected', async () => {
+    const tokenSaved: Connection = { ...saved, baseUrl: PUBLIC_HTTPS, authMode: 'token' }
+    useDeviceStore.setState({ connections: [tokenSaved] })
+    const gateway = gatedGateway()
+
+    await expect(signInAgain(registryOver(gateway), tokenSaved, passwordCreds('a'.repeat(11)))).rejects.toThrow(PASSWORD_TOO_SHORT)
+    const rejecting = registryWith(
+      vi.fn(async () => {
+        throw new GatewayError('unauthorized', 'x')
+      })
+    )
+    await expect(signInAgain(rejecting, { ...saved, authMode: 'token' }, passwordCreds('x'))).rejects.toThrow('Sign-in required.')
+
+    expect(gateway.loginCalls).toBe(0)
+    expect(useDeviceStore.getState().connections).toEqual([tokenSaved])
+  })
+
   it('drops the spaces a pasted session token picks up, as Connect does', async () => {
     const login = vi.fn(async () => null)
 

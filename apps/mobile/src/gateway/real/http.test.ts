@@ -141,6 +141,7 @@ describe('HttpClient transport guard', () => {
       await expect(http.get('/api/status')).rejects.toBeInstanceOf(InsecureTransportError)
       await expect(http.post('/auth/password-login', { password: 'p' })).rejects.toThrow(PUBLIC_HTTP_REFUSAL)
       await expect(http.exchange('GET', '/api/status')).rejects.toBeInstanceOf(InsecureTransportError)
+      await expect(http.get('/api/profiles')).rejects.toSatisfy((e: unknown) => isGatewayError(e) && e.kind === 'insecure_transport')
 
       expect(impl).not.toHaveBeenCalled()
       expect(calls).toHaveLength(0)

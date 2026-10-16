@@ -126,7 +126,8 @@ export async function connectGateway(registry: GatewayRegistry, input: ConnectIn
  * organization stay. A rejected sign-in throws the plain message to show. The
  * connection was graded when it was saved, but the grade is worked out again:
  * a connection saved by an earlier version was never graded, and a server can
- * change how it signs in.
+ * change how it signs in. A sign-in in the other mode (the screen picks the
+ * fields from a fresh status read) saves that mode on the same connection.
  */
 export async function signInAgain(registry: GatewayRegistry, connection: Connection, creds: Credentials): Promise<void> {
   const trimmed: Credentials = creds.mode === 'token' ? { mode: 'token', token: creds.token.trim() } : creds
@@ -136,6 +137,9 @@ export async function signInAgain(registry: GatewayRegistry, connection: Connect
     await gateway.login(trimmed)
   } catch (err) {
     throw plainError(err)
+  }
+  if (trimmed.mode !== connection.authMode) {
+    useDeviceStore.getState().updateConnection(connection.id, { authMode: trimmed.mode })
   }
 }
 

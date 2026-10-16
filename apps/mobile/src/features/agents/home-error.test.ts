@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { GatewayError, mapHttpError } from '@/gateway/errors'
+import { PUBLIC_HTTP_REFUSAL } from '@/gateway/address'
+import { GatewayError, InsecureTransportError, mapHttpError } from '@/gateway/errors'
 
 import { homeErrorLine } from './home-error'
 
 const SIGN_IN = { text: 'Sign-in required. Tap to sign in again.', signIn: true }
 const RETRY = { text: 'Could not load your assistants. Pull to retry.', signIn: false }
 const SIGNED_OUT = mapHttpError(401, { detail: 'Unauthorized' })
+// A connection saved before the grade existed, to a public address over plain http: the transport guard sent nothing.
+const REFUSED = { text: PUBLIC_HTTP_REFUSAL, signIn: false }
 
 describe('homeErrorLine', () => {
   it('offers to sign in again when the server no longer accepts the sign-in', () => {
@@ -33,6 +36,17 @@ describe('homeErrorLine', () => {
   it('asks for a pull to retry when the error did not come from the gateway', () => {
     expect(homeErrorLine(new Error('Sign-in required.'), null)).toEqual(RETRY)
     expect(homeErrorLine({ kind: 'unauthorized' }, { kind: 'unauthorized' })).toEqual(RETRY)
+  })
+
+  it('says why when the app refused to send the roster or the check over plain http', () => {
+    expect(homeErrorLine(new InsecureTransportError(), null)).toEqual(REFUSED)
+    expect(homeErrorLine(null, new InsecureTransportError())).toEqual(REFUSED)
+    expect(homeErrorLine(new InsecureTransportError(), new InsecureTransportError())).toEqual(REFUSED)
+  })
+
+  it('says why for the refusal before it asks for a new sign-in, which the refused server would not get either', () => {
+    expect(homeErrorLine(new InsecureTransportError(), SIGNED_OUT)).toEqual(REFUSED)
+    expect(homeErrorLine(SIGNED_OUT, new InsecureTransportError())).toEqual(REFUSED)
   })
 
   it('shows no line when the roster loaded and the check was not refused', () => {

@@ -40,6 +40,17 @@ export function credentialsFrom(mode: SignInMode, values: CredentialValues): Cre
     : { mode: 'token', token: values.token }
 }
 
+/**
+ * Which fields to show: the mode the server signs in with now, once it has answered, else the saved one.
+ * A server can switch between a session token and a password after the connection was saved.
+ */
+export function signInModeFrom(status: Pick<BackendStatus, 'auth_required'> | null, saved: SignInMode): SignInMode {
+  if (!status) {
+    return saved
+  }
+  return status.auth_required ? 'password' : 'token'
+}
+
 /** The provider to preselect: the one the gateway lists first. */
 export function firstProvider(status: Pick<BackendStatus, 'auth_providers'>): string | undefined {
   return status.auth_providers?.[0]

@@ -22,11 +22,13 @@ import {
   guideLabel,
   signInAgain,
   signInFailure,
+  signInModeFrom,
   usePrimaryConnection,
   type CredentialValues,
   type SignInFailure
 } from '@/features/settings'
 import { useGateway, useGatewayRegistry } from '@/gateway/registry'
+import type { BackendStatus } from '@/gateway/types'
 import { buildRecord } from '@/lib/build-info'
 import { useDeviceStore, type Connection } from '@/state/device-store'
 import { currentDeviceTrust, rootedReasonLine } from '@/state/device-trust'
@@ -54,25 +56,29 @@ function SignIn({ connection }: { connection: Connection }) {
   const gateway = useGateway(connection)
   const queryClient = useQueryClient()
   const bottomInset = useBottomInset(SPACE.giant)
-  const mode = connection.authMode
   const isPrimary = usePrimaryConnection()?.id === connection.id
+  const [status, setStatus] = useState<BackendStatus | null>(null)
+  // The fields follow how the server signs in now: it may have moved between a token and a password since the
+  // connection was saved. Until it answers, or when it cannot be asked, the saved mode picks them.
+  const mode = signInModeFrom(status, connection.authMode)
   const [credentials, setCredentials] = useState<CredentialValues>(BLANK_CREDENTIALS)
   const [busy, setBusy] = useState(false)
   // The failure to show, with the grade when the app refused the server or the password, so the guide can be offered.
   const [failure, setFailure] = useState<SignInFailure | null>(null)
 
-  // Preselect the gateway's first provider, as Connect does. Unreachable is fine
-  // here: signing in reports it.
+  // Read a fresh status and preselect the gateway's first provider, as Connect does. Unreachable is fine here:
+  // signing in reports it. The transport guard sends nothing to a public address over plain http.
   useEffect(() => {
-    if (mode !== 'password') {
-      return
-    }
     let alive = true
     gateway
       .status()
-      .then(status => {
-        const provider = firstProvider(status)
-        if (alive && provider) {
+      .then(answer => {
+        if (!alive) {
+          return
+        }
+        setStatus(answer)
+        const provider = firstProvider(answer)
+        if (provider) {
           setCredentials(c => ({ ...c, provider }))
         }
       })
@@ -80,7 +86,7 @@ function SignIn({ connection }: { connection: Connection }) {
     return () => {
       alive = false
     }
-  }, [gateway, mode])
+  }, [gateway])
 
   const signIn = async () => {
     setBusy(true)

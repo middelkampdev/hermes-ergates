@@ -196,6 +196,8 @@ describe('SocketSession transport guard', () => {
 
       await expect(opening).rejects.toBeInstanceOf(InsecureTransportError)
       await expect(opening).rejects.toThrow(PUBLIC_HTTP_REFUSAL)
+      // A gateway error like any other socket failure, so the screens map it by its kind.
+      await expect(opening).rejects.toSatisfy((e: unknown) => isGatewayError(e) && e.kind === 'insecure_transport')
       await flush(40)
       expect(credential).not.toHaveBeenCalled()
       expect(socketFactory).not.toHaveBeenCalled()

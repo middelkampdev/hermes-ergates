@@ -14,6 +14,8 @@ export type GatewayErrorKind =
   | 'network'
   | 'timeout'
   | 'rpc'
+  /** The app sent nothing: plain `http` to an address that may be on the public internet. */
+  | 'insecure_transport'
   | 'unknown'
 
 export class GatewayError extends Error {
@@ -39,11 +41,12 @@ export function isGatewayError(value: unknown): value is GatewayError {
 
 /**
  * A request or socket the app does not send: plain `http` to an address that may be on the public internet.
- * The message is plain text for the user, like `userMessage`.
+ * A gateway error of the `insecure_transport` kind, so every screen that maps gateway errors shows the
+ * refusal. The message is plain text for the user, like `userMessage`.
  */
-export class InsecureTransportError extends Error {
+export class InsecureTransportError extends GatewayError {
   constructor() {
-    super(PUBLIC_HTTP_REFUSAL)
+    super('insecure_transport', PUBLIC_HTTP_REFUSAL)
     this.name = 'InsecureTransportError'
   }
 }
@@ -194,11 +197,10 @@ export function mapSocketClose(code: number, reason = ''): GatewayError {
 
 /** Short, plain sentence for the UI. */
 export function userMessage(err: unknown): string {
-  if (err instanceof InsecureTransportError) {
-    return err.message
-  }
   const mapped = isGatewayError(err) ? err : mapRpcError(err)
   switch (mapped.kind) {
+    case 'insecure_transport':
+      return PUBLIC_HTTP_REFUSAL
     case 'unauthorized':
       return 'Sign-in required.'
     case 'forbidden':

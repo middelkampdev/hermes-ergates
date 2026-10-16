@@ -10,6 +10,8 @@ import {
   MIN_PUBLIC_PASSWORD,
   PASSWORD_TOO_SHORT,
   passwordProblem,
+  savedConnectionGrade,
+  savedGradeGuide,
   type ConnectionGrade
 } from './connection-grade'
 
@@ -257,5 +259,28 @@ describe('guideLabel', () => {
     expect(guideLabel(LOOPBACK)).toBe('Server guide')
     expect(guideLabel(TAILSCALE)).toBe('Server guide')
     expect(guideLabel(LAN)).toBe('Server guide')
+  })
+})
+
+describe('savedConnectionGrade', () => {
+  it('grades a saved connection from its address and saved sign-in mode, as Settings shows it', () => {
+    expect(savedConnectionGrade({ baseUrl: 'http://127.0.0.1:9119', authMode: 'token' })).toEqual(LOOPBACK)
+    expect(savedConnectionGrade({ baseUrl: 'http://100.101.102.103:9119', authMode: 'password' })).toEqual(TAILSCALE)
+    expect(savedConnectionGrade({ baseUrl: 'https://hermes.example.com', authMode: 'password' })).toEqual(PUBLIC)
+  })
+
+  it('grades a connection saved before the app graded addresses unsafe when the rules now refuse it', () => {
+    expect(savedConnectionGrade({ baseUrl: 'http://hermes.example.com:9119', authMode: 'password' })).toEqual(PUBLIC_HTTP)
+    expect(savedConnectionGrade({ baseUrl: 'https://hermes.example.com', authMode: 'token' })).toEqual(PUBLIC_TOKEN)
+  })
+})
+
+describe('savedGradeGuide', () => {
+  it.each([PUBLIC_HTTP, PUBLIC_TOKEN])('links an unsafe grade to how to stay private: %o', grade => {
+    expect(savedGradeGuide(grade)).toEqual({ label: 'How to stay private', url: 'https://middelkamp.dev/ergates/server/#private-access' })
+  })
+
+  it.each([LOOPBACK, TAILSCALE, LAN, PUBLIC])('offers no link for a grade the app connects to: %o', grade => {
+    expect(savedGradeGuide(grade)).toBeNull()
   })
 })

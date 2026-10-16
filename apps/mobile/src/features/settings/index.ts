@@ -10,7 +10,9 @@ export {
   MIN_PUBLIC_PASSWORD,
   PASSWORD_TOO_SHORT,
   passwordProblem,
+  savedConnectionGrade,
+  savedGradeGuide,
   type ConnectionGrade
 } from './connection-grade'
 export { connectGateway, connectionToSignIn, probeGateway, signInAgain, signInFailure, signOut, usePrimaryConnection, type SignInFailure } from './connections'
-export { BLANK_CREDENTIALS, canConnect, credentialsFrom, credentialsReady, firstProvider, type CredentialValues, type SignInMode } from './credentials'
+export { BLANK_CREDENTIALS, canConnect, credentialsFrom, credentialsReady, firstProvider, signInModeFrom, type CredentialValues, type SignInMode } from './credentials'
