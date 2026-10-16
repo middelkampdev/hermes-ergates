@@ -6,11 +6,11 @@
  */
 
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native'
 
 import { draftFromPrefs, prefsFromDraft, scopeLabel, useAttentionPrefs, type PrefsDraft } from '@/features/attention'
-import { noticeForError, usePluginNotice, type NoticeRoute } from '@/features/server'
+import { noticeForError, shouldReloadAfterNotice, usePluginNotice, type NoticeRoute } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
 import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
@@ -52,6 +52,19 @@ function Notifications({ connection, profile, onClose, onOpenSetup }: Notificati
   const setupAction = serverNotice?.action ?? null
   const [draft, setDraft] = useState<PrefsDraft | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // The sheet closed on the server check's notice and its button sent the user to fix the server: read the settings again once the notice is gone.
+  // The neutral line while the check is asked again is no such notice: reading again then would ask the check again, and again.
+  const hasNotice = plugin.notice !== null && !plugin.checking
+  const hadNotice = useRef(hasNotice)
+  const refetchPrefs = prefs.refetch
+  useEffect(() => {
+    const reload = shouldReloadAfterNotice(hadNotice.current, hasNotice, prefs.error)
+    hadNotice.current = hasNotice
+    if (reload) {
+      void refetchPrefs()
+    }
+  }, [hasNotice, prefs.error, refetchPrefs])
 
   useEffect(() => {
     if (prefs.data && draft === null) {

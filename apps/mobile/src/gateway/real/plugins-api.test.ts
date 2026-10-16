@@ -191,6 +191,51 @@ describe('PluginsApi over the real gateway: enable', () => {
   })
 })
 
+describe('PluginsApi over the real gateway: disable', () => {
+  it('posts to the disable route of the named plugin, with no body', async () => {
+    const { api, seen } = await connected(() => [200, { ok: true, name: 'ergates', unchanged: false, restart_required: true }])
+
+    await expect(api.disable('ergates')).resolves.toBeUndefined()
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ method: 'POST', path: '/api/dashboard/agent-plugins/ergates/disable', body: undefined })
+    expect(seen[0]!.headers['X-Hermes-Session-Token']).toBe('tok-1')
+  })
+
+  it('sends the cookie in gated mode', async () => {
+    const { api, seen } = await connected(() => [200, { ok: true }], 'password')
+
+    await api.disable('ergates')
+    expect(seen[0]!.headers.Cookie).toBe('hermes_session_at=abc')
+    expect(seen[0]!.headers['X-Hermes-Session-Token']).toBeUndefined()
+  })
+
+  it('treats a plugin that was already off as done', async () => {
+    const { api } = await connected(() => [200, { ok: true, name: 'ergates', unchanged: true, restart_required: false }])
+
+    await expect(api.disable('ergates')).resolves.toBeUndefined()
+  })
+
+  it('maps no code from any refusal, even one worded like an install failure', async () => {
+    const { api } = await connected(() => [400, { detail: 'enable refused: the plugin asks for a capability that is not allowed' }])
+
+    const err = await rejection(api.disable('ergates'))
+    expect(err).toMatchObject({ kind: 'unknown', status: 400, message: 'enable refused: the plugin asks for a capability that is not allowed' })
+    expect(err.code).toBeUndefined()
+  })
+
+  it('rejects a plugin Hermes does not know with its detail', async () => {
+    const { api } = await connected(() => [400, { detail: "Plugin 'ergates' is not installed or bundled." }])
+
+    await expect(rejection(api.disable('ergates'))).resolves.toMatchObject({ kind: 'unknown', status: 400, message: "Plugin 'ergates' is not installed or bundled." })
+  })
+
+  it('rejects an expired sign-in', async () => {
+    const { api } = await connected(() => [401, { detail: 'Unauthorized' }])
+
+    await expect(rejection(api.disable('ergates'))).resolves.toMatchObject({ kind: 'unauthorized', status: 401 })
+  })
+})
+
 describe('PluginsApi over the real gateway: install', () => {
   it('sends exactly the request and resolves the plugin name and whether it is enabled', async () => {
     const { api, seen } = await connected(() => [
@@ -202,6 +247,24 @@ describe('PluginsApi over the real gateway: install', () => {
     expect(seen).toHaveLength(1)
     expect(seen[0]).toMatchObject({ method: 'POST', path: INSTALL_PATH, body: request })
     expect(seen[0]!.headers['X-Hermes-Session-Token']).toBe('tok-1')
+  })
+
+  it('sends force: true when the request asks for it', async () => {
+    const { api, seen } = await connected(() => [200, { ok: true, plugin_name: 'ergates', enabled: true }])
+    const forced: PluginInstallRequest = { ...request, force: true }
+
+    await expect(api.install(forced)).resolves.toEqual({ plugin_name: 'ergates', enabled: true })
+    expect(seen[0]).toMatchObject({ method: 'POST', path: INSTALL_PATH, body: forced })
+  })
+
+  it('maps no code from Hermes\'s refusal to replace a plugin that is turned on', async () => {
+    const detail =
+      "Plugin 'ergates' was not published: Reinstall declined: dependency install skipped (non-interactive). The installed plugin and active environment are unchanged."
+    const { api } = await connected(() => [400, { detail }])
+
+    const err = await rejection(api.install({ ...request, force: true }))
+    expect(err).toMatchObject({ kind: 'unknown', status: 400, message: detail.slice(0, 200) })
+    expect(err.code).toBeUndefined()
   })
 
   it('sends the cookie in gated mode', async () => {

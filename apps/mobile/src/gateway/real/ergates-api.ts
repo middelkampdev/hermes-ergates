@@ -31,6 +31,8 @@ const isObject = (value: unknown): value is Record<string, unknown> => !!value &
  * A health body with an `install` the app can read. A kind it does not know
  * reads as a manual copy, which the app only asks to update by hand; an
  * `install` that is not an object is left out, as an older plugin sends none.
+ * A `loaded_commit` that is not a string reads as `null`; one the plugin does
+ * not send stays out, which is what tells an older plugin from a manual copy.
  * Every other field stays as the plugin sent it.
  */
 function readHealth(body: Record<string, unknown>): T.ErgatesHealth {
@@ -42,7 +44,8 @@ function readHealth(body: Record<string, unknown>): T.ErgatesHealth {
     return withoutInstall as unknown as T.ErgatesHealth
   }
   const kind = INSTALL_KINDS.includes(install.kind) ? install.kind : 'manual copy'
-  return { ...body, install: { ...install, kind } } as unknown as T.ErgatesHealth
+  const loaded = 'loaded_commit' in install ? { loaded_commit: typeof install.loaded_commit === 'string' ? install.loaded_commit : null } : {}
+  return { ...body, install: { ...install, kind, ...loaded } } as unknown as T.ErgatesHealth
 }
 
 /**

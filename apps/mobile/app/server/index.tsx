@@ -14,16 +14,17 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
 import {
-  isSetupRunning,
+  joinSetup,
   opensFinish,
-  routeAfterCheck,
+  runningKind,
   runSetup,
   SETUP_TITLE,
   serverCheckKey,
+  setupRedirect,
   setupScreenView,
-  stepStatusWord,
   useServerCheck,
   type SetupAction,
+  type SetupOutcome,
   type SetupRunState,
   type SetupStep,
   type StepStatus
@@ -34,22 +35,12 @@ import { buildRecord } from '@/lib/build-info'
 import type { Connection } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
 import { LEADING, SPACE, TYPE } from '@/theme/tokens'
+import { AutoUpdateSwitch } from '@/ui/AutoUpdateSwitch'
 import { Button } from '@/ui/Button'
-import { Group } from '@/ui/Group'
-import type { IconName } from '@/ui/icons'
-import { ListRow } from '@/ui/ListRow'
 import { Page } from '@/ui/Page'
+import { StepList } from '@/ui/StepList'
 
 const PENDING_STEPS: Record<SetupStep, StepStatus> = { install: 'pending', enable: 'pending', start: 'pending', setup: 'pending' }
-
-// The active step keeps the open circle: its row shows the one spinner on the right. A skipped step gets a bare check, set apart from a step that ran.
-const STEP_ICON: Record<StepStatus, IconName> = {
-  pending: 'circle',
-  active: 'circle',
-  done: 'check-circle',
-  skipped: 'check',
-  failed: 'x-circle'
-}
 
 export default function ServerSetupScreen() {
   const connection = usePrimaryConnection()
@@ -66,8 +57,8 @@ function ServerSetup({ connection }: { connection: Connection }) {
   const gateway = useGateway(connection)
   const build = useMemo(() => buildRecord(), [])
   const check = useServerCheck(connection, build)
-  // A run that is already going (the user left this screen and came back) is joined, not offered again.
-  const rejoin = useRef(isSetupRunning(connection.id))
+  // A setup that is already going (the user left this screen and came back) is joined, not offered again. An update going is not this screen's to join.
+  const rejoin = useRef(runningKind(connection.id) === 'setup')
   const [run, setRun] = useState<SetupRunState | null>(() => (rejoin.current ? { steps: PENDING_STEPS, outcome: null } : null))
   // The run keeps reporting after this screen is gone; only a mounted screen draws it.
   const mounted = useRef(true)
@@ -81,35 +72,51 @@ function ServerSetup({ connection }: { connection: Connection }) {
 
   const openFinish = useCallback(() => router.push('/server/finish'), [router])
 
+  const report = useCallback((step: SetupStep, status: StepStatus) => {
+    if (mounted.current) {
+      setRun(current => (current ? { ...current, steps: { ...current.steps, [step]: status } } : current))
+    }
+  }, [])
+
+  const settle = useCallback(
+    async (outcome: SetupOutcome) => {
+      if (outcome.kind === 'done' || outcome.kind === 'manual' || outcome.kind === 'restart') {
+        // Home and the other screens read the same check: make them see the finished setup, and Finish open on what the run left, not on the check from before it.
+        await queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
+      }
+      if (!mounted.current) {
+        return
+      }
+      setRun(current => ({ steps: current?.steps ?? PENDING_STEPS, outcome }))
+      if (opensFinish(outcome)) {
+        openFinish()
+      }
+    },
+    [queryClient, connection.id, openFinish]
+  )
+
   const start = useCallback(async () => {
     if (build === null) {
       return
     }
     setRun({ steps: PENDING_STEPS, outcome: null })
-    const outcome = await runSetup({ port: gateway, build, connectionId: connection.id }, (step, status) => {
-      if (mounted.current) {
-        setRun(current => (current ? { ...current, steps: { ...current.steps, [step]: status } } : current))
-      }
-    })
-    if (outcome.kind === 'done' || outcome.kind === 'manual' || outcome.kind === 'restart') {
-      // Home and the other screens read the same check: make them see the finished setup, and Finish open on what the run left, not on the check from before it.
-      await queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
-    }
-    if (!mounted.current) {
-      return
-    }
-    setRun(current => ({ steps: current?.steps ?? PENDING_STEPS, outcome }))
-    if (opensFinish(outcome)) {
-      openFinish()
-    }
-  }, [build, gateway, connection.id, queryClient, openFinish])
+    await settle(await runSetup({ port: gateway, build, connectionId: connection.id }, report))
+  }, [build, gateway, connection.id, report, settle])
 
   useEffect(() => {
-    if (rejoin.current) {
-      rejoin.current = false
-      void start()
+    if (!rejoin.current) {
+      return
     }
-  }, [start])
+    rejoin.current = false
+    const joining = joinSetup(connection.id, report)
+    if (joining === null) {
+      // The run ended before this screen got to it: show what the server says now, and start nothing.
+      setRun(null)
+      void queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
+      return
+    }
+    void joining.then(settle)
+  }, [connection.id, report, settle, queryClient])
 
   const act = (action: SetupAction | 'not_now') => {
     switch (action) {
@@ -137,8 +144,9 @@ function ServerSetup({ connection }: { connection: Connection }) {
 
   const goBack = () => (router.canGoBack() ? router.back() : router.replace('/'))
 
-  if (run === null && check.data && routeAfterCheck(check.data) === '/server/finish') {
-    return <Redirect href="/server/finish" />
+  const handOver = run === null && check.data ? setupRedirect(check.data) : null
+  if (handOver !== null) {
+    return <Redirect href={handOver} />
   }
 
   const view = setupScreenView({ data: check.data, error: check.error }, build, run)
@@ -172,21 +180,9 @@ function ServerSetup({ connection }: { connection: Connection }) {
         ))}
         {view.source ? <Text style={[styles.detail, { color: theme.colors.mutedForeground }]}>{view.source}</Text> : null}
         {view.note ? <Text style={[styles.detail, { color: theme.colors.mutedForeground }]}>{view.note}</Text> : null}
+        {view.autoUpdateSwitch ? <AutoUpdateSwitch connection={connection} /> : null}
       </View>
-      {view.steps ? (
-        <Group>
-          {view.steps.map(step => (
-            <ListRow
-              key={step.label}
-              title={step.label}
-              icon={STEP_ICON[step.status]}
-              destructive={step.status === 'failed'}
-              right={step.status === 'active' ? <ActivityIndicator accessibilityLabel={stepStatusWord('active')} /> : undefined}
-              accessibilityLabel={`${step.label}, ${stepStatusWord(step.status)}`}
-            />
-          ))}
-        </Group>
-      ) : null}
+      {view.steps ? <StepList steps={view.steps} /> : null}
     </Page>
   )
 }

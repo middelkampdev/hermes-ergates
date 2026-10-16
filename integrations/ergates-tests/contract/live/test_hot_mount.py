@@ -86,7 +86,8 @@ def test_plugin_installed_after_start_serves_health_without_restart(web_without_
     # Hermes records the install in plugins/.install-metadata.json; the app offers going back to a commit
     # only for a git install. The first request installed the templates, and the plugin is enabled in the
     # root's one profile.
-    assert health.json()["install"] == {"kind": "git install", "commit": plugin_git_repo.sha, "catalog_name": None}
+    assert health.json()["install"] == {"kind": "git install", "commit": plugin_git_repo.sha, "catalog_name": None,
+                                        "loaded_commit": plugin_git_repo.sha}
     assert health.json()["setup"] == {"finished": True, "templates": "installed",
                                       "profiles": [{"name": "default", "enabled": True}]}
     # The whole router dashboard/manifest.json names is live, not only the route that mounted it.
@@ -112,7 +113,8 @@ def test_a_subdirectory_install_keeps_no_git_folder_and_health_still_names_its_c
     assert installed.is_dir() and not installed.is_symlink()
     assert not (installed / ".git").exists()
     health = web.get(f"{API}/health", headers=token_headers).json()
-    assert health["install"] == {"kind": "git install", "commit": plugin_monorepo.sha, "catalog_name": None}
+    assert health["install"] == {"kind": "git install", "commit": plugin_monorepo.sha, "catalog_name": None,
+                                 "loaded_commit": plugin_monorepo.sha}
 
 
 def test_the_plugin_list_and_the_enable_routes_follow_the_plugin_the_app_installs(

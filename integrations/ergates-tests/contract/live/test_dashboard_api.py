@@ -64,12 +64,12 @@ def test_hermes_serve_mounts_the_router_and_health_answers(web, token_headers, m
 
     assert reply.status_code == 200
     assert (body["ok"], body["plugin_version"], body["api_level"], body["min_api_level"]) == (
-        True, ergates.__version__, 1, 1)
+        True, ergates.__version__, 2, 1)
     assert body["schema_version"] == SCHEMA_VERSION
     assert body["store"] == {"plugin_schema_version": SCHEMA_VERSION, "min_schema_version": SCHEMA_VERSION,
                              "writable": True}
     # The session root links its plugin folder to this checkout, which no commit describes.
-    assert body["install"] == {"kind": "manual copy", "commit": None, "catalog_name": None}
+    assert body["install"] == {"kind": "manual copy", "commit": None, "catalog_name": None, "loaded_commit": None}
     # Other tests add profiles to this root; the default profile is always first and has the plugin.
     assert body["setup"]["templates"] == "installed"
     assert body["setup"]["profiles"][0] == {"name": "default", "enabled": True}
@@ -84,8 +84,25 @@ def test_health_says_deployment_when_the_serving_process_is_marked_so_at_each_ca
     monkeypatch.delenv("ERGATES_INSTALL_KIND")
     unmarked = web.get(f"{API}/health", headers=token_headers).json()["install"]
 
-    assert marked == {"kind": "deployment", "commit": None, "catalog_name": None}
+    assert marked == {"kind": "deployment", "commit": None, "catalog_name": None, "loaded_commit": None}
     assert unmarked["kind"] == "manual copy"
+
+
+def test_health_keeps_the_commit_the_plugin_was_loaded_from_when_the_install_record_changes(
+        web, token_headers, monkeypatch, tmp_path):
+    """``install.commit`` follows Hermes's record at each call; ``install.loaded_commit`` is read once, when
+    Hermes imported the router, because a reinstall replaces the files and the record but not the code a
+    running server has mounted. The session root's plugin is a link to this checkout, so it was loaded
+    from no commit; a record of another commit, with a real plugin folder, moves ``commit`` alone."""
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    plugin = tmp_path / "plugins" / "ergates"
+    plugin.mkdir(parents=True)
+    monkeypatch.setattr(hermes_adapter, "install_record", lambda: {"revision": sha, "source": "x"})
+    monkeypatch.setattr(hermes_adapter, "root_plugin_dir", lambda: plugin)
+
+    install = web.get(f"{API}/health", headers=token_headers).json()["install"]
+
+    assert install == {"kind": "git install", "commit": sha, "catalog_name": None, "loaded_commit": None}
 
 
 def test_health_reports_push_as_booleans_and_never_a_value(web, token_headers, monkeypatch, tmp_path):

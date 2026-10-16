@@ -1,0 +1,46 @@
+/**
+ * The update that runs without asking, for a connection that learned its
+ * Hermes starts a new plugin without a restart. It is the ordinary update run
+ * with the bookkeeping around it: the target is recorded as handled before
+ * anything changes on the server, so a run that fails is offered as a line
+ * and never started again by itself, and what the run learned is left on the
+ * connection (`silentRunPatch`). Plain async code over the gateway port, so
+ * Node tests drive it with FakeGateway; Home calls it.
+ */
+
+import type { GatewayPort } from '@/gateway/port'
+import { useDeviceStore } from '@/state/device-store'
+
+import type { BuildRecord } from './build-record'
+import type { UpdateOffer } from './plugin-version'
+import { runUpdate, type UpdateOutcome } from './update-run'
+import { silentRunPatch } from './update-trigger'
+import { targetOf } from './update-view'
+
+/**
+ * Runs the update `offer` describes and answers how it ended. A step's
+ * progress is not shown: nobody is watching. `recheck` asks the server check
+ * again and is called after every end, a refused session included: the check
+ * is what turns a dead session into Home's sign-in line, and what takes the
+ * old offer off Home. `askedUpdateFor` keeps that check from starting the run
+ * again.
+ */
+export async function updateSilently(port: GatewayPort, build: BuildRecord, connectionId: string, offer: UpdateOffer, recheck: () => Promise<unknown>): Promise<UpdateOutcome> {
+  const { updateConnection } = useDeviceStore.getState()
+  updateConnection(connectionId, { askedUpdateFor: offer.commit })
+  const outcome = await runUpdate({ port, build, connectionId, ...targetOf(offer) }, () => undefined)
+  const patch = silentRunPatch(outcome, offer)
+  if (Object.keys(patch).length > 0) {
+    updateConnection(connectionId, patch)
+  }
+  await recheck()
+  return outcome
+}
+
+/** Forgets the version Home told the user about. Writes nothing when there is none, since every screen that reads the store would redraw. */
+export function clearUpdatedNotice(connectionId: string): void {
+  const { connections, updateConnection } = useDeviceStore.getState()
+  if (connections.find(connection => connection.id === connectionId)?.pluginUpdatedNotice !== undefined) {
+    updateConnection(connectionId, { pluginUpdatedNotice: undefined })
+  }
+}

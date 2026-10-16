@@ -315,9 +315,21 @@ export class FakeGateway implements GatewayPort {
   /** The profiles this gateway has: the recorded roster, plus any `profiles.create` made. */
   readonly profileNames = new Set<string>((profilesListFixture.profiles as { name: string }[]).map(p => p.name))
   /** The Ergates routes, over this gateway's profiles. */
-  readonly ergates = new FakeErgates({ hasProfile: name => this.profileNames.has(name) })
-  /** Hermes's plugin routes: the hub list, install and enable. */
-  readonly plugins = new FakePlugins()
+  readonly ergates = new FakeErgates({
+    hasProfile: name => this.profileNames.has(name),
+    installedCommit: () => this.plugins.installedCommit,
+    // A plugin the hub lists as turned off has no routes; one it does not list is there, as in the recorded world.
+    pluginServed: () => {
+      const status = this.plugins.rows.find(row => row.name === 'ergates')?.runtime_status
+      return status === undefined || status === 'enabled'
+    }
+  })
+  /** Hermes's plugin routes: the hub list, install, enable and disable. */
+  readonly plugins = new FakePlugins({
+    onMount: commit => {
+      this.ergates.loadedCommit = commit
+    }
+  })
 
   /** `ui_meta` and its revisions per profile once a write touched them, as profile.yaml holds them. */
   private readonly storedMeta = new Map<string, { uiMeta: T.UiMeta; revisions: Record<string, number> }>()

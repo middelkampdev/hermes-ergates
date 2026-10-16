@@ -2,7 +2,7 @@
  * Hermes's own plugin routes over the connection's `HttpClient`, so they carry
  * its auth: the session-token header in loopback token mode, the cookie in
  * gated mode. The app reads the plugin list (`/api/dashboard/plugins/hub`),
- * installs a plugin and enables it (`/api/dashboard/agent-plugins`).
+ * installs a plugin, and turns it on or off (`/api/dashboard/agent-plugins`).
  *
  * Hermes answers every install refusal as a 400 with a plain-text `detail`
  * and no error code, so the failures the app tells apart are matched by the
@@ -65,6 +65,15 @@ function row(value: unknown): T.HermesPluginRow | null {
  * gateway's `restore()`), as for `createErgatesApi`.
  */
 export function createPluginsApi(http: HttpClient, ready: () => Promise<unknown> = async () => undefined): PluginsApi {
+  /** Turns a plugin on or off in Hermes's config; any refusal is a plain error. */
+  const setEnabled = async (name: string, action: 'enable' | 'disable'): Promise<void> => {
+    await ready()
+    const answer = await http.exchange('POST', `${AGENT_PLUGINS_PATH}/${encodeURIComponent(name)}/${action}`)
+    if (answer.status < 200 || answer.status >= 300) {
+      throw mapHttpError(answer.status, answer.body)
+    }
+  }
+
   return {
     hub: async () => {
       await ready()
@@ -90,12 +99,7 @@ export function createPluginsApi(http: HttpClient, ready: () => Promise<unknown>
       }
       return { plugin_name: name, enabled: enabled === true }
     },
-    enable: async name => {
-      await ready()
-      const answer = await http.exchange('POST', `${AGENT_PLUGINS_PATH}/${encodeURIComponent(name)}/enable`)
-      if (answer.status < 200 || answer.status >= 300) {
-        throw mapHttpError(answer.status, answer.body)
-      }
-    }
+    enable: name => setEnabled(name, 'enable'),
+    disable: name => setEnabled(name, 'disable')
   }
 }

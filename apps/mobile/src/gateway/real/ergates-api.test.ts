@@ -162,6 +162,41 @@ describe('ErgatesApi over the real gateway', () => {
     }
   })
 
+  it('passes the commit the plugin was loaded from through', async () => {
+    const { api } = await connected(() => [200, { ...health, install: { ...health.install, loaded_commit: 'b'.repeat(40) } }])
+
+    await expect(api.health()).resolves.toMatchObject({ health: { install: { commit: 'a'.repeat(40), loaded_commit: 'b'.repeat(40) } } })
+  })
+
+  it('keeps a loaded commit of null: a manual copy or a deployment has none', async () => {
+    const { api } = await connected(() => [200, { ...health, install: { kind: 'manual copy', commit: null, loaded_commit: null, catalog_name: null } }])
+
+    const answer = await api.health()
+    expect(answer).toMatchObject({ health: { install: { loaded_commit: null } } })
+  })
+
+  it.each([
+    ['a number', 5],
+    ['an object', {}],
+    ['a list', ['b'.repeat(40)]],
+    ['a boolean', true]
+  ] as const)('reads a loaded commit that is %s as null', async (_name, loaded) => {
+    const { api } = await connected(() => [200, { ...health, install: { ...health.install, loaded_commit: loaded } }])
+
+    const answer = await api.health()
+    expect(answer).toMatchObject({ health: { install: { kind: 'git install', commit: 'a'.repeat(40), loaded_commit: null } } })
+  })
+
+  it('leaves the loaded commit out when an older plugin sends none', async () => {
+    const { api } = await connected(() => [200, health])
+
+    const answer = await api.health()
+    if (answer.state !== 'answered') {
+      throw new Error('expected an answer')
+    }
+    expect(answer.health.install).not.toHaveProperty('loaded_commit')
+  })
+
   it('drops an install field that is not an object, as an older plugin sends none', async () => {
     const { api } = await connected(() => [200, { ...health, install: 'git install' }])
 

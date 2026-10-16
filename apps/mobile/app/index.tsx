@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useFocusEffect, useRouter, Redirect } from 'expo-router'
+import { useFocusEffect, useIsFocused, useRouter, Redirect } from 'expo-router'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, BackHandler, Pressable, StyleSheet, Text, type StyleProp, type TextStyle } from 'react-native'
 
@@ -26,7 +26,7 @@ import {
   type MembershipSnapshot,
   type Selection
 } from '@/features/agents'
-import { finishPendingSetup, serverCheckKey, usePluginNotice, type NoticeRoute, type PluginNotice } from '@/features/server'
+import { clearUpdatedNotice, finishPendingSetup, serverCheckKey, usePluginNotice, useUpdateTrigger, type NoticeRoute, type PluginNotice } from '@/features/server'
 import { usePrimaryConnection } from '@/features/settings'
 import { userMessage } from '@/gateway/errors'
 import { useGateway } from '@/gateway/registry'
@@ -179,14 +179,22 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
       return
     }
     finishPendingSetup(gateway, connection, checked).then(
-      report => {
-        if (report !== null) {
+      result => {
+        if (result.kind === 'done') {
           void queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
         }
       },
       () => undefined
     )
   }, [checked, check.dataUpdatedAt, gateway, connection, queryClient])
+
+  // An update the server check offers: the Update ready screen opens once, or the update runs without asking where the connection
+  // learned that is safe, once for each fresh check answer, and only while Home is in view. The lines come from the same rules.
+  const focused = useIsFocused()
+  const openUpdate = useCallback(() => router.push('/server/update'), [router])
+  const update = useUpdateTrigger({ gateway, connection, build, check, focused, openUpdate })
+  // The line that says the plugin was updated without asking is seen once: it goes when Home loses focus.
+  useFocusEffect(useCallback(() => () => clearUpdatedNotice(connectionId), [connectionId]))
 
   // Every roster read (docs/05 section 3): the one-time first sync (on a new
   // install, the concierge pin when Hermes has no value for it), then new
@@ -281,6 +289,7 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
   // A 401 from either read asks for a new sign-in: after a Hermes restart only the check's HTTP read gets one.
   const errorLine = homeErrorLine(home.error, check.error)
   const errorStyle = [styles.line, { color: theme.colors.destructive, paddingHorizontal: gutter }]
+  const mutedStyle = [styles.line, { color: theme.colors.mutedForeground, paddingHorizontal: gutter }]
 
   return (
     <Screen>
@@ -330,9 +339,13 @@ function Home({ connectionId, connectionLabel }: { connectionId: string; connect
             </Text>
           ) : serverNotice ? (
             <PluginLine notice={serverNotice} style={errorStyle} onOpen={(route: NoticeRoute) => router.push(route)} />
+          ) : update.line ? (
+            <PluginLine notice={update.line} style={mutedStyle} onOpen={(route: NoticeRoute) => router.push(route)} />
+          ) : update.updatedNotice ? (
+            <Text style={mutedStyle}>{update.updatedNotice}</Text>
           ) : null
         }
-        footer={empty ? <Text style={[styles.line, { color: theme.colors.mutedForeground, paddingHorizontal: gutter }]}>No assistants yet. Tap + to create one.</Text> : null}
+        footer={empty ? <Text style={mutedStyle}>No assistants yet. Tap + to create one.</Text> : null}
       />
       <EditBar labels={labels} shown={editing && selection.size > 0} onMove={bar.move} onPin={bar.pin} onHide={() => void bar.hide()} onRead={bar.read} />
       <BotActions

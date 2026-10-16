@@ -6,7 +6,15 @@
  * the real adapter uses, so an app test meets what the real server answers.
  * Test hooks: `record` (what the propose tool does), `nextCreateUncertain`,
  * `fail`, `failInternal`, `setHealth` (what the health probe finds),
- * `setSetupResult`; logs: `calls`, `setupCalls`, `jobs`, `enabledPlugins`.
+ * `loadedCommit` (the commit the running code came from), `setSetupResult`;
+ * logs: `calls`, `setupCalls`, `jobs`, `enabledPlugins`.
+ * Until `setHealth` is called, the health of a current plugin reports the
+ * install record's commit from `installedCommit` and the loaded commit apart,
+ * so a reinstall moves the first and only a restart (a test setting
+ * `loadedCommit`) moves the second. A first install is the exception: Hermes
+ * mounts a new plugin at once, so `FakeGateway` moves the second with it.
+ * Hermes answers 404 for the routes of a plugin that is turned off, whatever
+ * code is mounted: the default health follows `pluginServed` the same way.
  *
  * No React Native or Expo imports (ADR-029 rule 1).
  */
@@ -42,6 +50,9 @@ export const PROPOSAL_TEMPLATE: ProposalTemplate = {
 /** A finished setup: the templates are in place and the plugin is enabled in the one profile. */
 export const FAKE_SETUP: SetupState = { finished: true, templates: 'installed', profiles: [{ name: 'default', enabled: true }] }
 
+/** The commit a current plugin was installed from, and is running. */
+export const FAKE_PLUGIN_COMMIT = 'a'.repeat(40)
+
 /** The health body of a current plugin that is installed, set up and idle (`Operations.health`). */
 export const FAKE_PLUGIN_HEALTH: ErgatesHealth = {
   ok: true,
@@ -50,7 +61,7 @@ export const FAKE_PLUGIN_HEALTH: ErgatesHealth = {
   min_api_level: 1,
   schema_version: 1,
   store: { plugin_schema_version: 1, min_schema_version: 1, writable: true },
-  install: { kind: 'git install', commit: 'a'.repeat(40), catalog_name: null },
+  install: { kind: 'git install', commit: FAKE_PLUGIN_COMMIT, loaded_commit: FAKE_PLUGIN_COMMIT, catalog_name: null },
   setup: FAKE_SETUP,
   push: { configured: false, token_set: false, legacy_config_token: false },
   sweep: { interval_seconds: 120, last_run_at: null, last_error: null }
@@ -144,6 +155,10 @@ export interface FakeErgatesOptions {
   templates?: Record<string, ProposalTemplate>
   /** Milliseconds, for proposal expiry. */
   now?: () => number
+  /** The commit of the plugin's install record, read at every default health call. */
+  installedCommit?: () => string | null
+  /** Whether Hermes serves the plugin's routes (it is not turned off), read at every default health call. Defaults to true. */
+  pluginServed?: () => boolean
 }
 
 export class FakeErgates implements ErgatesApi {
@@ -152,22 +167,28 @@ export class FakeErgates implements ErgatesApi {
   /** The cron jobs the reminder route made. */
   readonly jobs: { id: string; profile: string; name: string; schedule: string }[] = []
   readonly enabledPlugins = new Set<string>()
+  /** The commit the running plugin code was loaded from. It moves when a test moves it, as a restart does, and when `FakeGateway` installs a plugin where there was none. */
+  loadedCommit: string | null = FAKE_PLUGIN_COMMIT
 
   private readonly hasProfile: (name: string) => boolean
   private readonly templates: Record<string, ProposalTemplate>
   private readonly now: () => number
+  private readonly installedCommit: () => string | null
+  private readonly pluginServed: () => boolean
   private readonly reminders = new Map<string, StoredReminder>()
   private readonly proposals = new Map<string, StoredProposal>()
   private readonly prefs = new Map<string, Omit<AttentionPrefs, 'profile'>>()
   private readonly faults: Fault[] = []
   private readonly uncertain: { jobCreated: boolean }[] = []
-  private healthScript: HealthScript = { state: 'answered', health: FAKE_PLUGIN_HEALTH }
+  private healthScript: HealthScript | undefined
   private setupResult: SetupState = FAKE_SETUP
 
   constructor(options: FakeErgatesOptions) {
     this.hasProfile = options.hasProfile
     this.templates = options.templates ?? { [PROPOSAL_TEMPLATE.template_id]: PROPOSAL_TEMPLATE }
     this.now = options.now ?? Date.now
+    this.installedCommit = options.installedCommit ?? (() => FAKE_PLUGIN_COMMIT)
+    this.pluginServed = options.pluginServed ?? (() => true)
   }
 
   /** What `ergates_propose_agent` does: record the proposal as `proposed`. */
@@ -214,7 +235,8 @@ export class FakeErgates implements ErgatesApi {
 
   health(): Promise<PluginProbe> {
     return this.run('health', [], () => {
-      const found = typeof this.healthScript === 'function' ? this.healthScript() : this.healthScript
+      const script = this.healthScript ?? this.currentPlugin()
+      const found = typeof script === 'function' ? script() : script
       if (found instanceof Error) {
         throw found
       }
@@ -391,6 +413,15 @@ export class FakeErgates implements ErgatesApi {
 
   private settle(fault: Fault): Promise<never> {
     return fault.error === 'hang' ? new Promise<never>(() => undefined) : Promise.reject(fault.error)
+  }
+
+  /** The health of a current plugin, with the commits as they stand now; Hermes finds no routes for a plugin that is turned off. */
+  private currentPlugin(): PluginProbe {
+    if (!this.pluginServed()) {
+      return { state: 'absent' }
+    }
+    const install = { kind: 'git install', commit: this.installedCommit(), loaded_commit: this.loadedCommit, catalog_name: null } as const
+    return { state: 'answered', health: { ...FAKE_PLUGIN_HEALTH, install } }
   }
 
   private checkReminder(req: ReminderRequest): void {

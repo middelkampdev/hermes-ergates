@@ -8,23 +8,28 @@
  * An install answers only when it ends, and the phone or a proxy in between
  * may give up long before Hermes does. A request that was lost that way (no
  * answer, or a 5xx) is not a refusal: the run keeps waiting for the plugin to
- * show up and fails only when the install time has passed.
+ * show up and fails only when the install time has passed. A request that is
+ * still pending after a minute does not hold the run either: the run starts
+ * looking for the plugin and goes on as soon as it is there (`installAndWait`,
+ * which the update run uses too).
  *
  * Plain async code over the gateway port, no React: screens call it and draw
  * the steps from `onStep`. The pending setup (see `pending-setup.ts`) is set
- * first and cleared only when the plugin's setup succeeded, so every way out
- * of the run but `done` leaves the setup to be finished later.
+ * once the first look at the server worked, before anything changes there,
+ * and cleared only when the plugin's setup succeeded, so every way out of the
+ * run after that look but `done` leaves the setup to be finished later.
  */
 
 import { isGatewayError, type GatewayError } from '@/gateway/errors'
 import { PLUGIN_INSTALL_TIMEOUT_MS, type GatewayPort } from '@/gateway/port'
-import type { PluginInstallCode, PluginProbe, SetupState } from '@/gateway/types'
+import type { PluginInstallCode, PluginInstallResult, PluginProbe, SetupState } from '@/gateway/types'
 
-import { PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
-import { clearPendingSetup, isSetupRunning, markPendingSetup, trackSetupRun } from './pending-setup'
-import { hubRow } from './server-check'
+import { COMMIT_PATTERN, PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
+import { clearPendingSetupIfUnchanged, isGoingBack, isSetupRunning, markPendingSetup, pendingSnapshot, runningKind } from './pending-setup'
+import { Flights } from './run-flights'
+import { hubRow, pluginPresence, waitsForRestart } from './server-check'
 
-/** Whether a run is going for the connection; `pending-setup.ts` owns the answer so that it can check it without importing this module. */
+/** Whether a run of any kind is going for the connection, an update or going back too (`runningKind` says which); `pending-setup.ts` owns the answer so that it can check it without importing this module. */
 export { isSetupRunning }
 
 export type SetupStep = 'install' | 'enable' | 'start' | 'setup'
@@ -51,19 +56,35 @@ export interface SetupDeps {
   connectionId: string
 }
 
+/** How long an install request may be pending before the run starts looking for the plugin itself. */
+export const INSTALL_RACE_AFTER_MS = 60_000
 const RECHECK_MS = 5_000
 const START_PROBES = 3
 const START_WAIT_MS = 2_000
 const LOST_CONNECTION = 'Lost the connection to your server during setup.'
-const NOT_LOADED = 'Hermes did not load the plugin.'
+/** What a run says when the plugin is installed and enabled but Hermes never serves it. */
+export const NOT_LOADED = 'Hermes did not load the plugin.'
 const UNEXPECTED = 'Something went wrong during setup.'
+const UPDATE_RUNNING = 'The plugin is being updated. Try again when it is done.'
+const GOING_BACK_RUNNING = 'Going back is running. Try again when it is done.'
 
 const KNOWN_FAILURES: readonly ManualFailure[] = ['scan_blocked', 'no_git', 'download_failed', 'enable_refused']
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
+/** Waits `ms`, or less when `done` settles first; the timer does not outlive the wait. */
+function sleepUnless(ms: number, done: Promise<unknown>): Promise<void> {
+  return new Promise(resolve => {
+    const timer = setTimeout(resolve, ms)
+    void done.then(() => {
+      clearTimeout(timer)
+      resolve()
+    })
+  })
+}
+
 /** The refusal an install error stands for, or null when the install may have gone on without us. */
-function manualFailure(error: GatewayError): ManualFailure | null {
+export function manualFailure(error: GatewayError): ManualFailure | null {
   const known = KNOWN_FAILURES.find(code => code === error.code)
   if (known !== undefined) {
     return known
@@ -76,6 +97,94 @@ function isLost(error: GatewayError): boolean {
   return error.kind === 'network' || error.kind === 'timeout' || (error.status !== undefined && error.status >= 500)
 }
 
+/** How an install request ended for the run that sent it. */
+export type InstallEnd =
+  | { kind: 'answered'; result: PluginInstallResult }
+  /** Hermes answered with an error that is not a lost request: the caller decides what it means. */
+  | { kind: 'rejected'; error: GatewayError }
+  /** The request did not answer, but `seen` found the plugin: the request is abandoned and its answer, if one comes, is ignored. */
+  | { kind: 'seen' }
+  /** The install time passed without an answer and without the plugin showing up. */
+  | { kind: 'lost' }
+
+type Reply = { ok: true; result: PluginInstallResult } | { ok: false; error: unknown }
+
+/**
+ * Sends the install and waits for what ends it. An install answers only when
+ * it ends, so a request can be pending long after the server has the plugin
+ * (a proxy that never answers, a phone that went to sleep). Once the request
+ * has been pending for `INSTALL_RACE_AFTER_MS`, and again right after it was
+ * lost (no answer, a timeout or a 5xx), `seen` is asked every few seconds
+ * until it says yes or the install time since the request began has passed.
+ * `seen` rejects only with a 401, which ends the wait with that error. An
+ * error that is not a `GatewayError` is rethrown.
+ */
+export async function installAndWait(request: () => Promise<PluginInstallResult>, seen: () => Promise<boolean>): Promise<InstallEnd> {
+  const startedAt = Date.now()
+  const received: { reply: Reply | null } = { reply: null }
+  const answered = request().then(
+    result => {
+      received.reply = { ok: true, result }
+    },
+    (error: unknown) => {
+      received.reply = { ok: false, error }
+    }
+  )
+  for (;;) {
+    const elapsed = Date.now() - startedAt
+    const { reply } = received
+    if (reply === null && elapsed < INSTALL_RACE_AFTER_MS) {
+      await sleepUnless(INSTALL_RACE_AFTER_MS - elapsed, answered)
+      continue
+    }
+    if (reply?.ok) {
+      return { kind: 'answered', result: reply.result }
+    }
+    if (reply !== null) {
+      if (!isGatewayError(reply.error)) {
+        throw reply.error
+      }
+      if (!isLost(reply.error)) {
+        return { kind: 'rejected', error: reply.error }
+      }
+    }
+    if (await seen()) {
+      return { kind: 'seen' }
+    }
+    if (elapsed >= PLUGIN_INSTALL_TIMEOUT_MS) {
+      return { kind: 'lost' }
+    }
+    await (reply === null ? sleepUnless(RECHECK_MS, answered) : sleep(RECHECK_MS))
+  }
+}
+
+/** The plugin's health read as a probe. A read that fails counts as not answered; only a 401 stops the caller. */
+export async function probeHealth(port: GatewayPort): Promise<PluginProbe> {
+  try {
+    return await port.ergates.health()
+  } catch (error) {
+    if (isGatewayError(error) && error.kind !== 'unauthorized') {
+      return { state: 'absent' }
+    }
+    throw error
+  }
+}
+
+/**
+ * Asks for the plugin's health up to three times, two seconds apart, until it
+ * answers or Hermes says it does not serve the plugin. Returns the last
+ * probe: `absent` means Hermes never served it.
+ */
+export async function waitForRoutes(port: GatewayPort): Promise<PluginProbe> {
+  for (let probes = 1; ; probes += 1) {
+    const found = await port.ergates.health()
+    if (found.state !== 'absent' || probes === START_PROBES) {
+      return found
+    }
+    await sleep(START_WAIT_MS)
+  }
+}
+
 function outcomeOfError(error: unknown, step: SetupStep | null): SetupOutcome {
   if (!isGatewayError(error)) {
     return { kind: 'failed', step: step ?? 'install', message: UNEXPECTED }
@@ -85,6 +194,7 @@ function outcomeOfError(error: unknown, step: SetupStep | null): SetupOutcome {
 
 class SetupRun {
   private readonly port: GatewayPort
+  private readonly build: BuildRecord
   private readonly commit: string
   private readonly connectionId: string
   private readonly onStep: (step: SetupStep, status: StepStatus) => void
@@ -95,13 +205,13 @@ class SetupRun {
 
   constructor(deps: SetupDeps, commit: string, onStep: (step: SetupStep, status: StepStatus) => void) {
     this.port = deps.port
+    this.build = deps.build
     this.connectionId = deps.connectionId
     this.commit = commit
     this.onStep = onStep
   }
 
   async execute(): Promise<SetupOutcome> {
-    markPendingSetup(this.connectionId, this.commit)
     let outcome: SetupOutcome
     try {
       outcome = (await this.install()) ?? (await this.enable()) ?? (await this.start()) ?? (await this.setup())
@@ -109,7 +219,8 @@ class SetupRun {
       outcome = outcomeOfError(error, this.active)
     }
     if (outcome.kind !== 'done' && this.active !== null) {
-      this.onStep(this.active, 'failed')
+      // A restart to ask for is not a failure: the step it stopped at is still to come.
+      this.onStep(this.active, outcome.kind === 'restart' ? 'pending' : 'failed')
       this.active = null
     }
     return outcome
@@ -129,91 +240,97 @@ class SetupRun {
   private async install(): Promise<SetupOutcome | null> {
     this.begin('install')
     const probe = await this.port.ergates.health()
-    if (probe.state !== 'absent') {
-      // Hermes serves the plugin, or has it enabled and has not mounted it yet.
-      this.needsEnable = false
-      this.end('install', 'skipped')
-      return null
-    }
-    const row = await hubRow(this.port)
-    if (row) {
-      this.needsEnable = row.runtime_status !== 'enabled'
+    this.recordPending(probe)
+    const presence = await pluginPresence(this.port, probe)
+    if (presence.there) {
+      this.needsEnable = presence.enabled === false
       this.end('install', 'skipped')
       return null
     }
     return this.requestInstall()
   }
 
+  /**
+   * Records the pending setup once the server answered the first look, so a
+   * run that cannot even look leaves nothing behind: the commit `follow` names
+   * for a plugin already there, else this build's, which the run installs.
+   */
+  private recordPending(probe: PluginProbe): void {
+    if (!this.follow(probe)) {
+      markPendingSetup(this.connectionId, this.commit)
+    }
+  }
+
+  /**
+   * Points the pending setup at the commit whose setup the plugin on the
+   * server can run, so that the flag names code that can load: the plugin
+   * already there may be another commit than this build's. That is the commit
+   * the answering code was loaded from, or, when the files changed under it
+   * and Hermes has to restart, the commit of the files, which loads then.
+   * Answers whether it recorded one.
+   */
+  private follow(probe: PluginProbe): boolean {
+    if (probe.state !== 'answered') {
+      return false
+    }
+    const { install } = probe.health
+    if (install?.kind !== 'git install') {
+      return false
+    }
+    const commit = waitsForRestart(probe.health, this.build) ? install.commit : install.loaded_commit
+    if (typeof commit === 'string' && COMMIT_PATTERN.test(commit)) {
+      markPendingSetup(this.connectionId, commit)
+      return true
+    }
+    return false
+  }
+
   private async requestInstall(): Promise<SetupOutcome | null> {
-    const startedAt = Date.now()
-    try {
-      const { enabled } = await this.port.plugins.install({ identifier: PLUGIN_IDENTIFIER, ref: this.commit, enable: true, force: false })
-      this.needsEnable = !enabled
-    } catch (error) {
-      return this.afterInstallError(error, startedAt)
+    const end = await installAndWait(
+      () => this.port.plugins.install({ identifier: PLUGIN_IDENTIFIER, ref: this.commit, enable: true, force: false }),
+      () => this.arrived()
+    )
+    switch (end.kind) {
+      case 'answered':
+        this.needsEnable = !end.result.enabled
+        break
+      case 'rejected': {
+        const outcome = await this.afterRefusal(end.error)
+        if (outcome !== null) {
+          return outcome
+        }
+        break
+      }
+      case 'lost':
+        return { kind: 'failed', step: 'install', message: LOST_CONNECTION }
+      case 'seen':
+        break
     }
     this.end('install', 'done')
     return null
   }
 
-  private async afterInstallError(error: unknown, startedAt: number): Promise<SetupOutcome | null> {
-    if (!isGatewayError(error)) {
-      throw error
-    }
+  /** The outcome that ends the run for an install error, or null when the install is as good as done. */
+  private async afterRefusal(error: GatewayError): Promise<SetupOutcome | null> {
     if (error.code === 'already_installed') {
       // Another phone or an earlier try got there first: carry on with what is on the server now.
       this.needsEnable = (await hubRow(this.port))?.runtime_status !== 'enabled'
-      this.end('install', 'done')
       return null
     }
     const failure = manualFailure(error)
     if (failure !== null) {
       return { kind: 'manual', failure, detail: failure === 'refused' ? error.message : null }
     }
-    if (isLost(error)) {
-      return this.waitForPlugin(startedAt)
-    }
     throw error
-  }
-
-  /** Looks again right away and then every few seconds, until the plugin shows up or the install time since the request began has passed. */
-  private async waitForPlugin(startedAt: number): Promise<SetupOutcome | null> {
-    for (;;) {
-      if (await this.arrived()) {
-        this.end('install', 'done')
-        return null
-      }
-      if (Date.now() - startedAt >= PLUGIN_INSTALL_TIMEOUT_MS) {
-        return { kind: 'failed', step: 'install', message: LOST_CONNECTION }
-      }
-      await sleep(RECHECK_MS)
-    }
   }
 
   /** Whether the server has the plugin now. A read that fails counts as not yet; only a 401 stops the wait. */
   private async arrived(): Promise<boolean> {
-    const probe = await this.probe()
-    if (probe.state !== 'absent') {
-      this.needsEnable = false
-      return true
+    const presence = await pluginPresence(this.port, await probeHealth(this.port))
+    if (presence.there) {
+      this.needsEnable = presence.enabled === false
     }
-    const row = await hubRow(this.port)
-    if (!row) {
-      return false
-    }
-    this.needsEnable = row.runtime_status !== 'enabled'
-    return true
-  }
-
-  private async probe(): Promise<PluginProbe> {
-    try {
-      return await this.port.ergates.health()
-    } catch (error) {
-      if (isGatewayError(error) && error.kind !== 'unauthorized') {
-        return { state: 'absent' }
-      }
-      throw error
-    }
+    return presence.there
   }
 
   private async enable(): Promise<SetupOutcome | null> {
@@ -238,40 +355,30 @@ class SetupRun {
 
   private async start(): Promise<SetupOutcome | null> {
     this.begin('start')
-    for (let probes = 1; probes <= START_PROBES; probes += 1) {
-      const found = await this.port.ergates.health()
-      if (found.state === 'answered') {
-        this.end('start', 'done')
-        return null
-      }
-      if (found.state === 'not_loaded') {
+    const found = await waitForRoutes(this.port)
+    if (found.state === 'answered') {
+      this.follow(found)
+      // The files changed under the running code: its setup is not the new code's.
+      if (waitsForRestart(found.health, this.build)) {
         return { kind: 'restart' }
       }
-      if (probes < START_PROBES) {
-        await sleep(START_WAIT_MS)
-      }
+      this.end('start', 'done')
+      return null
     }
-    return { kind: 'failed', step: 'start', message: NOT_LOADED }
+    return found.state === 'not_loaded' ? { kind: 'restart' } : { kind: 'failed', step: 'start', message: NOT_LOADED }
   }
 
   private async setup(): Promise<SetupOutcome> {
     this.begin('setup')
+    const seen = pendingSnapshot(this.connectionId)
     const report = await this.port.ergates.setup()
-    clearPendingSetup(this.connectionId)
+    clearPendingSetupIfUnchanged(this.connectionId, seen)
     this.end('setup', 'done')
     return { kind: 'done', setup: report }
   }
 }
 
-interface Flight {
-  promise: Promise<SetupOutcome>
-  /** The latest status of each step that has reported, in the order the steps first reported. */
-  statuses: Map<SetupStep, StepStatus>
-  listeners: ((step: SetupStep, status: StepStatus) => void)[]
-}
-
-/** The run that is going for each connection. */
-const flights = new Map<string, Flight>()
+const flights = new Flights<SetupStep, StepStatus, SetupOutcome>('setup')
 
 /** How the last run of each connection ended when it ended in the manual path. Kept in memory only. */
 const manualOutcomes = new Map<string, ManualOutcome>()
@@ -294,44 +401,46 @@ function rememberManual(connectionId: string, outcome: SetupOutcome): SetupOutco
 }
 
 /**
+ * Joins the setup that is going for the connection and answers its outcome,
+ * or answers null when none is going. It never starts a run: a screen that
+ * rejoins calls this, so one that comes after the run ended starts nothing.
+ * `onStep` first gets the latest status of every step that has reported,
+ * then every later transition.
+ */
+export function joinSetup(connectionId: string, onStep: (step: SetupStep, status: StepStatus) => void): Promise<SetupOutcome> | null {
+  return flights.join(connectionId, onStep)
+}
+
+/**
  * Brings the server to a plugin that is installed, enabled, served and set
  * up, and says how it went. `onStep` reports each step's transitions; a step
  * the server did not need ends as `skipped`, and no step is left `active` when
- * the run returns. The build must carry a commit to install: a build without
+ * the run returns; a run that asks for a restart leaves the step it stopped at
+ * `pending`. The build must carry a commit to install: a build without
  * one is answered with the manual path before anything else happens.
  *
- * One run goes at a time per connection. A call while one is going joins it
- * (the port and build of the call are not used): `onStep` first gets the
+ * One run goes at a time per connection. A call while a setup is going joins
+ * it (the port and build of the call are not used): `onStep` first gets the
  * latest status of every step that has reported, then every later transition,
  * and the promise settles with the same outcome. The call after the run ended
- * starts a new one.
+ * starts a new one. A call while an update or going back is running touches
+ * nothing and fails with a message that names that run.
  */
-export async function runSetup(deps: SetupDeps, onStep: (step: SetupStep, status: StepStatus) => void): Promise<SetupOutcome> {
-  const going = flights.get(deps.connectionId)
-  if (going) {
-    going.statuses.forEach((status, step) => onStep(step, status))
-    going.listeners.push(onStep)
-    return going.promise
+export function runSetup(deps: SetupDeps, onStep: (step: SetupStep, status: StepStatus) => void): Promise<SetupOutcome> {
+  const joined = flights.join(deps.connectionId, onStep)
+  if (joined !== null) {
+    return joined
+  }
+  if (runningKind(deps.connectionId) !== null) {
+    return Promise.resolve({ kind: 'failed', step: 'install', message: isGoingBack(deps.connectionId) ? GOING_BACK_RUNNING : UPDATE_RUNNING })
   }
   manualOutcomes.delete(deps.connectionId)
   const { commit } = deps.build.requiredPlugin
   if (commit === null) {
-    return rememberManual(deps.connectionId, { kind: 'manual', failure: 'refused', detail: null })
+    return Promise.resolve(rememberManual(deps.connectionId, { kind: 'manual', failure: 'refused', detail: null }))
   }
-  const statuses = new Map<SetupStep, StepStatus>()
-  const listeners = [onStep]
   // Remembered before the outcome reaches anything that waits for it, so a screen opened by it finds it.
-  const promise = new SetupRun(deps, commit, (step, status) => {
-    statuses.set(step, status)
-    listeners.forEach(listener => listener(step, status))
-  })
-    .execute()
-    .then(outcome => rememberManual(deps.connectionId, outcome))
-  flights.set(deps.connectionId, { promise, statuses, listeners })
-  trackSetupRun(deps.connectionId, promise)
-  const forget = () => {
-    flights.delete(deps.connectionId)
-  }
-  void promise.then(forget, forget)
-  return promise
+  return flights.start(deps.connectionId, onStep, report =>
+    new SetupRun(deps, commit, report).execute().then(outcome => rememberManual(deps.connectionId, outcome))
+  )
 }
