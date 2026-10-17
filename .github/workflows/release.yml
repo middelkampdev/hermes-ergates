@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "26"
       - name: Version, channel and build number from the tag
@@ -57,7 +57,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "26"
           cache: npm
@@ -82,7 +82,7 @@ jobs:
     timeout-minutes: 15
     environment: app-stores
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: android-release
           path: ${{ runner.temp }}/android-release
@@ -102,7 +102,7 @@ jobs:
     timeout-minutes: 30
     environment: app-stores
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ios-release
           path: ${{ runner.temp }}/ios-release
@@ -111,7 +111,7 @@ jobs:
       # and without it the job holds a macOS runner for up to the action's own
       # ~70-minute poll (see its src/utils/poll.ts at this pin) after the
       # upload has already succeeded.
-      - uses: apple-actions/upload-testflight-build@1fc69ca369a60b813eaaa2d936eda22794b52e17 # v5.4.0
+      - uses: apple-actions/upload-testflight-build@155ea93be9ee6d5186c71f660a612f5eddb14510 # v5.6.0
         with:
           app-path: ${{ runner.temp }}/ios-release/ergates.ipa
           app-type: ios

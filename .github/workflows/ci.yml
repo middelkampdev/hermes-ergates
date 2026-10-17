@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           version: "0.11.19"
       - run: scripts/ci-local.sh lint
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: "26"
           cache: npm
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           version: "0.11.19"
       - run: scripts/ci-local.sh integration
@@ -75,7 +75,7 @@ jobs:
           ref: 818c13be1dc4fd28987e1e881a9408224afd4535
           path: .cache/hermes-pin
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           version: "0.11.19"
       - run: scripts/ci-local.sh contract
@@ -89,7 +89,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           version: "0.11.19"
       - run: scripts/ci-local.sh deploy
