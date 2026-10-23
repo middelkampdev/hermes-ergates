@@ -84,7 +84,7 @@ services:
       # over the hash above (the provider hashes it in memory and logs that it
       # did), so leave it unset unless you are deliberately falling back.
       HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD:-}
-      HERMES_DASHBOARD_BASIC_AUTH_SECRET: ${HERMES_DASHBOARD_BASIC_AUTH_SECRET:?set in .env -- never commit a real value}
+      HERMES_DASHBOARD_BASIC_AUTH_SECRET: ${HERMES_DASHBOARD_BASIC_AUTH_SECRET:?generate one with openssl rand -hex 32 and set it in .env -- never commit a real value}
     volumes:
       - ${HERMES_DATA_DIR:-./data/hermes}:/opt/data
       # The Ergates integration plugin, read-only. Hermes discovers user

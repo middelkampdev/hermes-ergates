@@ -152,7 +152,10 @@ contract_live() {
 
 job_deploy() {
   cd "$ROOT"
-  docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --quiet
+  # .env.example leaves the session secret empty, so Compose refuses it as is.
+  # A shell variable wins over --env-file: set a stand-in for this check only.
+  HERMES_DASHBOARD_BASIC_AUTH_SECRET=compose-config-check-only \
+    docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --quiet
   uv run --no-project --python 3.11 --with pytest --with pyyaml pytest -p no:cacheprovider deploy/tests
 }
 

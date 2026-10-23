@@ -43,13 +43,17 @@ for CVE-2024-29018, DNS lookups leaking out of internal networks (fixed in
 host already -- neither is a compose service here (see "Deliberately out of
 scope" in `docker-compose.yml`).
 
-**Generate the dashboard credentials before the first `up -d`, not after.**
+**Generate the dashboard credentials before the first `up -d`.**
 The dashboard bind is non-loopback, so Hermes's auth gate is on from the
 first second the container serves (`web_server.py`'s `should_require_auth`
-is host-based and `--insecure` does not bypass it) -- and a placeholder
-trio *satisfies* that gate. Starting with `change-me` / `change-me` puts a
-working login on the tailnet until you get around to fixing it. Nothing in
-the first-run flow needs the stack running to mint these.
+is host-based and `--insecure` does not bypass it). The gate needs a
+working sign-in provider. A session secret under 16 bytes makes the
+basic-auth provider fail, and Hermes then exits at start. `.env.example`
+leaves the secret empty, so `docker compose up` stops and names the missing
+variable until you set it. No public example value can work: Hermes
+refuses a short one, and a long one is a known signing key that anyone can
+use to forge sessions. Nothing in the first-run flow needs the stack
+running to mint these.
 
 **What goes in `.env` is the password *hash*, not the password** (04 section
 6: "password hash where supported"). The stock provider prefers
@@ -489,9 +493,10 @@ sends) that do not depend on this deployment.
 ## Corrections applied after review
 
 - The runbook used to bring the stack up with a placeholder basic-auth trio
-  and generate real values afterwards. Because the gate is on from the first
-  request, that served a `change-me` login on the tailnet in between;
-  credentials now come first.
+  and generate real values afterwards. The 9-byte `change-me` secret is too
+  short for the basic-auth provider, so Hermes exited at start. Credentials
+  now come first, and `.env.example` leaves the secret empty so Compose
+  names the missing variable.
 - ntfy provisioning used to create the publisher as `--role=admin` and then
   mint the "narrowly-scoped subscriber token" from that same admin account,
   so a lost phone carried full control of the ntfy server and the

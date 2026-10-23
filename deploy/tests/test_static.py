@@ -62,7 +62,7 @@ def test_the_stack_is_serve_gateway_ntfy_the_egress_proxy_and_the_ingress() -> N
     assert set(SERVICES) == {"hermes-serve", "hermes-gateway", "ntfy", "egress-proxy", "ingress"}
 
 
-def test_every_required_variable_has_an_example_value() -> None:
+def test_every_required_variable_except_the_session_secret_has_an_example_value() -> None:
     required = set(re.findall(r"\$\{([A-Z0-9_]+):\?", COMPOSE_TEXT))
     assert required == {
         "TAILSCALE_IP",
@@ -72,7 +72,13 @@ def test_every_required_variable_has_an_example_value() -> None:
         "DOCKER_SOCK_GID",
     }
     examples = env_example()
-    assert sorted(name for name in required if not examples.get(name)) == []
+    assert sorted(name for name in required if not examples.get(name)) == ["HERMES_DASHBOARD_BASIC_AUTH_SECRET"]
+
+
+def test_the_example_session_secret_is_empty() -> None:
+    """No public value works: Hermes refuses a secret under 16 bytes and exits, and a longer one is a
+    known signing key that forges sessions. Empty, the compose `:?` check stops `up` with a clear message."""
+    assert env_example()["HERMES_DASHBOARD_BASIC_AUTH_SECRET"] == ""
 
 
 def test_ports_are_published_only_by_the_ingress_and_only_on_the_tailscale_ip() -> None:
