@@ -27,7 +27,7 @@
 | Skill | Hermes/agentskills.io playbook folder; may declare scripts and environment needs requiring review |
 | Template | Reviewed profile export/import with explicit secret and personal-memory controls |
 | Sandbox | Docker execution environment for the owning profile's shell/files; does not automatically isolate host MCP/plugin tools |
-| Egress proxy | Enforced outbound route with two modes (`EGRESS_MODE`): standard denies private/internal/special-use ranges and allows other public hosts, strict allows only a configured allowlist; setting a proxy environment variable alone is not enforcement |
+| Egress proxy | Outbound route that the server owner may enforce, for example with a proxy; Ergates ships none (ADR-046). Setting a proxy environment variable alone is not enforcement |
 | Connection | App-local trusted gateway registration: id, label, URL and auth state |
 | Replay epoch / sequence | In-process event-ring identity and ordering; neither is a durable message id |
 | Delivery unconfirmed | A request may have reached the server, but the client cannot establish its outcome; never silently resend |

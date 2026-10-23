@@ -14,7 +14,7 @@ them and does the one step the app cannot do, enabling itself in the new
 profile (ADR-032). Hermes cron stays the scheduler.
 
 See `docs/11-implementation-readiness.md` section 4 and
-`docs/03-technical-design.md` sections 8-9 in the repository root for the
+`docs/03-technical-design.md` section 8 in the repository root for the
 contracts this package implements.
 
 ## What this plugin does on your server
@@ -27,8 +27,7 @@ setting unset it makes no call at all. It posts only to an `http://` or
 `https://` URL; any other `ntfy.server` turns push off, and the log says why.
 It follows no redirect, so a push and its token reach that server and no
 other host. The token travels in a request header, so use `https://` for a
-server outside your own network. The Compose deployment posts to its own
-`ntfy` service over plain `http://`. A push has a fixed body, a title, and a
+server outside your own network. A push has a fixed body, a title, and a
 link that holds the session id, the profile name and the app's connection
 id. It never carries message text, a command or a tool argument.
 
@@ -88,9 +87,8 @@ starts no process and runs no shell command.
 - One secret, `ERGATES_NTFY_TOKEN`, from the root's `.env`, through Hermes's
   `get_secret`. The plugin reads no other name from that file.
 - Hermes's install metadata for the plugin
-  (`<hermes root>/plugins/.install-metadata.json`) and the environment
-  variable `ERGATES_INSTALL_KIND`, so that `GET /health` can say how the
-  plugin was installed. The Compose file in `deploy/` sets the variable.
+  (`<hermes root>/plugins/.install-metadata.json`), so that `GET /health`
+  can say how the plugin was installed.
 - Tool names, session ids and platform names in its hooks, and the `action`
   of a `cronjob_manage` call. The approval hooks see the pending command and
   store only its SHA-256 hash. No hook reads message text.
@@ -102,10 +100,10 @@ root's `.env`. The plugin sends it only to the ntfy server, in the
 `Authorization` header. Hermes also loads the root's `.env` into the
 environment of the processes it starts for that root, and its local terminal
 backend strips the provider keys it knows but not this name. On a local
-terminal backend, a command the agent runs can therefore read the token. The
-Compose deployment runs commands in Docker with `docker_forward_env: []`,
-which keeps the token out. Whichever backend you use, give the ntfy token
-publish access to that one topic only.
+terminal backend, a command the agent runs can therefore read the token. A
+Docker terminal backend with `docker_forward_env: []` keeps the token out.
+Whichever backend you use, give the ntfy token publish access to that one
+topic only.
 
 ### Tool calls
 
@@ -152,7 +150,7 @@ integrations/ergates/
     proposals.py       # ergates.agent-proposal.v1 validation, hash, ProposalService
     templates.py       # proposal templates under <root>/ergates/templates/
     setup.py           # installs the shipped templates there, enables the plugin in every profile
-    install_info.py    # how the plugin got onto the server (git install, deployment, manual copy) and the commit its running code came from, for `health`
+    install_info.py    # how the plugin got onto the server (git install or manual copy) and the commit its running code came from, for `health`
     attention.py       # AttentionService: events, outbox rows, prefs, expiry, retention
     delivery.py        # DeliveryWorker: leased outbox delivery to ntfy, deep link
     settings.py        # the install-wide push and sweep settings in the root's config.yaml
@@ -204,7 +202,7 @@ app, the app turns the plugin off, installs its own commit over it with
 while it is turned off. Hermes does not mount new routes into a running
 server, so the old code keeps answering until Hermes restarts: `GET /health`
 shows that as `install.commit` differing from `install.loaded_commit`. A
-deployment and a manual copy are never updated by the app.
+manual copy is never updated by the app.
 
 To install by hand, run this on the server as the user that runs Hermes:
 
@@ -225,7 +223,7 @@ mounts the plugin's routes once per process. The app fills in the commit
 when it shows the command.
 
 The rest of this section covers linking or mounting the folder yourself, as
-the Compose deployment and a development checkout do.
+a development checkout does.
 
 Hermes loads a user plugin from the ACTIVE home's `plugins/` folder, and only
 when that home's `config.yaml` lists it in `plugins.enabled`
@@ -233,9 +231,7 @@ when that home's `config.yaml` lists it in `plugins.enabled`
 so the plugin is installed once at the root and linked into each profile:
 
 1. Link or mount this directory at `<hermes root>/plugins/ergates`
-   (`~/.hermes/plugins/ergates` on a laptop; a read-only bind mount at
-   `/opt/data/plugins/ergates` in the Compose deployment, see
-   `deploy/docker-compose.yml`).
+   (`~/.hermes/plugins/ergates` on a laptop).
 2. Enable it in the root's `config.yaml`:
    ```yaml
    plugins:
@@ -252,10 +248,9 @@ so the plugin is installed once at the root and linked into each profile:
    the default profile and every named one at once, after it installs the
    templates, and reports each profile (see "HTTP API"). The app calls it once
    after it has set the plugin up, or after you followed its Finish screen to
-   install, turn on or update the plugin. On the Compose deployment you run it
-   yourself. The app calls it at no other time, because each call enables the
-   plugin in every profile again; `python -m ergates.install` does the same by
-   hand.
+   install, turn on or update the plugin. The app calls it at no other time,
+   because each call enables the plugin in every profile again;
+   `python -m ergates.install` does the same by hand.
 
 The proposal templates need no step of their own. They ship in this folder
 (`templates/`), so a git install and a read-only mount both carry them, and
@@ -351,8 +346,8 @@ An install that ran version 0.2.0 needs three changes by hand:
   `{}`, or `python -m ergates.install`, installs the templates and enables
   the plugin in every profile (see "Install"). When the app showed you the
   update instructions for a git install or a copied folder, it calls the
-  route itself once the plugin answers. On the Compose deployment, or when
-  you updated without the app, run it yourself.
+  route itself once the plugin answers. When you updated without the app,
+  run it yourself.
 
 ## Upgrading from 0.1
 
@@ -484,9 +479,7 @@ from a git commit, with the setup finished:
   `plugin_schema_version` it reports (0.2.0 reports none, read as 1), is at
   least the current `min_schema_version`.
 - `install` says how the plugin got onto the server
-  (`ergates/install_info.py`). `deployment`: the serving process has
-  `ERGATES_INSTALL_KIND=deployment`, which the Compose file in `deploy/` sets
-  because it mounts the plugin read-only. `git install`: Hermes recorded a
+  (`ergates/install_info.py`). `git install`: Hermes recorded a
   40-hex revision for the plugin and the plugin folder is a real folder;
   `commit` is that revision in lower case and `catalog_name` the name of
   the plugin catalog entry, or `null` for an install from a URL.
@@ -502,7 +495,7 @@ from a git commit, with the setup finished:
   is the new commit and `loaded_commit` is still the old one: restart Hermes
   to run the new code. The same holds when Hermes mounts the routes of a new
   install over package modules that an earlier, failed mount left behind.
-  `loaded_commit` is `null` for a manual copy and a deployment, and when the
+  `loaded_commit` is `null` for a manual copy, and when the
   read at import failed, which never stops the import. A plugin from before
   API level 2 does not report it.
 - `setup` is the report `POST /setup` would give now, read without writing.
@@ -534,8 +527,7 @@ the plugin when its level is below `min_api_level`. `install.kind` decides
 what the app does about an outdated plugin. For a `git install` it offers to
 update the plugin itself, and where it cannot it tells the user to run the
 install command with `--force`. For a `manual copy` it tells the user to
-update the folder it was copied or linked from, and for a `deployment` to
-update the deployment.
+update the folder it was copied or linked from.
 
 `health` answers 503 `store_unavailable` only when the control store cannot
 be read, so the setup, push and install parts above never turn into an error

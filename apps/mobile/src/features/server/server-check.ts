@@ -15,7 +15,7 @@ import { PLUGIN_NAME, type BuildRecord } from './build-record'
 import { hermesFit, type HermesFit } from './hermes-version'
 import { updateOffer, type UpdateOffer } from './plugin-version'
 
-export type InstallKind = 'deployment' | 'git install' | 'manual copy'
+export type InstallKind = 'git install' | 'manual copy'
 
 export type ServerCheck =
   /** `update` is what this build would put on the server; `hermesVersion` is read only when there is one, else null. */

@@ -7,7 +7,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-JOBS=(lint mobile integration contract deploy)
+JOBS=(lint mobile integration contract)
 # Jobs that run only when named. `contract-live` is the live half of `contract`
 # alone, for the weekly run against the newest Hermes release
 # (.github/workflows/contract-latest.yml).
@@ -148,12 +148,6 @@ contract_live() {
   mkdir -p "$ROOT/.cache"
   uv export --quiet --frozen --no-dev --no-emit-project --no-hashes --project "$HERMES_SOURCE" -o "$requirements"
   "${UV_TEST[@]}" --with-requirements "$requirements" pytest contract/live
-}
-
-job_deploy() {
-  cd "$ROOT"
-  docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --quiet
-  uv run --no-project --python 3.11 --with pytest --with pyyaml pytest -p no:cacheprovider deploy/tests
 }
 
 main() {

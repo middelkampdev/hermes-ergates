@@ -151,8 +151,7 @@ describe('finishVariant: what the check says the user has to do', () => {
 
   it.each<[InstallKind, FinishVariant]>([
     ['git install', { kind: 'update' }],
-    ['manual copy', { kind: 'update_copy' }],
-    ['deployment', { kind: 'deployment' }]
+    ['manual copy', { kind: 'update_copy' }]
   ])('updates an outdated %s the way that kind of install is updated', (installKind, expected) => {
     expect(finishVariant(outdated(installKind), null)).toEqual(expected)
   })
@@ -241,16 +240,6 @@ describe('finishView: the instructions for each variant', () => {
     expect(view.guide).toEqual({ label: 'Open the guide', url: `${SERVER_GUIDE_URL}#restart` })
   })
 
-  it('sends a deployment to update the deployment, with no command and no restart lines', () => {
-    const view = finishView({ kind: 'deployment' }, buildRecord(), outdated('deployment'))
-
-    expect(view.title).toBe('Update your Ergates deployment')
-    expect(view.intro).toEqual(['This server runs the Ergates deployment, which brings its own plugin. Update the deployment to get plugin 0.2.0.'])
-    expect(view.command).toBeNull()
-    expect(view.restartLines).toBeNull()
-    expect(view.guide).toEqual({ label: 'Open the guide', url: `${SERVER_GUIDE_URL}#deployment` })
-  })
-
   it.each<[string, FinishVariant]>([
     ['an install', install()],
     ['an install on an old Hermes', install({ restart: true })],
@@ -269,7 +258,6 @@ describe('finishView: the instructions for each variant', () => {
     expect(finishView(install(), null, waiting).command).toBeNull()
     expect(finishView({ kind: 'update' }, null, waiting).restartLines).toBeNull()
     expect(finishView({ kind: 'update_copy' }, null, waiting).intro).toEqual(['Update the folder you copied or linked the plugin from to the newest version, then restart Hermes.'])
-    expect(finishView({ kind: 'deployment' }, null, waiting).intro).toEqual(['This server runs the Ergates deployment, which brings its own plugin. Update the deployment to get the newest plugin.'])
   })
 })
 
@@ -416,9 +404,6 @@ describe('finishView: the status line and the button', () => {
     expect(view).toMatchObject({ status: 'Your server is ready.', done: true, primary: { label: 'Done', action: 'done' }, intro: [], command: null, restartLines: null })
   })
 
-  it('keeps the title of the variant it had when the setup is done', () => {
-    expect(finishView({ kind: 'deployment' }, buildRecord(), ready, settled).title).toBe('Update your Ergates deployment')
-  })
 
   it('shows what went wrong with the setup of a ready server, and waits for the next check to try again', () => {
     const view = finishView({ kind: 'restart', after: null }, buildRecord(), ready, { state: 'failed', message: 'The plugin could not set up your agents.' })
@@ -542,7 +527,6 @@ describe('pendingCommit: when the screen records that the plugin is still to be 
     ['no answer yet', null],
     ['a plugin Hermes has not loaded', waiting],
     ['a plugin that waits for a restart', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }],
-    ['an outdated deployment', outdated('deployment')],
     ['a ready plugin', ready],
     ['a check that could not tell', { kind: 'unknown' }],
     ['an unavailable plugin', { kind: 'unavailable', message: 'The store is busy.' }],

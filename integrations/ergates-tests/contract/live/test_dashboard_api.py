@@ -77,17 +77,6 @@ def test_hermes_serve_mounts_the_router_and_health_answers(web, token_headers, m
     assert body["sweep"] == SWEEP_OFF
 
 
-def test_health_says_deployment_when_the_serving_process_is_marked_so_at_each_call(web, token_headers, monkeypatch):
-    """The Compose file sets ``ERGATES_INSTALL_KIND`` on ``hermes-serve``; a deployment has no install record."""
-    monkeypatch.setenv("ERGATES_INSTALL_KIND", "deployment")
-    marked = web.get(f"{API}/health", headers=token_headers).json()["install"]
-    monkeypatch.delenv("ERGATES_INSTALL_KIND")
-    unmarked = web.get(f"{API}/health", headers=token_headers).json()["install"]
-
-    assert marked == {"kind": "deployment", "commit": None, "catalog_name": None, "loaded_commit": None}
-    assert unmarked["kind"] == "manual copy"
-
-
 def test_health_keeps_the_commit_the_plugin_was_loaded_from_when_the_install_record_changes(
         web, token_headers, monkeypatch, tmp_path):
     """``install.commit`` follows Hermes's record at each call; ``install.loaded_commit`` is read once, when

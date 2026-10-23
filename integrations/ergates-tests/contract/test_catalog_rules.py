@@ -82,7 +82,6 @@ def test_the_readme_discloses_what_the_plugin_does_on_a_server():
         "`plugins.enabled`",  # the profile settings it edits
         "`POST /setup`",
         "`POST /profiles/{name}/plugin`",
-        "`ERGATES_INSTALL_KIND`",  # what it reads for `health`
         "install metadata",
         "never approves",  # the tool gate
         "fails closed",  # what the gate does when the store or the profile cannot be read

@@ -345,7 +345,6 @@ describe('runUpdate: the offer at the first look', () => {
   })
 
   it.each<[string, NonNullable<ErgatesHealth['install']>]>([
-    ['the Ergates deployment', { kind: 'deployment', commit: null, loaded_commit: null, catalog_name: null }],
     ['a manual copy', { kind: 'manual copy', commit: null, loaded_commit: null, catalog_name: null }],
     ['an install from the Hermes catalog', { kind: 'git install', commit: OLD, loaded_commit: OLD, catalog_name: 'ergates' }]
   ])('ends stale, touching nothing, when the plugin turns out to be %s', async (_title, install) => {

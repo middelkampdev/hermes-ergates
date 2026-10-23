@@ -6,7 +6,7 @@
 | Version | 0.3 (source-reviewed design; implementation gates in 11) |
 | Date | 2026-09-12 |
 | Owner | Jop Middelkamp |
-| Status | Corrected specification; app and deployment not implemented |
+| Status | Corrected specification; app not implemented |
 
 ## 1. Vision
 
@@ -31,7 +31,7 @@ Jop wants the same experience on a VPS he controls, with agents that act only th
 | G1 | Chat-first agent team with the same ease of use as Grok Bot | A new agent can be created, named, and given an avatar by chat only, in under 2 minutes |
 | G2 | Agents create, brief, message, and manage other agents | Concierge pattern works end to end: delegate, report back, board updated |
 | G3 | Tool access enforced per tool | A disabled tool is not visible to the model and is rejected if called |
-| G4 | Runs on a single VPS as a Hermes Agent backend; any provider Hermes supports can be chosen per agent (Anthropic, OpenAI Codex plan, xAI, Nous Portal, API keys, custom endpoints) | Deployed with one `docker compose up`; each agent (profile) can use a different provider and model; the app offers only providers that are signed in on the server |
+| G4 | Runs on a single VPS as a Hermes Agent backend; any provider Hermes supports can be chosen per agent (Anthropic, OpenAI Codex plan, xAI, Nous Portal, API keys, custom endpoints) | The app connects to a Hermes server the owner runs and sets up its plugin there; Ergates ships no deployment (ADR-046); each agent (profile) can use a different provider and model; the app offers only providers that are signed in on the server |
 | G5 | Reliable ordinary reminders with push notifications | Ordinary reminders are scheduled and delivered with measured latency; P1 target: 99% start within 90 seconds on a healthy idle server. Sub-minute timers and guaranteed phone-delivery latency are deferred (11 section 4.3) |
 | G6 | Files in and out of the chat | Upload zip, unpack, analyze; agent returns files as cards |
 | G7 | Group chats with several agents | A thread with the user and 2+ agents works with clear sender labels |
@@ -55,7 +55,7 @@ Jop wants the same experience on a VPS he controls, with agents that act only th
 | Owner and first user | Jop | Personal assistant team, mobile use, low friction |
 | Household user (later) | A household member | Shared agents such as the dining scout |
 | Business users (Phase 3) | Business teams | Group chats, roles, audit, own credentials |
-| Operator | Jop | One-command deploy, backups, updates, usage visibility |
+| Operator | Jop | Backups, updates, usage visibility |
 
 ## 6. Constraints
 
@@ -102,7 +102,7 @@ Jop wants the same experience on a VPS he controls, with agents that act only th
 |---|---|
 | 01-vision-and-scope.md | This document |
 | 02-functional-design.md | Actors, user stories, functional requirements, UI specification |
-| 03-technical-design.md | Architecture: the app, `hermes serve`, profiles, Bot Mode conventions, push, deployment |
+| 03-technical-design.md | Architecture: the app, `hermes serve`, profiles, Bot Mode conventions, push, server setup |
 | 04-security-and-compliance.md | Threat model, least privilege, credentials, Anthropic terms |
 | 05-data-model.md | What Hermes owns and what the app keeps |
 | 06-hermes-api-contract.md | The Hermes routes, RPC methods, and events the app uses |

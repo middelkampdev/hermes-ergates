@@ -1,14 +1,14 @@
 # Ergates documentation
 
-A clean React Native messaging app for a team of Hermes assistants on a private VPS. Hermes owns the agent runtime and domain state; Ergates supplies the app, deployment and a small integration package for product-specific gaps.
+A clean React Native messaging app for a team of Hermes assistants on a private VPS. Hermes owns the agent runtime and domain state; Ergates supplies the app and a small integration package for product-specific gaps, and ships no server deployment (ADR-046).
 
-Updated 2026-09-12 after source review and Jop's mobile design references; app code shape (ADR-029) added 2026-09-13. **Build status (2026-09-13):** the mobile app in `apps/mobile/` implements the Phase 0/1 client surface and runs on the iOS simulator against a local `hermes serve` (the simulator run record is in the private project notes); the integration package in `integrations/ergates/` and the deployment draft in `deploy/` are unit-tested and reviewed but not yet run on a VPS. The gates in [11](11-implementation-readiness.md) section 6 list what is still pending. Start with [the vision](01-vision-and-scope.md), [mobile design](10-mobile-design.md), and [implementation readiness](11-implementation-readiness.md).
+Updated 2026-09-12 after source review and Jop's mobile design references; app code shape (ADR-029) added 2026-09-13. **Build status (2026-09-13):** the mobile app in `apps/mobile/` implements the Phase 0/1 client surface and runs on the iOS simulator against a local `hermes serve` (the simulator run record is in the private project notes); the integration package in `integrations/ergates/` is unit-tested and reviewed but not yet run on a VPS. The gates in [11](11-implementation-readiness.md) section 6 list what is still pending. Start with [the vision](01-vision-and-scope.md), [mobile design](10-mobile-design.md), and [implementation readiness](11-implementation-readiness.md).
 
 | Document | Purpose |
 |---|---|
 | [01 - Vision and scope](01-vision-and-scope.md) | Goals, non-goals, constraints and eight MVP criteria |
 | [02 - Functional design](02-functional-design.md) | User stories, requirements, agent protocols and phase scope |
-| [03 - Technical design](03-technical-design.md) | Client/server boundaries, native auth/replay, deployment wiring and recovery |
+| [03 - Technical design](03-technical-design.md) | Client/server boundaries, native auth/replay, server setup and recovery |
 | [04 - Security and compliance](04-security-and-compliance.md) | Effective tool grants, conditional approvals, credentials and privacy boundaries |
 | [05 - State ownership](05-data-model.md) | Hermes/integration/device data, retention, identifiers and uncertain-send behavior |
 | [06 - Client contract](06-hermes-api-contract.md) | Source-confirmed calls, examples, intended feature surface and live fixture gates |

@@ -112,12 +112,6 @@ describe('updateOffer: a plugin that is newer than this app', () => {
 })
 
 describe('updateOffer: a plugin the app does not manage', () => {
-  it.each(['optional', 'required'] as const)('leaves a deployment alone (%s)', need => {
-    const health = installedHealth({ install: { kind: 'deployment', commit: null, loaded_commit: null, catalog_name: null } })
-
-    expect(updateOffer(health, buildRecord(), need)).toBeNull()
-  })
-
   it.each(['optional', 'required'] as const)('leaves a manual copy alone (%s)', need => {
     const health = installedHealth({ install: { kind: 'manual copy', commit: null, loaded_commit: null, catalog_name: null } })
 

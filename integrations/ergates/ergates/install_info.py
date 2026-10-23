@@ -1,11 +1,7 @@
 """How the plugin on this server got there, as ``GET /health`` reports it.
 
-Three kinds, told apart in this order:
+Two kinds:
 
-* ``deployment``: the serving process carries the marker
-  :data:`INSTALL_KIND_ENV` set to ``deployment``. The Docker Compose stack in
-  ``deploy/`` mounts the plugin folder read-only, so Hermes made no install
-  and kept no record of it.
 * ``git install``: Hermes recorded a 40-hex ``revision`` for the plugin
   (``hermes plugins install``, the dashboard's install route, the catalog)
   and the plugin folder is a real folder. Hermes can reinstall such a plugin
@@ -35,38 +31,34 @@ from typing import Mapping, Optional
 
 from . import hermes_adapter
 
-INSTALL_KIND_ENV = "ERGATES_INSTALL_KIND"
-DEPLOYMENT = "deployment"
 GIT_INSTALL = "git install"
 MANUAL_COPY = "manual copy"
 
 _COMMIT = re.compile(r"[0-9a-fA-F]{40}")
 
 
-def install_info(record: Optional[Mapping], plugin_dir: Optional[Path], marker: Optional[str]) -> dict:
+def install_info(record: Optional[Mapping], plugin_dir: Optional[Path]) -> dict:
     """``{"kind", "commit", "catalog_name", "loaded_commit"}`` for the install described by Hermes's ``record`` of it.
 
     ``record`` is Hermes's install record of this plugin (``None`` when there
-    is none), ``plugin_dir`` the plugin folder of the Hermes root and
-    ``marker`` the value of :data:`INSTALL_KIND_ENV`. ``commit`` is the
-    record's revision in lower case and ``catalog_name`` the name of its
-    ``catalog`` entry; both are ``None`` unless the kind is ``git install``.
+    is none) and ``plugin_dir`` the plugin folder of the Hermes root.
+    ``commit`` is the record's revision in lower case and ``catalog_name`` the
+    name of its ``catalog`` entry; both are ``None`` unless the kind is
+    ``git install``.
     A symlink at ``plugin_dir`` is a manual copy even with a record: Hermes
     installs a real folder, so the link points at a checkout somebody else
     manages. ``loaded_commit`` is the ``commit`` this module found when it was
     imported, whatever the arguments say (see the module's docstring).
     """
-    return {**_described(record, plugin_dir, marker), "loaded_commit": _loaded_commit}
+    return {**_described(record, plugin_dir), "loaded_commit": _loaded_commit}
 
 
 def read_install() -> dict:
-    """:func:`install_info` for this server now: Hermes's record, the plugin folder and the marker, read at each call."""
-    return install_info(hermes_adapter.install_record(), hermes_adapter.root_plugin_dir(), os.environ.get(INSTALL_KIND_ENV))
+    """:func:`install_info` for this server now: Hermes's record and the plugin folder, read at each call."""
+    return install_info(hermes_adapter.install_record(), hermes_adapter.root_plugin_dir())
 
 
-def _described(record: Optional[Mapping], plugin_dir: Optional[Path], marker: Optional[str]) -> dict:
-    if marker == DEPLOYMENT:
-        return _info(DEPLOYMENT)
+def _described(record: Optional[Mapping], plugin_dir: Optional[Path]) -> dict:
     commit = _commit(record)
     if commit is None or not _is_real_folder(plugin_dir):
         return _info(MANUAL_COPY)
@@ -98,8 +90,7 @@ def _is_real_folder(path: Optional[Path]) -> bool:
 def _commit_at_import() -> Optional[str]:
     """The record's commit as :func:`read_install` would read it now, or ``None``. Never raises: it runs at import."""
     try:
-        described = _described(hermes_adapter.install_record(), hermes_adapter.root_plugin_dir(),
-                               os.environ.get(INSTALL_KIND_ENV))
+        described = _described(hermes_adapter.install_record(), hermes_adapter.root_plugin_dir())
     except Exception:  # an import that raised would keep the routes from mounting
         return None
     return described["commit"]

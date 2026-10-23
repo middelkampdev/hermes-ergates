@@ -23,7 +23,7 @@ export const REMINDER_TIMEOUT_MS = 60_000
 
 const REMINDER_STATUS: Partial<Record<number, T.ReminderOutcome['status']>> = { 201: 'created', 200: 'existing', 202: 'uncertain' }
 
-const INSTALL_KINDS: readonly unknown[] = ['deployment', 'git install', 'manual copy'] satisfies NonNullable<T.ErgatesHealth['install']>['kind'][]
+const INSTALL_KINDS: readonly unknown[] = ['git install', 'manual copy'] satisfies NonNullable<T.ErgatesHealth['install']>['kind'][]
 
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object'
 

@@ -1,4 +1,4 @@
-"""The in-flight hook guard behind live checks V7 and V8 of deploy/VERIFY.md.
+"""The in-flight hook guard: what Hermes does when two sessions call tools at once.
 
 Hermes skips a callback that is still running, and for `pre_tool_call` a skip
 is a block. At the previous pin the in-flight key was the hook and the

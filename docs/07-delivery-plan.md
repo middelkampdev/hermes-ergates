@@ -8,7 +8,7 @@ Start with a 3–5 person-day feasibility pass, included in the estimate below. 
 
 Deliverables:
 
-1. Validated deployment configuration following 03: pinned build, private port, working Docker access for both controllers, verified workspace paths, air-gapped shells, outbound allowlist, explicit gateway profile multiplexing.
+1. A validated server configuration on the test server (Ergates ships no deployment, ADR-046; settings in 04 section 7): pinned build, private port, working Docker access for both controllers, verified workspace paths, air-gapped shells, outbound limits, explicit gateway profile multiplexing.
 2. Expo development build with the Hermes client and palette sources vendored at the pin behind the `GatewayPort` contract and its real native adapter (03 section 3.1); basic auth, fresh socket tickets, secure credential handling and no automatic mutation retries.
 3. One chat screen in the clean layout and Nous System appearance: streaming, image byte attachment, approval/clarify cards, replay/history recovery and uncertain-send state. Streaming, replay and delivery state come from the pure session reducer, not from screen code.
 4. Two profiles and one ordinary reminder on each, proving that a specialist's cron store is actually scheduled. Verify cron/interactive concurrency and credential isolation under the chosen processes.

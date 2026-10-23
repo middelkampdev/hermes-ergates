@@ -1,8 +1,8 @@
 """Tests for ergates.flush: the periodic delivery and retention entry point.
 
-Nothing in Hermes runs a timer for this plugin, so this module is what the
-deployment schedules (see ``deploy/README.md``). No network: every test
-injects its own publisher.
+Nothing in Hermes runs a timer for this plugin, so ``hermes serve`` runs a
+sweep of its own (``ergates.sweep``). No network: every test injects its own
+publisher.
 """
 
 import logging

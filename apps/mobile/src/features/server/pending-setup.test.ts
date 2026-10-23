@@ -335,7 +335,6 @@ describe('finishPendingSetup: the code that answers', () => {
   })
 
   it.each<[string, ErgatesHealth['install']]>([
-    ['a deployment', { kind: 'deployment', commit: null, loaded_commit: null, catalog_name: null }],
     ['a manual copy', { kind: 'manual copy', commit: null, loaded_commit: null, catalog_name: null }],
     ['a plugin that says nothing about its install', undefined]
   ])('runs the setup for %s whatever commit is pending, since no commit says which code it runs', async (_title, install) => {

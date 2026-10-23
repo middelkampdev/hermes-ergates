@@ -77,11 +77,11 @@ describe('checkServer: a plugin that answers', () => {
     expect(check).toMatchObject({ kind: 'outdated', health, installKind: 'git install' })
   })
 
-  it('is outdated, as a deployment, when the plugin is below the API level of this app', async () => {
-    const health = currentHealth({ api_level: 0, install: { kind: 'deployment', commit: null, catalog_name: null } })
+  it('is outdated, as a manual copy, when the plugin is below the API level of this app', async () => {
+    const health = currentHealth({ api_level: 0, install: { kind: 'manual copy', commit: null, catalog_name: null } })
     const check = await checkServer(serverWith({ health: answered(health) }), buildRecord())
 
-    expect(check).toEqual({ kind: 'outdated', health, installKind: 'deployment', update: null, hermesVersion: '0.21.6' })
+    expect(check).toEqual({ kind: 'outdated', health, installKind: 'manual copy', update: null, hermesVersion: '0.21.6' })
   })
 
   it('reports the Hermes version as null when Hermes does not answer its status', async () => {
@@ -239,7 +239,7 @@ describe('checkServer: a plugin that is not there', () => {
 })
 
 describe('checkServer: a plugin that waits for a restart', () => {
-  const installed = (commit: string | null, loaded: string | null | undefined, kind: 'git install' | 'deployment' | 'manual copy' = 'git install') => {
+  const installed = (commit: string | null, loaded: string | null | undefined, kind: 'git install' | 'manual copy' = 'git install') => {
     const install = { kind, commit, catalog_name: null }
     return currentHealth({ install: loaded === undefined ? install : { ...install, loaded_commit: loaded } })
   }
@@ -279,8 +279,8 @@ describe('checkServer: a plugin that waits for a restart', () => {
     expect(check).toMatchObject({ kind: 'ready' })
   })
 
-  it.each(['deployment', 'manual copy'] as const)('does not claim a restart for a %s, which has no commit', async kind => {
-    const health = installed(null, null, kind)
+  it('does not claim a restart for a manual copy, which has no commit', async () => {
+    const health = installed(null, null, 'manual copy')
     const check = await checkServer(serverWith({ health: answered(health) }), buildRecord())
 
     expect(check).toMatchObject({ kind: 'ready' })
@@ -361,16 +361,11 @@ describe('checkServer: an update for the plugin', () => {
     expect(await checkServer(serverWith({ health: answered({ ...newer, api_level: 0 }) }), buildRecord())).toMatchObject({ kind: 'outdated', update: null })
   })
 
-  it('leaves a deployment and a manual copy alone, outdated or not', async () => {
-    for (const install of [
-      { kind: 'deployment', commit: null, loaded_commit: null, catalog_name: null },
-      { kind: 'manual copy', commit: null, loaded_commit: null, catalog_name: null }
-    ] as const) {
-      const working = { ...OLDER_PLUGIN, install }
+  it('leaves a manual copy alone, outdated or not', async () => {
+    const working = { ...OLDER_PLUGIN, install: { kind: 'manual copy', commit: null, loaded_commit: null, catalog_name: null } as const }
 
-      expect(await checkServer(serverWith({ health: answered(working) }), buildRecord())).toMatchObject({ kind: 'ready', update: null, hermesVersion: null })
-      expect(await checkServer(serverWith({ health: answered({ ...working, api_level: 0 }) }), buildRecord())).toMatchObject({ kind: 'outdated', update: null, installKind: install.kind })
-    }
+    expect(await checkServer(serverWith({ health: answered(working) }), buildRecord())).toMatchObject({ kind: 'ready', update: null, hermesVersion: null })
+    expect(await checkServer(serverWith({ health: answered({ ...working, api_level: 0 }) }), buildRecord())).toMatchObject({ kind: 'outdated', update: null, installKind: 'manual copy' })
   })
 
   it('offers nothing without a build record or a build commit', async () => {
@@ -434,9 +429,9 @@ describe('checkServer: a build without a record', () => {
   })
 
   it('is outdated when the plugin cannot write its store', async () => {
-    const health = currentHealth({ store: { plugin_schema_version: 1, min_schema_version: 1, writable: false }, install: { kind: 'deployment', commit: null, catalog_name: null } })
+    const health = currentHealth({ store: { plugin_schema_version: 1, min_schema_version: 1, writable: false }, install: { kind: 'manual copy', commit: null, catalog_name: null } })
 
-    expect(await checkServer(serverWith({ health: answered(health) }), null)).toEqual({ kind: 'outdated', health, installKind: 'deployment', update: null, hermesVersion: '0.21.6' })
+    expect(await checkServer(serverWith({ health: answered(health) }), null)).toEqual({ kind: 'outdated', health, installKind: 'manual copy', update: null, hermesVersion: '0.21.6' })
   })
 
   it('does not judge the API level without a record', async () => {

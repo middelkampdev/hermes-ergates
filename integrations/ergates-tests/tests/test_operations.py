@@ -265,14 +265,14 @@ def test_health_says_whether_the_bad_template_is_the_bundled_one_or_an_installed
 
 
 def test_health_reports_the_install_as_it_is_at_each_call(store, cron, clock, hermes, tmp_path):
-    deployment = {"kind": "deployment", "commit": None, "catalog_name": None, "loaded_commit": None}
-    states = iter([dict(INSTALL), deployment])
+    manual_copy = {"kind": "manual copy", "commit": None, "catalog_name": None, "loaded_commit": None}
+    states = iter([dict(INSTALL), manual_copy])
     ops = _operations(store, cron, clock, hermes, tmp_path, install=lambda: next(states))
 
     first, second = ops.health(), ops.health()
 
     assert first.body["install"] == INSTALL
-    assert second.body["install"] == deployment
+    assert second.body["install"] == manual_copy
 
 
 def test_health_reports_push_as_booleans_and_never_a_value(store, cron, clock, hermes, tmp_path):

@@ -668,10 +668,10 @@ export interface ErgatesHealth {
   /**
    * How the plugin got onto the server. `commit` is what its install record
    * holds, known for a `git install` only. `loaded_commit` is the commit the
-   * running code was loaded from, `null` for a manual copy or a deployment; an
-   * older plugin leaves it out.
+   * running code was loaded from, `null` for a manual copy; an older plugin
+   * leaves it out.
    */
-  install?: { kind: 'deployment' | 'git install' | 'manual copy'; commit: string | null; loaded_commit?: string | null; catalog_name: string | null }
+  install?: { kind: 'git install' | 'manual copy'; commit: string | null; loaded_commit?: string | null; catalog_name: string | null }
   setup?: SetupState
   push?: { configured: boolean; token_set: boolean; legacy_config_token: boolean }
   /** `last_run_at` is epoch seconds (the plugin's `time.time()`), null before the first pass. */
