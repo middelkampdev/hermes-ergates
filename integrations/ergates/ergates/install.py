@@ -58,7 +58,8 @@ def main(argv: Optional[list] = None) -> int:
         return 2
     if root_run_would_break(root):
         print(f"ergates.install: refusing to run as root; {root} belongs to another user. "
-              "Run it as that user (docker compose exec -u hermes ...).", file=sys.stderr)
+              "Run it as that user (sudo -u <user> ..., or docker exec -u <user> ... in a container).",
+              file=sys.stderr)
         return 2
     source = bundled_templates_dir()
     if not source.is_dir():

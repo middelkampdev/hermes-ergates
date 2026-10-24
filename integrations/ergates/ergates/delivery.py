@@ -69,7 +69,7 @@ _ECHO_TAG = "hermes-agent"
 # ntfy's rule for a sequence id (server/server.go `sequenceIDRegex`); anything else is a 400.
 _SEQUENCE_ID_RE = re.compile(r"^[-_A-Za-z0-9]{1,64}$")
 
-# Plain http stays allowed: the Compose deployment publishes to its internal ntfy service.
+# Plain http stays allowed: an owner may run ntfy on the same host or on a private network.
 ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 RETRY_BACKOFF_SECONDS: tuple[int, ...] = (30, 120, 600)

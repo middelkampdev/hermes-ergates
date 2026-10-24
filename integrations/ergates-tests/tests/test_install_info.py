@@ -74,6 +74,15 @@ def test_install_info_tells_the_two_kinds(record, folder, expected, tmp_path):
     assert install_info(record, _folder(tmp_path, folder)) == expected
 
 
+def test_an_older_api_module_still_imports_the_marker_name_and_its_marker_is_ignored(tmp_path):
+    """The step-3 ``dashboard/api.py`` imports ``INSTALL_KIND_ENV`` and passes a marker. Hermes can mount it over
+    this package until it restarts, so the import must work and the marker must not change the answer."""
+    from ergates.install_info import INSTALL_KIND_ENV
+
+    assert INSTALL_KIND_ENV == "ERGATES_INSTALL_KIND"
+    assert install_info(RECORD, _folder(tmp_path, "folder"), "deployment") == GIT_INSTALL
+
+
 def test_install_info_never_carries_the_record_or_the_path_beyond_the_four_fields(tmp_path):
     record = {**RECORD, "source": "https://example.invalid/private?token=secret", "update_url": "https://x.invalid"}
 

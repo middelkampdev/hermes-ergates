@@ -254,7 +254,7 @@ def test_a_redirect_is_never_followed_so_the_token_reaches_only_the_ntfy_server(
 
 
 def test_send_ntfy_posts_to_an_http_server_that_answers_200(http_server, no_proxy):
-    """Plain http stays allowed: the Compose deployment publishes to its internal ntfy service."""
+    """Plain http stays allowed: an owner may run ntfy on the same host or on a private network."""
     ntfy = http_server()
 
     send_ntfy(build_ntfy_publish(f"http://127.0.0.1:{ntfy.server_port}", "t", "tok", title="T", click_url="c",

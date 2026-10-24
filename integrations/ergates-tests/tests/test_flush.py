@@ -364,7 +364,7 @@ def test_main_refuses_to_run_as_root_when_another_user_owns_the_hermes_root(tmp_
 
     err = capsys.readouterr().err
     assert "refusing to run as root" in err
-    assert "docker compose exec -u hermes" in err
+    assert "Run it as that user" in err
     assert not (tmp_path / "ergates").exists()
 
 

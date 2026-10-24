@@ -178,7 +178,30 @@ Ergates ships no deployment (ADR-046). The owner runs Hermes Agent on a server o
 - For push, the plugin's ntfy settings, `plugins.entries.ergates.settings.ntfy.*` with the token as the plugin secret `ERGATES_NTFY_TOKEN`, pointed at an ntfy server the owner chooses (ADR-023, section 8).
 - Network limits. Ergates enforces none. Outbound limits for the controllers, which addresses reach `hermes serve`, and the sandbox settings in 04 section 7 are the owner's to configure.
 
-Ergates ships no profiles either, so Hermes defaults apply until the owner changes them, for example `approvals.timeout`. A small VPS sizing starting point is 4 vCPU, 8 GB RAM; measure concurrent sandbox use before increasing concurrency.
+Ergates ships no profiles either, so Hermes defaults apply until the owner changes them. The design assumes this profile intent (verified keys), which the owner sets in the profiles' `config.yaml`:
+
+```yaml
+gateway:
+  multiplex_profiles: true  # default/launch profile; serves specialists' cron stores
+terminal:
+  backend: docker
+  container_persistent: true
+  container_cpu: 1
+  container_memory: 1024
+  container_disk: 5120
+  docker_shared_container_key: ""
+  docker_network: false
+  docker_forward_env: []
+approvals:
+  mode: manual
+  timeout: 1800
+  cron_mode: deny
+  unattended_mode: deny
+```
+
+This excerpt omits the reviewed workspace volumes, effective toolsets and MCP include lists; a profile is not ready until those are configured and tested. Container approval exemptions and host-side tools are documented in 04. Internet-enabled shell execution is deferred; if later enabled, attach the sandbox explicitly to an isolated network with enforced proxy routing and test direct-IP/DNS bypasses.
+
+A small VPS sizing starting point is 4 vCPU, 8 GB RAM; measure concurrent sandbox use before increasing concurrency.
 
 ## 10. Operations and failures
 

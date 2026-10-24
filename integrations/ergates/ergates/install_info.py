@@ -31,13 +31,16 @@ from typing import Mapping, Optional
 
 from . import hermes_adapter
 
+# The step-3 ``dashboard/api.py`` imports this name and passes the marker as a third argument. Both stay so
+# that file still mounts over this package until Hermes restarts; the marker itself is ignored.
+INSTALL_KIND_ENV = "ERGATES_INSTALL_KIND"
 GIT_INSTALL = "git install"
 MANUAL_COPY = "manual copy"
 
 _COMMIT = re.compile(r"[0-9a-fA-F]{40}")
 
 
-def install_info(record: Optional[Mapping], plugin_dir: Optional[Path]) -> dict:
+def install_info(record: Optional[Mapping], plugin_dir: Optional[Path], _marker: Optional[str] = None) -> dict:
     """``{"kind", "commit", "catalog_name", "loaded_commit"}`` for the install described by Hermes's ``record`` of it.
 
     ``record`` is Hermes's install record of this plugin (``None`` when there

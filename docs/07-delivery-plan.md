@@ -8,12 +8,12 @@ Start with a 3–5 person-day feasibility pass, included in the estimate below. 
 
 Deliverables:
 
-1. A validated server configuration on the test server (Ergates ships no deployment, ADR-046; settings in 04 section 7): pinned build, private port, working Docker access for both controllers, verified workspace paths, air-gapped shells, outbound limits, explicit gateway profile multiplexing.
+1. A validated server configuration on the test server (Ergates ships no deployment, ADR-046; settings in 03 section 9 and 04 section 7): pinned build, private port, working Docker access for both controllers, verified workspace paths, air-gapped shells, outbound limits, explicit gateway profile multiplexing.
 2. Expo development build with the Hermes client and palette sources vendored at the pin behind the `GatewayPort` contract and its real native adapter (03 section 3.1); basic auth, fresh socket tickets, secure credential handling and no automatic mutation retries.
 3. One chat screen in the clean layout and Nous System appearance: streaming, image byte attachment, approval/clarify cards, replay/history recovery and uncertain-send state. Streaming, replay and delivery state come from the pure session reducer, not from screen code.
 4. Two profiles and one ordinary reminder on each, proving that a specialist's cron store is actually scheduled. Verify cron/interactive concurrency and credential isolation under the chosen processes.
 5. Attention integration spike: approval-created event while the app is closed → private ntfy → locked iPhone → correct authenticated chat; iOS upstream and Tailscale behavior recorded.
-6. Sanitized real fixtures and a fake `GatewayPort` adapter that passes the same chat, replay and uncertain-send scenarios as the real adapter; install/update/backup/restore runbook; restore onto empty storage and repeat the core smoke checks.
+6. Sanitized real fixtures and a fake `GatewayPort` adapter that passes the same chat, replay and uncertain-send scenarios as the real adapter; the backup and restore steps used on the test server, recorded with the P0 evidence; restore onto empty storage and repeat the core smoke checks.
 
 Exit: the P0 gates in [11](11-implementation-readiness.md) pass with recorded evidence. A missing integration hook or permission-enforcement path produces an implementation decision and revised estimate, not a silently dropped requirement.
 
