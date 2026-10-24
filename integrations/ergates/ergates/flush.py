@@ -145,7 +145,7 @@ def main(argv: Optional[list] = None) -> int:
         print(
             f"ergates.flush: refusing to run as root; {root} belongs to another user, and a root run can "
             "leave store files that user cannot open. Run it as that user "
-            "(docker compose exec -u hermes ...).",
+            "(sudo -u <user> ..., or docker exec -u <user> ... in a container).",
             file=sys.stderr,
         )
         return 2

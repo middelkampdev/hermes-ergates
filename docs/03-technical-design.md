@@ -4,7 +4,7 @@ Version: 0.4. Date: 2026-09-13. Depends on [02](02-functional-design.md), [10](1
 
 ## 1. Boundaries
 
-Hermes owns the agent loop, profile configuration, tools, sessions, memory, cron and rooms. Ergates builds the React Native client, deployment configuration and a small external integration package for typed agent proposals, safe provisioning, reminder deduplication and background attention. Integration receipts are the package's state; they do not replace Hermes's domain stores. Every custom capability and unverified dependency is named in [11](11-implementation-readiness.md).
+Hermes owns the agent loop, profile configuration, tools, sessions, memory, cron and rooms. Ergates builds the React Native client and a small external integration package for typed agent proposals, safe provisioning, reminder deduplication and background attention. Integration receipts are the package's state; they do not replace Hermes's domain stores. Every custom capability and unverified dependency is named in [11](11-implementation-readiness.md).
 
 Use Hermes Desktop's JSON-RPC protocol and pure TypeScript client as the reference. Vendor only needed files at the same pin, with source paths and license. Native transport, cookie storage, filesystem access and appearance application need adapters; absence of DOM globals in one client file is not proof the entire desktop package runs unchanged on React Native.
 
@@ -18,13 +18,13 @@ flowchart TB
   CORE --> STATE[Hermes profiles and session state]
   CORE --> SBX[Docker shell sandbox per profile: no network by default]
   CORE --> MCP[Trusted host-side MCP servers]
-  CORE --> EDGE[Outbound proxy: standard-mode or strict allowlist]
+  CORE --> EDGE[Outbound limits set by the server owner]
   MCP --> EDGE
   EDGE --> PROVIDERS[Model and connector services]
   SERVE -.->|server event source: P0 integration gate| INT[Ergates integration package]
   GW --> INT
   INT --> RECEIPTS[One SQLite control store with a push outbox]
-  INT --> NTFY[Private ntfy with iOS upstream wake-up]
+  INT --> NTFY[ntfy server the owner chooses, with iOS upstream wake-up]
   NTFY --> PHONE[ntfy mobile app]
   PHONE -->|authenticated chat deep link| APP
 ```
@@ -59,10 +59,6 @@ apps/mobile/
   test/fake-gateway/       # fake GatewayPort adapter over sanitized fixtures; client behavior scenarios
 integrations/ergates/      # external Hermes plugin and permitted server extension points
   # proposal/provisioning, attention delivery and reminder-create contracts from 11
-deploy/                   # deployment configuration
-  profiles/               # reviewed role templates, without credentials
-  README.md               # install, update, restore, topology and evidence
-  docker-compose.yml      # only checked in as runnable after P0 validation
 ```
 
 These are planned paths; they do not exist yet. Package versions and native build compatibility are chosen and locked during P0 rather than implied by this document.
@@ -120,7 +116,7 @@ A connection has an app-generated id, label, exact base URL and auth mode. One g
 5. Create/resume the correct Bot Chat, then submit. Byte images use `image.attach_bytes`; path images use `image.attach` after upload.
 6. The vendored client replays with `session.events.since` and `last_seen`. Inspect `truncated` and replay `epoch`, not just installation identity: history recovery is needed after ring eviction and process restart. Refetch profiles/routines/config and pending requests on foregrounding.
 
-After sign-in the app also checks the server's Ergates plugin (ADR-043 and ADR-044; the routes are in 06). `GET /api/plugins/ergates/health` answers for a plugin Hermes serves. When it does not, `GET /api/dashboard/plugins/hub` tells a plugin that is turned off from one that is not installed, and `GET /api/status` gives Hermes's version. The check runs after Connect and after Sign in again, and again whenever Home or a screen that needs the plugin opens. Its result is one value that every screen reads: ready, missing, turned off, not loaded, waiting for a restart, outdated, needs a newer app, unavailable or unknown. A ready or outdated plugin also carries the update this build offers for it, if any. A missing or turned-off plugin opens the setup screen, where one tap installs or enables it. A plugin that is not loaded, or waits for a restart of Hermes, opens the Finish screen, which says what to do on the server. A git install with a lower plugin version than the build's, or one that cannot serve the app, gets the Update ready screen once, and after that a line on Home. The update first checks that its own first health read still offers it, and ends without a change when it does not. Then it turns the plugin off, installs the build's commit over it and checks which code answers. `health` reports `install.commit` (the files) and `install.loaded_commit` (the commit of the plugin package code that answers), so a Hermes that keeps the old code after an update shows as waiting for a restart. The pending setup runs only once the code it belongs to answers. When the new version does not start, the Finish screen offers to put the previous commit back. The connection then keeps that the previous version is back (`pluginWentBack`), so the screen still says so after a relaunch. An outdated plugin the app may not update, such as a deployment or a manual copy, opens the Finish screen. Anything else goes Home, where one line shows the result on later launches. The build supplies what the check compares against: the plugin's API level, the commit to install and the Hermes versions CI has tested. The rules live in `apps/mobile/src/features/server/` and run in Node tests against the fake gateway.
+After sign-in the app also checks the server's Ergates plugin (ADR-043 and ADR-044; the routes are in 06). `GET /api/plugins/ergates/health` answers for a plugin Hermes serves. When it does not, `GET /api/dashboard/plugins/hub` tells a plugin that is turned off from one that is not installed, and `GET /api/status` gives Hermes's version. The check runs after Connect and after Sign in again, and again whenever Home or a screen that needs the plugin opens. Its result is one value that every screen reads: ready, missing, turned off, not loaded, waiting for a restart, outdated, needs a newer app, unavailable or unknown. A ready or outdated plugin also carries the update this build offers for it, if any. A missing or turned-off plugin opens the setup screen, where one tap installs or enables it. A plugin that is not loaded, or waits for a restart of Hermes, opens the Finish screen, which says what to do on the server. A git install with a lower plugin version than the build's, or one that cannot serve the app, gets the Update ready screen once, and after that a line on Home. The update first checks that its own first health read still offers it, and ends without a change when it does not. Then it turns the plugin off, installs the build's commit over it and checks which code answers. `health` reports `install.commit` (the files) and `install.loaded_commit` (the commit of the plugin package code that answers), so a Hermes that keeps the old code after an update shows as waiting for a restart. The pending setup runs only once the code it belongs to answers. When the new version does not start, the Finish screen offers to put the previous commit back. The connection then keeps that the previous version is back (`pluginWentBack`), so the screen still says so after a relaunch. An outdated plugin the app may not update, such as a manual copy, opens the Finish screen. Anything else goes Home, where one line shows the result on later launches. The build supplies what the check compares against: the plugin's API level, the commit to install and the Hermes versions CI has tested. The rules live in `apps/mobile/src/features/server/` and run in Node tests against the fake gateway.
 
 Hermes also ends a session when it restarts, unless the server pins the signing key (06 section 2), so after the user restarts Hermes the Finish screen can ask for Sign in again, and the plugin's setup still runs once they have signed in. Home asks the same when the check answers 401, since the roster reads over the socket and gets no 401 of its own.
 
@@ -174,25 +170,15 @@ Use private ntfy topics with explicit publish/subscribe access. iOS requires an 
 
 Cron's default in-process polling interval is 60 seconds. Retain it for ordinary reminders and measure job-start and delivery delays independently. Precise short timers are deferred, not silently implemented as an LLM sleep. Hermes owns execution; duplicate-safe creation needs the small integration receipt and gate described in 11.
 
-## 9. Deployment contract (single VPS)
+## 9. Server setup
 
-`deploy/docker-compose.yml` implements this contract (ADR-035): `deploy/tests/test_static.py` checks it in CI, and `deploy/VERIFY.md` holds the live checks that must pass before it counts as a completed deployment; this table is not that claim.
+Ergates ships no deployment (ADR-046). The owner runs Hermes Agent on a server of their own and hosts it as the Hermes Agent documentation describes. Ergates needs three things from that server:
 
-| Component | Required wiring |
-|---|---|
-| `hermes-serve` | Pinned image/build with working Docker CLI; `/opt/data` Hermes data mount; host Docker daemon access restricted to this trusted controller; access to the outbound proxy; port 9119 published **only on the VPS Tailscale IP** |
-| `hermes-gateway` | Same pinned image/data root; working Docker CLI and daemon access; explicit `gateway.multiplex_profiles: true`; profile-specific platform config; permitted provider/MCP/ntfy routes |
-| Shell sandboxes | One identity per profile; persistent workspace mapping with host/container paths deliberately aligned; no Docker socket or provider/MCP credentials; `docker_network: false` by default |
-| ntfy | Pinned image; persisted cache/auth stores; deny-by-default ACL; publish token and per-device subscriptions; private Tailscale-reachable listener; outbound upstream wake-up access |
-| Outbound proxy | Two modes (`EGRESS_MODE`): standard denies private/internal/special-use ranges and allows any other public host (the default, and what `browser`-toolset agents need); strict allows only an explicit provider/connector host allowlist. Either way the controllers' direct outbound route must not bypass it; local management ports blocked from sandboxes |
-| Tailscale | On the VPS and phone; restricted service access; verify native networking and background reachability |
-| Optional admin SPA | Run dashboard mode instead of serve on that HTTP endpoint, or a separate private port; account for any agent execution it can launch |
+- The Ergates plugin. The app installs and updates it (ADR-043, ADR-044); the plugin's README covers a manual install.
+- For push, the plugin's ntfy settings, `plugins.entries.ergates.settings.ntfy.*` with the token as the plugin secret `ERGATES_NTFY_TOKEN`, pointed at an ntfy server the owner chooses (ADR-023, section 8).
+- Network limits. Ergates enforces none. Outbound limits for the controllers, which addresses reach `hermes serve`, and the sandbox settings in 04 section 7 are the owner's to configure.
 
-Both `serve` and `gateway` execute tools; mounting the Docker socket only into the gateway is insufficient. Keep the official image entrypoint/s6 initialization. Validate socket group access for the internal service user rather than relying on a `group_add` that may be lost on privilege drop. Record a derived image if the pin lacks required runtime packages.
-
-The host Docker daemon resolves bind source paths on the host, not inside the controller container. A controller mount `/srv/hermes:/opt/data` does not make `/opt/data/sandboxes/...` a valid host path automatically. Record the aligned paths/explicit volumes and prove bidirectional file access before calling the workspace persistent. Never mount the entire Hermes data root into a shell sandbox.
-
-Required profile intent (verified keys; complete templates are a P0 deliverable):
+Ergates ships no profiles either, so Hermes defaults apply until the owner changes them. The design assumes this profile intent (verified keys), which the owner sets in the profiles' `config.yaml`:
 
 ```yaml
 gateway:
@@ -215,7 +201,7 @@ approvals:
 
 This excerpt omits the reviewed workspace volumes, effective toolsets and MCP include lists; a profile is not ready until those are configured and tested. Container approval exemptions and host-side tools are documented in 04. Internet-enabled shell execution is deferred; if later enabled, attach the sandbox explicitly to an isolated network with enforced proxy routing and test direct-IP/DNS bypasses.
 
-Deployment setup provisions credentials once, then starting the completed stack is one `docker compose up -d`. Pin image digests; do not use mutable ntfy/Caddy/Hermes tags. A small VPS sizing starting point is 4 vCPU, 8 GB RAM; measure concurrent sandbox use before increasing concurrency.
+A small VPS sizing starting point is 4 vCPU, 8 GB RAM; measure concurrent sandbox use before increasing concurrency.
 
 ## 10. Operations and failures
 
@@ -231,6 +217,6 @@ Deployment setup provisions credentials once, then starting the completed stack 
 | Routine failed | Show history and delivery error separately; no false “delivered” based on job success |
 | Auth expires | Follow the chosen provider's session renewal; clear on failure, preserve draft until user chooses sign-out |
 
-Nightly backup covers all profile stores, workspace data and the integration control store plus ntfy state. Use Hermes backup with a consistency-aware SQLite/WAL and file snapshot procedure, encrypt off-server copies, define retention (initially seven daily and four weekly), and test restoration onto empty storage. Do not describe live rsync alone as a consistent database backup. Before an upgrade, take a restorable snapshot; rollback restores a compatible state snapshot if schema/data changes are not backward-compatible.
+Nightly backup covers all profile stores, workspace data and the integration control store, plus ntfy state when the owner runs ntfy on the same server. Use Hermes backup with a consistency-aware SQLite/WAL and file snapshot procedure, encrypt off-server copies, define retention (initially seven daily and four weekly), and test restoration onto empty storage. Do not describe live rsync alone as a consistent database backup. Before an upgrade, take a restorable snapshot; rollback restores a compatible state snapshot if schema/data changes are not backward-compatible.
 
 Observability: `/api/health`, `/api/plugins/ergates/health` (plugin version and API level, control store schema and write access, install kind, setup state, push settings as booleans and the periodic sweep), `hermes doctor`, per-profile logs, cron run history, integration delivery records and the optional dashboard. `/health/detailed` exists on the optional API server, not the mobile `serve` endpoint. Local app logs contain error categories/connection state, not prompts, secrets or full authenticated URLs. Redact before sharing any debug bundle.

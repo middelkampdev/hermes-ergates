@@ -155,7 +155,7 @@ describe('ErgatesApi over the real gateway', () => {
   })
 
   it('keeps each install kind it knows', async () => {
-    for (const kind of ['deployment', 'git install', 'manual copy'] as const) {
+    for (const kind of ['git install', 'manual copy'] as const) {
       const { api } = await connected(() => [200, { ...health, install: { ...health.install, kind } }])
 
       await expect(api.health()).resolves.toMatchObject({ health: { install: { kind } } })
@@ -168,7 +168,7 @@ describe('ErgatesApi over the real gateway', () => {
     await expect(api.health()).resolves.toMatchObject({ health: { install: { commit: 'a'.repeat(40), loaded_commit: 'b'.repeat(40) } } })
   })
 
-  it('keeps a loaded commit of null: a manual copy or a deployment has none', async () => {
+  it('keeps a loaded commit of null: a manual copy has none', async () => {
     const { api } = await connected(() => [200, { ...health, install: { kind: 'manual copy', commit: null, loaded_commit: null, catalog_name: null } }])
 
     const answer = await api.health()

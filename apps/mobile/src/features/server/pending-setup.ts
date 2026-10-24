@@ -141,8 +141,8 @@ async function runPendingSetup(port: GatewayPort, connectionId: string, seen: Pe
  * again. It also answers `waiting` for a check that is not ready, and while a
  * git install answers with other code than the pending commit: after an
  * update the old code keeps answering until Hermes restarts, and the setup
- * belongs to the new code. A deployment, a manual copy and a plugin that says
- * nothing about its install name no commit, so they run.
+ * belongs to the new code. A manual copy and a plugin that says nothing about
+ * its install name no commit, so they run.
  *
  * The flag is read from the device store by `connection.id`, so a connection
  * object that is out of date cannot start a second setup. Callers at the same

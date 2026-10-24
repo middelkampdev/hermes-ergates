@@ -1,8 +1,8 @@
 """Tests for ergates.install_info: how the plugin on this server got there, as ``GET /health`` says it.
 
 The app offers going back to an earlier commit only for a git install, so the
-three kinds must not be mixed up: a deployment's read-only mount, a plugin
-Hermes cloned from a commit, and a folder copied or linked by hand.
+two kinds must not be mixed up: a plugin Hermes cloned from a commit, and a
+folder copied or linked by hand.
 
 The module also keeps the commit its own code was installed at, read once when
 it was imported (``loaded_commit``). These tests run outside Hermes, where the
@@ -17,14 +17,13 @@ from pathlib import Path
 import pytest
 
 from ergates import hermes_adapter, install_info as install_info_module
-from ergates.install_info import INSTALL_KIND_ENV, install_info
+from ergates.install_info import install_info
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
 OTHER_SHA = "fedcba9876543210fedcba9876543210fedcba98"
 RECORD = {"pinned": True, "revision": SHA, "source": "https://github.com/middelkampdev/hermes-ergates"}
 GIT_INSTALL = {"kind": "git install", "commit": SHA, "catalog_name": None, "loaded_commit": None}
 MANUAL_COPY = {"kind": "manual copy", "commit": None, "catalog_name": None, "loaded_commit": None}
-DEPLOYMENT = {"kind": "deployment", "commit": None, "catalog_name": None, "loaded_commit": None}
 
 
 def _folder(tmp_path, kind):
@@ -43,54 +42,51 @@ def _folder(tmp_path, kind):
     return path
 
 
-def test_the_deployment_marker_is_an_environment_variable_of_the_serving_process():
-    assert INSTALL_KIND_ENV == "ERGATES_INSTALL_KIND"
-
-
-@pytest.mark.parametrize("record, folder, marker, expected", [
-    (RECORD, "folder", "deployment", DEPLOYMENT),
-    (None, "symlink", "deployment", DEPLOYMENT),
-    (None, None, "deployment", DEPLOYMENT),
-    (RECORD, "folder", None, GIT_INSTALL),
-    ({**RECORD, "pinned": False}, "folder", None, GIT_INSTALL),
-    ({**RECORD, "revision": SHA.upper()}, "folder", None, GIT_INSTALL),
-    ({**RECORD, "catalog": {"name": "ergates", "tier": "community"}}, "folder", None,
+@pytest.mark.parametrize("record, folder, expected", [
+    (RECORD, "folder", GIT_INSTALL),
+    ({**RECORD, "pinned": False}, "folder", GIT_INSTALL),
+    ({**RECORD, "revision": SHA.upper()}, "folder", GIT_INSTALL),
+    ({**RECORD, "catalog": {"name": "ergates", "tier": "community"}}, "folder",
      {**GIT_INSTALL, "catalog_name": "ergates"}),
-    ({**RECORD, "catalog": {"name": 7}}, "folder", None, GIT_INSTALL),
-    ({**RECORD, "catalog": "ergates"}, "folder", None, GIT_INSTALL),
-    (RECORD, "symlink", None, MANUAL_COPY),
-    (RECORD, "file", None, MANUAL_COPY),
-    (RECORD, "missing", None, MANUAL_COPY),
-    (RECORD, None, None, MANUAL_COPY),
-    (None, "folder", None, MANUAL_COPY),
-    ([RECORD], "folder", None, MANUAL_COPY),
-    ({"pinned": True, "source": "x"}, "folder", None, MANUAL_COPY),
-    ({**RECORD, "revision": SHA[:7]}, "folder", None, MANUAL_COPY),
-    ({**RECORD, "revision": "g" * 40}, "folder", None, MANUAL_COPY),
-    ({**RECORD, "revision": SHA + "0"}, "folder", None, MANUAL_COPY),
-    ({**RECORD, "revision": 12345}, "folder", None, MANUAL_COPY),
-    ({**RECORD, "revision": f"{SHA}\n"}, "folder", None, MANUAL_COPY),
-    ({**RECORD, "catalog": {"name": "ergates"}}, "symlink", None, MANUAL_COPY),
-    (RECORD, "folder", "", GIT_INSTALL),
-    (RECORD, "folder", "git install", GIT_INSTALL),
-    (RECORD, "folder", "Deployment", GIT_INSTALL),
+    ({**RECORD, "catalog": {"name": 7}}, "folder", GIT_INSTALL),
+    ({**RECORD, "catalog": "ergates"}, "folder", GIT_INSTALL),
+    (RECORD, "symlink", MANUAL_COPY),
+    (RECORD, "file", MANUAL_COPY),
+    (RECORD, "missing", MANUAL_COPY),
+    (RECORD, None, MANUAL_COPY),
+    (None, "folder", MANUAL_COPY),
+    ([RECORD], "folder", MANUAL_COPY),
+    ({"pinned": True, "source": "x"}, "folder", MANUAL_COPY),
+    ({**RECORD, "revision": SHA[:7]}, "folder", MANUAL_COPY),
+    ({**RECORD, "revision": "g" * 40}, "folder", MANUAL_COPY),
+    ({**RECORD, "revision": SHA + "0"}, "folder", MANUAL_COPY),
+    ({**RECORD, "revision": 12345}, "folder", MANUAL_COPY),
+    ({**RECORD, "revision": f"{SHA}\n"}, "folder", MANUAL_COPY),
+    ({**RECORD, "catalog": {"name": "ergates"}}, "symlink", MANUAL_COPY),
 ], ids=[
-    "deployment-wins-over-a-git-install", "deployment-on-a-symlink", "deployment-with-nothing-else",
     "pinned-record-and-real-folder", "unpinned-record-and-real-folder", "revision-is-lowercased",
     "catalog-record-names-the-catalog-entry", "catalog-name-that-is-no-string", "catalog-that-is-no-mapping",
     "symlinked-folder", "folder-that-is-a-file", "folder-that-is-missing", "no-folder", "no-record",
     "record-that-is-no-mapping", "record-without-a-revision", "short-revision", "non-hex-revision",
     "revision-too-long", "revision-that-is-no-string", "revision-with-a-newline", "catalog-on-a-symlink",
-    "empty-marker", "other-marker", "marker-in-another-case",
 ])
-def test_install_info_tells_the_three_kinds(record, folder, marker, expected, tmp_path):
-    assert install_info(record, _folder(tmp_path, folder), marker) == expected
+def test_install_info_tells_the_two_kinds(record, folder, expected, tmp_path):
+    assert install_info(record, _folder(tmp_path, folder)) == expected
+
+
+def test_an_older_api_module_still_imports_the_marker_name_and_its_marker_is_ignored(tmp_path):
+    """The step-3 ``dashboard/api.py`` imports ``INSTALL_KIND_ENV`` and passes a marker. Hermes can mount it over
+    this package until it restarts, so the import must work and the marker must not change the answer."""
+    from ergates.install_info import INSTALL_KIND_ENV
+
+    assert INSTALL_KIND_ENV == "ERGATES_INSTALL_KIND"
+    assert install_info(RECORD, _folder(tmp_path, "folder"), "deployment") == GIT_INSTALL
 
 
 def test_install_info_never_carries_the_record_or_the_path_beyond_the_four_fields(tmp_path):
     record = {**RECORD, "source": "https://example.invalid/private?token=secret", "update_url": "https://x.invalid"}
 
-    info = install_info(record, _folder(tmp_path, "folder"), None)
+    info = install_info(record, _folder(tmp_path, "folder"))
 
     assert sorted(info) == ["catalog_name", "commit", "kind", "loaded_commit"]
     assert "secret" not in repr(info) and str(tmp_path) not in repr(info)
@@ -98,7 +94,7 @@ def test_install_info_never_carries_the_record_or_the_path_beyond_the_four_field
 
 @pytest.fixture
 def import_again(monkeypatch, tmp_path):
-    """``import_again(record, marker=None)`` imports ``ergates.install_info`` again on a server whose install
+    """``import_again(record)`` imports ``ergates.install_info`` again on a server whose install
     record is ``record`` and whose plugin folder is a real folder, the way Hermes imports the plugin's code.
 
     The module is imported once more when the test ends, outside Hermes, so the next test finds it as before.
@@ -106,17 +102,13 @@ def import_again(monkeypatch, tmp_path):
     folder = _folder(tmp_path, "folder")
     monkeypatch.setattr(hermes_adapter, "root_plugin_dir", lambda: folder)
 
-    def run(record, marker=None):
+    def run(record):
         if isinstance(record, Exception):
             def failing():
                 raise record
             monkeypatch.setattr(hermes_adapter, "install_record", failing)
         else:
             monkeypatch.setattr(hermes_adapter, "install_record", lambda: record)
-        if marker is None:
-            monkeypatch.delenv(INSTALL_KIND_ENV, raising=False)
-        else:
-            monkeypatch.setenv(INSTALL_KIND_ENV, marker)
         importlib.reload(install_info_module)
         return folder
 
@@ -128,7 +120,7 @@ def import_again(monkeypatch, tmp_path):
 def test_the_loaded_commit_is_the_record_s_commit_when_the_module_was_imported(import_again):
     folder = import_again(RECORD)
 
-    assert install_info(RECORD, folder, None) == {**GIT_INSTALL, "loaded_commit": SHA}
+    assert install_info(RECORD, folder) == {**GIT_INSTALL, "loaded_commit": SHA}
 
 
 def test_a_later_record_moves_the_commit_and_not_the_loaded_commit(import_again):
@@ -136,7 +128,7 @@ def test_a_later_record_moves_the_commit_and_not_the_loaded_commit(import_again)
     restarts, so ``commit`` and ``loaded_commit`` then differ: the app reads that as a restart to ask for."""
     folder = import_again(RECORD)
 
-    info = install_info({**RECORD, "revision": OTHER_SHA}, folder, None)
+    info = install_info({**RECORD, "revision": OTHER_SHA}, folder)
 
     assert (info["commit"], info["loaded_commit"]) == (OTHER_SHA, SHA)
 
@@ -147,7 +139,7 @@ def test_the_loaded_commit_comes_with_every_answer_even_from_a_caller_that_does_
     answers, so a mixed load reads as a restart to ask for."""
     folder = import_again({**RECORD, "revision": OTHER_SHA})
 
-    assert install_info(RECORD, folder, None)["loaded_commit"] == OTHER_SHA
+    assert install_info(RECORD, folder)["loaded_commit"] == OTHER_SHA
 
 
 @pytest.mark.parametrize("record", [None, {"pinned": True, "source": "x"}, OSError("unreadable record")],
@@ -155,13 +147,7 @@ def test_the_loaded_commit_comes_with_every_answer_even_from_a_caller_that_does_
 def test_the_loaded_commit_is_none_when_the_import_finds_no_commit_and_the_import_never_fails(import_again, record):
     folder = import_again(record)
 
-    assert install_info(RECORD, folder, None)["loaded_commit"] is None
-
-
-def test_a_deployment_was_loaded_from_no_commit_whatever_its_record_says(import_again):
-    folder = import_again(RECORD, marker="deployment")
-
-    assert install_info(RECORD, folder, None)["loaded_commit"] is None
+    assert install_info(RECORD, folder)["loaded_commit"] is None
 
 
 def test_the_tools_and_hooks_never_import_the_loaded_commit():

@@ -22,7 +22,7 @@ import type { ManualFailure, StepStatus } from './setup-run'
 import type { LastUpdateRun, UpdateOutcome } from './update-run'
 import { updateSteps, type UpdateRunState, type UpdateTarget } from './update-view'
 
-/** The page with the manual steps, the restart steps and the deployment steps; the anchors are `#manual`, `#restart`, `#deployment` and `#stay-signed-in`. */
+/** The page with the manual steps and the restart steps; the anchors are `#manual`, `#restart` and `#stay-signed-in`. */
 export const SERVER_GUIDE_URL = 'https://middelkamp.dev/ergates/server/'
 
 /**
@@ -58,7 +58,6 @@ export const RESTART_HEADING = 'Then restart Hermes:'
  * `went_back`: the app put the previous version back and it answers; when
  * this app needs a newer plugin, the update did not start, and the guide
  * says what to check before trying again.
- * `deployment`: the Ergates deployment brings its own plugin.
  */
 export type FinishVariant =
   | { kind: 'install'; restart: boolean; failure: ManualFailure | null; detail: string | null }
@@ -68,7 +67,6 @@ export type FinishVariant =
   | { kind: 'restart'; after: 'update' | 'go_back' | null }
   | { kind: 'not_started'; previous: string; goBack: boolean }
   | { kind: 'went_back' }
-  | { kind: 'deployment' }
 
 /** Why the install is by hand: how the last setup run ended (`lastManualOutcome`). */
 export interface FinishManual {
@@ -180,7 +178,6 @@ export interface FinishView {
 }
 
 const TITLE = 'Finish on your server'
-const DEPLOYMENT_TITLE = 'Update your Ergates deployment'
 const RUN_INTRO = 'On your server, as the user that runs Hermes, run:'
 const TURNED_OFF_INTRO = `The plugin is on your server but turned off. ${RUN_INTRO}`
 const NOT_LOADED = 'Hermes has not loaded the Ergates plugin yet.'
@@ -228,8 +225,6 @@ function updateVariant(installKind: InstallKind): FinishVariant {
       return { kind: 'update' }
     case 'manual copy':
       return { kind: 'update_copy' }
-    case 'deployment':
-      return { kind: 'deployment' }
   }
 }
 
@@ -353,12 +348,12 @@ function commitOf(build: BuildRecord | null): string | null {
  * a missing plugin, one that is turned off, or an outdated git install or
  * manual copy. The setup then runs once the plugin answers. Nothing else
  * records it: not a link, not the failure of an earlier run, not a page that
- * has no answer yet. A restart or a deployment installs nothing, and neither
- * does an outdated plugin that is the previous version the app put back
+ * has no answer yet. A restart installs nothing, and neither does an outdated
+ * plugin that is the previous version the app put back
  * (`wentBack`): the page does not ask to install the failed update again.
  */
 export function pendingCommit(check: ServerCheck | null, build: BuildRecord | null, wentBack: Connection['pluginWentBack'] = undefined): string | null {
-  const outdatedToUpdate = check?.kind === 'outdated' && check.installKind !== 'deployment' && !showsWentBack(check, wentBack)
+  const outdatedToUpdate = check?.kind === 'outdated' && !showsWentBack(check, wentBack)
   const needsSetup = check?.kind === 'missing' || check?.kind === 'disabled' || outdatedToUpdate
   return needsSetup ? commitOf(build) : null
 }
@@ -420,8 +415,6 @@ function anchorOf(variant: FinishVariant | null): string {
       return ''
     case 'restart':
       return '#restart'
-    case 'deployment':
-      return '#deployment'
     default:
       return '#manual'
   }
@@ -458,10 +451,6 @@ function instructionsFor(variant: FinishVariant, build: BuildRecord | null): Ins
       return notStarted(variant)
     case 'went_back':
       return { intro: [WENT_BACK_OUTDATED, WENT_BACK_GUIDE], command: null, restart: false }
-    case 'deployment': {
-      const target = version === undefined ? 'the newest plugin' : `plugin ${version}`
-      return { intro: [`This server runs the Ergates deployment, which brings its own plugin. Update the deployment to get ${target}.`], command: null, restart: false }
-    }
   }
 }
 
@@ -529,15 +518,14 @@ export function finishView(
   setup: SetupProgress = { state: 'pending' },
   run: UpdateRunState | null = null
 ): FinishView {
-  const title = variant?.kind === 'deployment' ? DEPLOYMENT_TITLE : TITLE
   const guide = { label: GUIDE_LABEL, url: `${SERVER_GUIDE_URL}${anchorOf(variant)}` }
   const steps = run === null ? null : updateSteps(run, true)
   if (setup.state === 'done') {
-    return { title, intro: [], command: null, restartLines: null, guide, status: variant?.kind === 'went_back' ? WENT_BACK_READY : READY, done: true, steps, primary: DONE }
+    return { title: TITLE, intro: [], command: null, restartLines: null, guide, status: variant?.kind === 'went_back' ? WENT_BACK_READY : READY, done: true, steps, primary: DONE }
   }
   if (check === 'sign_in') {
     return {
-      title,
+      title: TITLE,
       intro: [],
       command: null,
       restartLines: null,
@@ -549,15 +537,15 @@ export function finishView(
     }
   }
   if (runIsGoing(run)) {
-    return { title, intro: [], command: null, restartLines: null, guide, status: GOING_BACK, done: false, steps, primary: null }
+    return { title: TITLE, intro: [], command: null, restartLines: null, guide, status: GOING_BACK, done: false, steps, primary: null }
   }
   const status = runStatus(run?.outcome ?? null) ?? statusOf(variant, check, setup)
   if (variant === null || (check?.kind === 'ready' && !updateStillOpen(variant, check) && setup.state !== 'waiting')) {
-    return { title, intro: [], command: null, restartLines: null, guide, status, done: false, steps, primary: CHECK }
+    return { title: TITLE, intro: [], command: null, restartLines: null, guide, status, done: false, steps, primary: CHECK }
   }
   const { intro, command, restart } = instructionsFor(variant, build)
   const primary = variant.kind === 'not_started' && variant.goBack ? GO_BACK : CHECK
-  return { title, intro, command, restartLines: restart ? [...RESTART_LINES] : null, guide, status, done: false, steps, primary }
+  return { title: TITLE, intro, command, restartLines: restart ? [...RESTART_LINES] : null, guide, status, done: false, steps, primary }
 }
 
 /** What a failed plugin setup shows in the status line: the gateway's own message, which carries no secrets. */

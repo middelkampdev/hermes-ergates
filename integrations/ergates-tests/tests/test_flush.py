@@ -1,8 +1,8 @@
 """Tests for ergates.flush: the periodic delivery and retention entry point.
 
-Nothing in Hermes runs a timer for this plugin, so this module is what the
-deployment schedules (see ``deploy/README.md``). No network: every test
-injects its own publisher.
+Nothing in Hermes runs a timer for this plugin, so ``hermes serve`` runs a
+sweep of its own (``ergates.sweep``). No network: every test injects its own
+publisher.
 """
 
 import logging
@@ -364,7 +364,7 @@ def test_main_refuses_to_run_as_root_when_another_user_owns_the_hermes_root(tmp_
 
     err = capsys.readouterr().err
     assert "refusing to run as root" in err
-    assert "docker compose exec -u hermes" in err
+    assert "Run it as that user" in err
     assert not (tmp_path / "ergates").exists()
 
 

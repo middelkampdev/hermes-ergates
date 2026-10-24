@@ -688,7 +688,6 @@ describe('runSetup: the code that answers', () => {
     ['no commit it reports', healthAt(OTHER, 'unreported')],
     ['a commit it could not read', healthAt(OTHER, null)],
     ['a commit that is not a full hash', healthAt('main', 'main')],
-    ['a deployment', { ...FAKE_PLUGIN_HEALTH, install: { kind: 'deployment', commit: null, loaded_commit: null, catalog_name: null } }],
     ['a plugin that says nothing about its install', { ...FAKE_PLUGIN_HEALTH, install: undefined }]
   ])('keeps the build\'s commit in the pending setup for %s', async (_title, health) => {
     const gateway = serverListing('enabled')

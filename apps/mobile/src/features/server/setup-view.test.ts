@@ -368,7 +368,7 @@ describe('setupRedirect', () => {
   it.each<{ title: string; check: ServerCheck; route: string | null }>([
     { title: 'a plugin Hermes has not loaded', check: { kind: 'not_loaded', hermesVersion: '0.21.6' }, route: '/server/finish' },
     { title: 'a plugin that waits for a restart', check: { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }, route: '/server/finish' },
-    { title: 'an outdated plugin the app cannot update', check: { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'deployment', update: null, hermesVersion: '0.21.6' }, route: '/server/finish' },
+    { title: 'an outdated plugin the app cannot update', check: { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'manual copy', update: null, hermesVersion: '0.21.6' }, route: '/server/finish' },
     { title: 'an outdated plugin the app can update', check: { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'git install', update: offer, hermesVersion: '0.21.6' }, route: '/server/update' },
     { title: 'a missing plugin, which this screen sets up', check: oneTap, route: null },
     { title: 'a plugin that is turned off, which this screen turns on', check: { kind: 'disabled', hermesVersion: '0.21.6' }, route: null },

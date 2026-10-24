@@ -3,13 +3,12 @@
 [![CI](https://github.com/middelkampdev/hermes-ergates/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/middelkampdev/hermes-ergates/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A clean React Native messaging app for a team of Hermes Agent assistants on your own server. Hermes owns the agents; Ergates is the phone app, a small server integration package and the deployment configuration.
+A clean React Native messaging app for a team of Hermes Agent assistants on your own server. Hermes owns the agents; Ergates is the phone app and a small server integration package. The app connects to a Hermes server you already run; the Hermes Agent documentation covers how to host one.
 
 | Part | Path | Status |
 |---|---|---|
 | Mobile app (Expo SDK 57) | [apps/mobile](apps/mobile/README.md) | Runs on the iOS simulator against a local `hermes serve`; see the app README |
 | Integration package (Hermes plugin, Python) | [integrations/ergates](integrations/ergates/README.md) | Unit-tested (the tests are in `integrations/ergates-tests`) and run against the pinned Hermes in the contract tests; not yet installed on a live gateway |
-| Deployment (Compose, profile and role templates, runbook) | [deploy](deploy/README.md) | Checked by CI; not yet run on a VPS; the live checks are [deploy/VERIFY.md](deploy/VERIFY.md) |
 | Design documents | [docs](docs/README.md) | Authoritative specification for vision, architecture, security, data model, API contract and mobile design |
 
 ## Quick start (simulator)
@@ -49,7 +48,6 @@ every profile, and installs the proposal templates the plugin ships.
 | `mobile` | `npm run typecheck`, ESLint (`npm run lint`, no warnings allowed), Vitest with the coverage gate (including a guard against planning ids in comments and test titles), the ADR-029 dependency rules |
 | `integration` | the Python suite with a 90% branch-coverage gate, including the Hermes boundary guard and a guard against planning ids in comments, docstrings, test names and docs |
 | `contract` | facts about the pinned Hermes source the integration relies on, the integration running inside the pinned Hermes (its adapter, routes, tool gate and installer), and Hermes's install scan, which must rate the plugin folder `safe` |
-| `deploy` | `docker compose config` and static checks of `deploy/`: published ports, the internal network and the egress proxy, image digests, mounts, profiles, templates and the live checklist |
 
 Run one job with `scripts/ci-local.sh mobile`, several with `scripts/ci-local.sh integration contract`. The quick loops:
 

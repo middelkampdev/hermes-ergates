@@ -119,7 +119,7 @@ describe('updateView: nothing to update', () => {
   })
 
   it.each<[string, ServerCheck, string]>([
-    ['a deployment or a manual copy that needs an update', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'manual copy', update: null, hermesVersion: '0.21.6' }, 'The Ergates plugin on this server needs an update.'],
+    ['a manual copy that needs an update', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'manual copy', update: null, hermesVersion: '0.21.6' }, 'The Ergates plugin on this server needs an update.'],
     ['a restart', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }, 'Restart Hermes to finish the plugin update.'],
     ['a plugin Hermes has not loaded', { kind: 'not_loaded', hermesVersion: '0.21.6' }, 'Hermes has not loaded the Ergates plugin yet.'],
     ['a plugin that is turned off', { kind: 'disabled', hermesVersion: '0.21.6' }, 'The Ergates plugin is turned off on this server.'],
@@ -318,7 +318,7 @@ describe('offerOf: the update a check offers', () => {
   it.each<[string, ServerCheck | undefined]>([
     ['no check', undefined],
     ['a working plugin with nothing to update', ready('0.21.6', null)],
-    ['an outdated plugin the app cannot update', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'deployment', update: null, hermesVersion: null }],
+    ['an outdated plugin the app cannot update', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'manual copy', update: null, hermesVersion: null }],
     ['a plugin that waits for a restart', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }],
     ['a check that could not tell', { kind: 'unknown' }]
   ])('is null for %s', (_title, check) => {
@@ -346,7 +346,7 @@ describe('retryTarget: Try again installs only what the server still needs', () 
   it.each<[string, ServerCheck | undefined]>([
     ['an offer that is gone', ready('0.21.6', null)],
     ['a server that now runs a newer plugin than this build', { kind: 'ready', health: { ...FAKE_PLUGIN_HEALTH, plugin_version: '0.9.0' }, update: null, hermesVersion: null }],
-    ['a plugin that needs an update the app cannot make', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'deployment', update: null, hermesVersion: null }],
+    ['a plugin that needs an update the app cannot make', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'manual copy', update: null, hermesVersion: null }],
     ['a plugin that waits for a restart', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }],
     ['no answer', undefined]
   ])('starts no run for %s', (_title, data) => {

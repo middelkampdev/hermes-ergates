@@ -101,12 +101,11 @@ def sweep_status() -> dict:
 def install() -> dict:
     """How the plugin got here, for ``GET /health`` (``ergates.install_info``), read at each call.
 
-    The ``ERGATES_INSTALL_KIND`` marker is read from the environment at each
-    call, not when the operations are built. ``loaded_commit`` is the
-    exception: ``ergates.install_info`` read it once, when Hermes imported the
-    ``ergates`` package, so it differs from ``commit`` after a reinstall until
-    Hermes restarts. It is ``None`` for a manual copy and a deployment, which
-    have no commit.
+    Hermes's install record is read at each call, not when the operations are
+    built. ``loaded_commit`` is the exception: ``ergates.install_info`` read it
+    once, when Hermes imported the ``ergates`` package, so it differs from
+    ``commit`` after a reinstall until Hermes restarts. It is ``None`` for a
+    manual copy, which has no commit.
     """
     return read_install()
 

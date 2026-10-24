@@ -152,7 +152,7 @@ describe('routeAfterCheck', () => {
     ['disabled', { kind: 'disabled', hermesVersion: '0.21.6' }, '/server'],
     ['not loaded', { kind: 'not_loaded', hermesVersion: '0.21.6' }, '/server/finish'],
     ['waiting for a restart', { kind: 'restart_needed', health: FAKE_PLUGIN_HEALTH, hermesVersion: '0.21.6' }, '/server/finish'],
-    ['outdated, with nothing the app can update', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'deployment', update: null, hermesVersion: '0.21.6' }, '/server/finish'],
+    ['outdated, with nothing the app can update', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'manual copy', update: null, hermesVersion: '0.21.6' }, '/server/finish'],
     ['outdated, with an update the app can make', { kind: 'outdated', health: FAKE_PLUGIN_HEALTH, installKind: 'git install', update: offer, hermesVersion: '0.21.6' }, '/'],
     ['ready, with an update', { kind: 'ready', health: FAKE_PLUGIN_HEALTH, update: offer, hermesVersion: '0.21.6' }, '/'],
     ['newer than the app', { kind: 'app_outdated', health: FAKE_PLUGIN_HEALTH }, '/'],

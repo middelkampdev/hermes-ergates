@@ -333,7 +333,7 @@ Home, Settings and every feature that needs the Ergates plugin read one server c
 | Plugin needs a newer app | This server's Ergates plugin needs a newer version of this app. Update Ergates. | none |
 | Plugin cannot open its data | The Ergates plugin cannot open its data on this server, followed by the server's own reason | none |
 
-On Home the sentence is one tappable line in the style of the error line, and a tap anywhere on it opens the screen. When Home has an error line, that line is shown instead. A check that answers 401 makes it the sign-in line, even when the roster failed for another reason. The update line for a plugin that works is in the muted color, because it offers something and reports no fault. It shows only where the update neither opens a screen nor runs by itself. The Update button opens the Update ready screen. For an outdated plugin the app may not update (a deployment, a manual copy, or a build without a commit) it opens the Finish screen. In Settings › Gateway the Ergates plugin row shows the plugin's version, or the sentence, and opens the screen when there is a button. While an update is ready the version reads like "0.2.0 (update to 0.3.0 ready)", and the row opens Update ready. Under the plugin row, a row with the switch "Keep it up to date automatically" turns the automatic updates of this connection on or off. A check that could not reach the server shows no sentence, and the screen behaves as it did before the check. The Settings row then says "Could not check".
+On Home the sentence is one tappable line in the style of the error line, and a tap anywhere on it opens the screen. When Home has an error line, that line is shown instead. A check that answers 401 makes it the sign-in line, even when the roster failed for another reason. The update line for a plugin that works is in the muted color, because it offers something and reports no fault. It shows only where the update neither opens a screen nor runs by itself. The Update button opens the Update ready screen. For an outdated plugin the app may not update (a manual copy, or a build without a commit) it opens the Finish screen. In Settings › Gateway the Ergates plugin row shows the plugin's version, or the sentence, and opens the screen when there is a button. While an update is ready the version reads like "0.2.0 (update to 0.3.0 ready)", and the row opens Update ready. Under the plugin row, a row with the switch "Keep it up to date automatically" turns the automatic updates of this connection on or off. A check that could not reach the server shows no sentence, and the screen behaves as it did before the check. The Settings row then says "Could not check".
 
 A new routine, notification settings and a proposal card call the plugin themselves. When their route answers 404 while the last check said ready, the screen checks again and shows "Checking your server…" in the muted color. Once the new check answers, it shows that check's sentence, or its own error when the server still says the plugin is ready.
 
@@ -349,14 +349,14 @@ While the update runs, the page shows four steps like the setup page: Turning th
 
 A connection that learned its Hermes remounts a new plugin without a restart updates without asking. Home then shows one muted line, "Ergates updated the plugin on your server to <version>.", or "Ergates updated the plugin on your server to a newer build of <version>." when the version stayed the same, and the line goes when Home loses focus. A run without asking that fails leaves the Home line with the Update button.
 
-The Finish on your server page serves every case where the user acts on the server. Its heading reads "Finish on your server", or "Update your Ergates deployment" for a deployment. The page shows:
+The Finish on your server page serves every case where the user acts on the server. Its heading reads "Finish on your server". The page shows:
 
 - one or two sentences of why, for example that Hermes refused the install, that the plugin is on the server but turned off, or that it needs an update;
 - the command to run on the server in a monospace box with a **Copy** button;
 - the heading "Then restart Hermes:" and four ways to restart, when a restart is needed;
 - a status line, "Checking…", "Waiting for your server…" or "Your server is ready.", set as a live region for screen readers;
 - **Check now**, which becomes **Done** once the server answers and its setup went through, and **Sign in again** when the server asked for it;
-- **Open the guide**, which opens `https://middelkamp.dev/ergates/server/` at the part that fits the case (`#manual`, `#restart` or `#deployment`).
+- **Open the guide**, which opens `https://middelkamp.dev/ergates/server/` at the part that fits the case (`#manual` or `#restart`).
 
 The page asks the server every 5 seconds while it is in view. When the plugin answers, the page runs the plugin's setup by itself and clears the instructions. After a restart the page offers **Sign in again** in place of the command, and the guide button changes to **How to stay signed in** (`#stay-signed-in`).
 

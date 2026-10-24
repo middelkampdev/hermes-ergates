@@ -43,8 +43,8 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 | null {
 /**
  * The update this build offers for the plugin a health read describes, or
  * null. Only a git install with a known commit can be replaced and put back.
- * A deployment, a manual copy and a plugin that reports no install belong to
- * whoever put them there, and an install from the Hermes catalog is updated
+ * A manual copy and a plugin that reports no install belong to whoever put
+ * them there, and an install from the Hermes catalog is updated
  * through the catalog, not from here. The recorded commit becomes the commit
  * that going back installs, so it must be a full lower-case hash. Nothing is
  * offered when the build has no commit, is at the installed commit, or when
