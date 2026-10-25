@@ -12,7 +12,7 @@ import { useRouter } from 'expo-router'
 import React from 'react'
 import { Alert, StyleSheet, Text, View } from 'react-native'
 
-import { appearanceSummary, signOut, usePrimaryConnection } from '@/features/settings'
+import { appearanceSummary, PRIVACY_POLICY_URL, PRIVACY_SUBTITLE, signOut, usePrimaryConnection } from '@/features/settings'
 import { useGatewayRegistry } from '@/gateway/registry'
 import { useDeviceStore } from '@/state/device-store'
 import { useTheme } from '@/theme/provider'
@@ -22,6 +22,7 @@ import { useSkinStore } from '@/theme/skin-store'
 import { Avatar } from '@/ui/Avatar'
 import { Button } from '@/ui/Button'
 import { Group } from '@/ui/Group'
+import { openPage } from '@/ui/GuideLink'
 import { ListRow } from '@/ui/ListRow'
 import { Page } from '@/ui/Page'
 import { Toggle } from '@/ui/SwitchRow'
@@ -99,7 +100,7 @@ function SettingsBody({ connection, onBack }: { connection: NonNullable<ReturnTy
       <Group caption="About">
         <ListRow title="Ergates" subtitle={`Version ${appVersion}`} icon="info" />
         <ListRow title="Hermes pin" subtitle={HERMES_PIN} icon="git-commit" />
-        <ListRow title="Privacy" subtitle="Chats live on your gateway. This phone keeps drafts and preferences only." icon="lock" />
+        <ListRow title="Privacy" subtitle={PRIVACY_SUBTITLE} icon="lock" external onPress={() => openPage(PRIVACY_POLICY_URL, 'the privacy policy')} />
       </Group>
 
       {__DEV__ ? (
