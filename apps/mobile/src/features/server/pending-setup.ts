@@ -118,10 +118,14 @@ const WAITING: PendingSetupResult = { kind: 'waiting' }
  * would redraw.
  */
 export function forgetWentBackIfMoved(connectionId: string, check: ServerCheck): void {
-  const back = useDeviceStore.getState().connections.find(connection => connection.id === connectionId)?.pluginWentBack
+  const back = wentBackOf(connectionId)
   if (back !== undefined && 'health' in check && check.health.install?.commit !== back.to) {
-    useDeviceStore.getState().updateConnection(connectionId, { pluginWentBack: undefined })
+    forgetWentBack(connectionId)
   }
+}
+
+function wentBackOf(connectionId: string): Connection['pluginWentBack'] {
+  return useDeviceStore.getState().connections.find(connection => connection.id === connectionId)?.pluginWentBack
 }
 
 /**
@@ -149,6 +153,18 @@ export function setupCommitOf(install: ErgatesHealth['install'], restartPending:
 function settledCommit(check: Extract<ServerCheck, { kind: 'ready' }>, pending: string): string | null {
   const commit = setupCommitOf(check.health.install, false)
   return commit !== null && commit === check.health.install?.commit && check.update?.commit !== pending ? commit : null
+}
+
+/**
+ * Forgets that the app put the previous version back, once the Finish screen
+ * ended done after it: what the page says about going back holds for that
+ * visit only, and a later visit on the same commit must not say it again.
+ * Writes nothing when there is nothing to forget.
+ */
+export function forgetWentBack(connectionId: string): void {
+  if (wentBackOf(connectionId) !== undefined) {
+    useDeviceStore.getState().updateConnection(connectionId, { pluginWentBack: undefined })
+  }
 }
 
 async function runPendingSetup(port: GatewayPort, connectionId: string, seen: PendingSnapshot): Promise<PendingSetupResult> {

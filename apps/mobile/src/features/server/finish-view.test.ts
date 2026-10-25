@@ -709,17 +709,25 @@ describe('finishVariant and finishView: after the app put the previous version b
     const variant = finishVariant(previousRunsButIsOld, null, afterRelaunch)
 
     expect(variant).toEqual({ kind: 'went_back' })
+    // Nothing is pending: the page waits for nothing and closes; Home offers the update again.
     expect(finishView(variant, buildRecord(), previousRunsButIsOld)).toEqual({
       title: 'Finish on your server',
       intro: ['The previous version is back, but this app needs a newer plugin. The update did not start on your server.', 'The guide shows what to check before you try again.'],
       command: null,
       restartLines: null,
       guide: { label: 'Open the guide', url: `${SERVER_GUIDE_URL}#manual` },
-      status: 'Waiting for your server…',
+      status: '',
       done: false,
       steps: null,
-      primary: { label: 'Check now', action: 'check' }
+      primary: { label: 'Done', action: 'done' }
     })
+  })
+
+  it('keeps the failure of a go back that ended on this page in the status line', () => {
+    const variant = finishVariant(previousRunsButIsOld, null, afterRelaunch)
+    const run: UpdateRunState = { steps: { pause: 'done', install: 'done', start: 'failed', setup: 'pending' }, outcome: { kind: 'failed', step: 'start', message: 'Hermes did not load the plugin.' } }
+
+    expect(finishView(variant, buildRecord(), previousRunsButIsOld, { state: 'pending' }, run)).toMatchObject({ status: 'Hermes did not load the plugin.', primary: { label: 'Done', action: 'done' } })
   })
 
   it('says the previous version is back and the server is ready once it works', () => {

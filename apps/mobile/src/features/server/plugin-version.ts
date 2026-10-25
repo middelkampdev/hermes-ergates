@@ -9,7 +9,7 @@ import type { ErgatesHealth } from '@/gateway/types'
 import type { Connection } from '@/state/device-store'
 
 import { COMMIT_PATTERN, type BuildRecord } from './build-record'
-import { parseHermesVersion } from './hermes-version'
+import { compareTriples, parseHermesVersion } from './hermes-version'
 
 /** The plugin this build would put on the server in place of the one it has. */
 export interface UpdateOffer {
@@ -29,15 +29,7 @@ export interface UpdateOffer {
 export function compareVersions(a: string, b: string): -1 | 0 | 1 | null {
   const left = parseHermesVersion(a)
   const right = parseHermesVersion(b)
-  if (left === null || right === null) {
-    return null
-  }
-  for (let i = 0; i < 3; i += 1) {
-    if (left[i] !== right[i]) {
-      return left[i] < right[i] ? -1 : 1
-    }
-  }
-  return 0
+  return left === null || right === null ? null : compareTriples(left, right)
 }
 
 /**

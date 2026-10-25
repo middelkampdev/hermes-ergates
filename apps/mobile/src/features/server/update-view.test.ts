@@ -209,13 +209,14 @@ describe('updateView: a run that ended', () => {
     expect(view.body).toEqual([UP_TO_DATE, 'Ergates could not be turned on for: work, home.'])
   })
 
-  it.each<[string, UpdateOutcome]>([
-    ['Hermes needs a restart', { kind: 'restart' }],
-    ['the user has to install by hand', { kind: 'manual', failure: 'scan_blocked', detail: null }]
-  ])('leads to the guide when %s, with the step that stopped marked', (_title, outcome) => {
+  it.each<[string, UpdateOutcome, string[]]>([
+    ['Hermes needs a restart', { kind: 'restart' }, []],
+    ["Hermes's security check stopped the install", { kind: 'manual', failure: 'scan_blocked', detail: null }, ["Hermes's security check stopped the install. Run the command to see the findings."]],
+    ['Hermes refused the install', { kind: 'manual', failure: 'refused', detail: 'Plugin \'ergates\' was not published.' }, ["Hermes refused the install: Plugin 'ergates' was not published."]]
+  ])('leads to the guide when %s, says why, and marks the step that stopped', (_title, outcome, body) => {
     const view = updateView(offer, ready(), connection, runWith(outcome, { pause: 'done', install: 'failed' }))
 
-    expect(view.body).toEqual([])
+    expect(view.body).toEqual(body)
     expect(view.primary).toEqual(SHOW_ME_HOW)
     expect(view.secondary).toEqual(NOT_NOW)
     expect(view.steps?.[1]).toEqual({ label: 'Installing the update', status: 'failed' })

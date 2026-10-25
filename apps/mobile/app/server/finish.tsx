@@ -23,6 +23,7 @@ import {
   finishUpdateOf,
   finishVariant,
   finishView,
+  forgetWentBack,
   goBackTarget,
   isSignedOut,
   lastManualOutcome,
@@ -126,6 +127,13 @@ function FinishOnServer({ connection }: { connection: Connection }) {
       markPendingSetup(connection.id, commit)
     }
   }, [commit, goingBack, connection.id])
+
+  // Once the page ended done, what it said about a go back is said: forget it, so a later visit on the same commit does not say it again. The done view keeps its text, because the page holds the variant it had.
+  useEffect(() => {
+    if (finished && connection.pluginWentBack !== undefined) {
+      forgetWentBack(connection.id)
+    }
+  }, [finished, connection.pluginWentBack, connection.id])
 
   // Each ready poll tries again until the setup went through: `dataUpdatedAt` moves with every poll, while the data stays the same object. A run that goes does its own setup (this page's go back, or one another screen started), and an update the user has yet to do is not finished by a ready answer.
   useEffect(() => {
@@ -250,9 +258,11 @@ function FinishOnServer({ connection }: { connection: Connection }) {
         </View>
       ) : null}
       {view.steps ? <StepList steps={view.steps} /> : null}
-      <Text accessibilityLiveRegion="polite" style={view.done ? [styles.ready, { color: theme.colors.foreground }] : [styles.status, { color: theme.colors.mutedForeground }]}>
-        {view.status}
-      </Text>
+      {view.status ? (
+        <Text accessibilityLiveRegion="polite" style={view.done ? [styles.ready, { color: theme.colors.foreground }] : [styles.status, { color: theme.colors.mutedForeground }]}>
+          {view.status}
+        </Text>
+      ) : null}
       {view.done ? null : <Button label={view.guide.label} variant="secondary" onPress={() => openGuide(view.guide.url)} />}
     </Page>
   )

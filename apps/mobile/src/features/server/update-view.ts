@@ -9,6 +9,7 @@
 import type { Connection } from '@/state/device-store'
 
 import { pluginNotice } from './plugin-notice'
+import { failureLine } from './manual-failure'
 import { compareVersions, remountsWithoutRestart, type UpdateOffer } from './plugin-version'
 import { hermesVersionIn, isSignedOut, type ServerCheck } from './server-check'
 import type { StepStatus } from './setup-run'
@@ -164,6 +165,7 @@ function runView(run: UpdateRunState, outcome: Exclude<UpdateOutcome, { kind: 's
     case 'done':
       return view({ body: [UP_TO_DATE, ...failedProfiles(outcome.setup)], primary: DONE, steps })
     case 'manual':
+      return view({ body: [failureLine(outcome.failure, outcome.detail)], primary: SHOW_ME_HOW, secondary: NOT_NOW, steps })
     case 'restart':
       return view({ primary: SHOW_ME_HOW, secondary: NOT_NOW, steps })
     case 'sign_in':

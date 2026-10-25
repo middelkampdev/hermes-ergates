@@ -20,13 +20,14 @@ export function parseHermesVersion(v: string | undefined): Triple | null {
   return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null
 }
 
-function olderThan(a: Triple, b: Triple): boolean {
+/** Orders two `X.Y.Z` triples by their numbers: -1 when `a` is older, 1 when it is newer, 0 when they are equal. */
+export function compareTriples(a: Triple, b: Triple): -1 | 0 | 1 {
   for (let i = 0; i < 3; i += 1) {
     if (a[i] !== b[i]) {
-      return a[i] < b[i]
+      return a[i] < b[i] ? -1 : 1
     }
   }
-  return false
+  return 0
 }
 
 export function hermesFit(version: string | undefined, range: HermesRange): HermesFit {
@@ -36,7 +37,7 @@ export function hermesFit(version: string | undefined, range: HermesRange): Herm
   if (!found || !oldest || !newest) {
     return 'unknown'
   }
-  if (olderThan(found, oldest)) {
+  if (compareTriples(found, oldest) < 0) {
     return 'too_old'
   }
   const [major, minor] = found
