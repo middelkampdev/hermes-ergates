@@ -16,3 +16,4 @@ export {
 } from './connection-grade'
 export { connectGateway, connectionToSignIn, probeGateway, signInAgain, signInFailure, signOut, usePrimaryConnection, type SignInFailure } from './connections'
 export { BLANK_CREDENTIALS, canCheck, canConnect, credentialsFrom, credentialsReady, firstProvider, signInModeFrom, type CredentialValues, type SignInMode } from './credentials'
+export { PRIVACY_POLICY_URL, PRIVACY_SUBTITLE } from './privacy'

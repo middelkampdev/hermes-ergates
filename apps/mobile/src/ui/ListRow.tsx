@@ -2,7 +2,8 @@
  * Settings-style row (docs/10 section 4): a leading line icon, the title, an
  * optional subtitle below, and a chevron on the right when the row opens
  * something. Minimum height 56. `right` replaces the chevron (a switch, a
- * check mark). Sits transparent inside a `Group`.
+ * check mark), and `external` turns it into an external-link icon for a row
+ * that opens a web page. Sits transparent inside a `Group`.
  */
 
 import type { ReactNode } from 'react'
@@ -26,10 +27,12 @@ export interface ListRowProps {
   selected?: boolean
   /** Announced as expanded or collapsed by the screen reader (a disclosure row). */
   expanded?: boolean
+  /** The row opens a web page outside the app: announced as a link, with an external-link icon in place of the chevron. */
+  external?: boolean
   accessibilityLabel?: string
 }
 
-export function ListRow({ title, subtitle, icon, error, onPress, right, destructive, selected, expanded, accessibilityLabel }: ListRowProps) {
+export function ListRow({ title, subtitle, icon, error, onPress, right, destructive, selected, expanded, external, accessibilityLabel }: ListRowProps) {
   const theme = useTheme()
   const titleColor = destructive ? theme.colors.destructive : theme.colors.foreground
   const label = accessibilityLabel ?? [title, subtitle, error].filter(Boolean).join(', ')
@@ -42,7 +45,7 @@ export function ListRow({ title, subtitle, icon, error, onPress, right, destruct
         {subtitle ? <Text style={[styles.subtitle, { color: theme.colors.mutedForeground }]}>{subtitle}</Text> : null}
         {error ? <Text style={[styles.subtitle, { color: theme.colors.destructive }]}>{error}</Text> : null}
       </View>
-      {right ?? (onPress ? <Icon name="chevron-right" size={ICON_SIZE.small} color={theme.colors.mutedForeground} /> : null)}
+      {right ?? (onPress ? <Icon name={external ? 'external-link' : 'chevron-right'} size={ICON_SIZE.small} color={theme.colors.mutedForeground} /> : null)}
     </View>
   )
 
@@ -60,7 +63,7 @@ export function ListRow({ title, subtitle, icon, error, onPress, right, destruct
   return (
     <Pressable
       onPress={onPress}
-      accessibilityRole="button"
+      accessibilityRole={external ? 'link' : 'button'}
       accessibilityLabel={label}
       accessibilityState={selected === undefined && expanded === undefined ? undefined : { ...(selected !== undefined ? { selected } : {}), ...(expanded !== undefined ? { expanded } : {}) }}
       style={({ pressed }) => ({ opacity: pressed ? OPACITY.strong : 1 })}
