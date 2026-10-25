@@ -12,6 +12,7 @@ import { FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-gateway/fake-ergates'
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
 import { clearPendingSetup, finishPendingSetup, forgetWentBackIfMoved, markPendingSetup, trackRun } from './pending-setup'
+import type { UpdateOffer } from './plugin-version'
 import type { ServerCheck } from './server-check'
 
 const COMMIT = 'd'.repeat(40)
@@ -345,6 +346,81 @@ describe('finishPendingSetup: the code that answers', () => {
 
     expect(result).toEqual({ kind: 'done', report: FAKE_SETUP })
     expect(gateway.ergates.setupCalls).toBe(1)
+  })
+})
+
+describe('finishPendingSetup: a server that settled on another commit', () => {
+  const OTHER = 'b'.repeat(40)
+  const NEWER = 'e'.repeat(40)
+
+  /** A ready git install that installed `commit` and runs it, with the update the check offers. */
+  function settledOn(commit: string, update: UpdateOffer | null = null): ServerCheck {
+    const install = { kind: 'git install', commit, loaded_commit: commit, catalog_name: null } as const
+    return { kind: 'ready', health: { ...FAKE_PLUGIN_HEALTH, install }, update, hermesVersion: null }
+  }
+
+  function offerOf(commit: string): UpdateOffer {
+    return { from: '0.1.0', to: '0.2.0', commit, previous: OLD_COMMIT, previousSchema: 1 }
+  }
+
+  it.each<[string, ErgatesHealth['install']]>([
+    ['could not read', { kind: 'git install', commit: OTHER, loaded_commit: null, catalog_name: null }],
+    ['does not report', { kind: 'git install', commit: OTHER, catalog_name: null }]
+  ])('keeps waiting for a git install on another commit whose loaded commit it %s, since nothing says which code runs', async (_title, install) => {
+    const gateway = new FakeGateway()
+    markPendingSetup('c-1', COMMIT)
+
+    const result = await finishPendingSetup(gateway, stored('c-1'), readyWith(install))
+
+    expect(result).toEqual({ kind: 'waiting' })
+    expect(gateway.ergates.setupCalls).toBe(0)
+    expect(stored('c-1').pendingPluginSetup).toBe(COMMIT)
+  })
+
+  it.each<[string, UpdateOffer | null]>([
+    ['no update', null],
+    ['an update to another commit than the pending one', offerOf(NEWER)]
+  ])('runs the setup for another commit installed by hand, when the check offers %s, and ends the pending setup', async (_title, update) => {
+    const gateway = new FakeGateway()
+    markPendingSetup('c-1', COMMIT)
+
+    const result = await finishPendingSetup(gateway, stored('c-1'), settledOn(OTHER, update))
+
+    expect(result).toEqual({ kind: 'done', report: FAKE_SETUP })
+    expect(gateway.ergates.setupCalls).toBe(1)
+    expect(stored('c-1').pendingPluginSetup).toBeUndefined()
+  })
+
+  it('runs the setup for a newer commit another phone installed, and clears the update record', async () => {
+    const gateway = new FakeGateway()
+    markPendingSetup('c-1', COMMIT)
+    useDeviceStore.getState().updateConnection('c-1', { pluginUpdate: { target: COMMIT, previous: OLD_COMMIT, previousSchema: 1 } })
+
+    const result = await finishPendingSetup(gateway, stored('c-1'), settledOn(NEWER))
+
+    expect(result).toEqual({ kind: 'done', report: FAKE_SETUP })
+    expect(stored('c-1')).toEqual(first)
+  })
+
+  it('keeps waiting while the check still offers the pending commit, so an update by hand still gets its setup', async () => {
+    const gateway = new FakeGateway()
+    markPendingSetup('c-1', COMMIT)
+
+    const result = await finishPendingSetup(gateway, stored('c-1'), settledOn(OLD_COMMIT, offerOf(COMMIT)))
+
+    expect(result).toEqual({ kind: 'waiting' })
+    expect(gateway.ergates.setupCalls).toBe(0)
+    expect(stored('c-1').pendingPluginSetup).toBe(COMMIT)
+  })
+
+  it('points the flag at the commit that runs, so a failed setup is tried again for that code', async () => {
+    const gateway = new FakeGateway()
+    gateway.ergates.fail('setup', new GatewayError('unknown', 'The request could not be completed.', { status: 500 }))
+    markPendingSetup('c-1', COMMIT)
+
+    await expect(finishPendingSetup(gateway, stored('c-1'), settledOn(OTHER))).rejects.toThrow()
+
+    expect(stored('c-1').pendingPluginSetup).toBe(OTHER)
   })
 })
 

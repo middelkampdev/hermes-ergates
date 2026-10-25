@@ -489,6 +489,13 @@ describe('finishVariant and finishView: a ready server whose pending setup waits
     expect(finishVariant(ready, null, NO_UPDATE, false)).toBeNull()
   })
 
+  it('shows the update instead of a restart when the ready server still has the update the setup waits for to install', () => {
+    const variant = finishVariant(readyWithUpdate, null, NO_UPDATE, true)
+
+    expect(variant).toEqual({ kind: 'update' })
+    expect(updateStillOpen(variant, readyWithUpdate)).toBe(true)
+  })
+
   it('keeps the restart lines and the intro on a ready server while the setup waits, and waits', () => {
     const view = finishView({ kind: 'restart', after: 'update' }, buildRecord(), ready, waits)
 

@@ -244,7 +244,10 @@ function updateVariant(installKind: InstallKind): FinishVariant {
  *
  * `setupWaits` is true when the last ready check left the pending setup
  * waiting for other code than the code that answers: the ready server then
- * still needs the restart that starts it.
+ * still needs the restart that starts it. When that check still offers an
+ * update, no restart starts the code the setup waits for: the update has to
+ * be installed first, so the page shows the update instead. After a go back
+ * the offer is the update that did not start, and the restart stays.
  */
 export function finishVariant(check: ServerCheck | null, manual: FinishManual | null, update: FinishUpdate = NO_UPDATE, setupWaits = false): FinishVariant | null {
   if (check === null) {
@@ -268,7 +271,7 @@ export function finishVariant(check: ServerCheck | null, manual: FinishManual | 
       return showsWentBack(check, update.wentBack) ? { kind: 'went_back' } : updateVariant(check.installKind)
     case 'ready':
       if (setupWaits) {
-        return restartVariant(update, check)
+        return check.update !== null && !showsWentBack(check, update.wentBack) ? { kind: 'update' } : restartVariant(update, check)
       }
       if (showsWentBack(check, update.wentBack)) {
         return { kind: 'went_back' }
