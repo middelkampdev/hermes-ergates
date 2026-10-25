@@ -1,0 +1,12 @@
+# Device check of plugin updates, part 3 of 3.
+#
+# Before this part, the server restarted with the previous version. Finish
+# says that it is back, and whether this app can use it.
+# MAESTRO_DEVICE_CHECK_ENDING is that sentence: "Your server is ready." when
+# the older plugin has this app's API level, or that this app needs a newer
+# plugin when its level is lower.
+appId: dev.middelkamp.ergates
+---
+- extendedWaitUntil:
+    visible: ${MAESTRO_DEVICE_CHECK_ENDING}
+    timeout: 120000

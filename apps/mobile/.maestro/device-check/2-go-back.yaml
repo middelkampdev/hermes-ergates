@@ -1,0 +1,28 @@
+# Device check of plugin updates, part 2 of 3.
+#
+# Before this part, the server restarted with a new session token, and the
+# new plugin version fails to load. Finish asks to sign in again, says that
+# the new version did not start, and goes back to the previous version.
+# MAESTRO_DEVICE_CHECK_TOKEN is the new token: Maestro reads MAESTRO_ variables
+# from the environment, so the token is not on a command line.
+appId: dev.middelkamp.ergates
+---
+- extendedWaitUntil:
+    visible: "Your server restarted. Sign in again to continue.*"
+    timeout: 120000
+- tapOn: "Sign in again"
+# The field's placeholder: its label above it reads "Session token" too.
+- tapOn: "HERMES_DASHBOARD_SESSION_TOKEN"
+# The label is what Maestro prints instead of the token.
+- inputText:
+    text: ${MAESTRO_DEVICE_CHECK_TOKEN}
+    label: Type the session token
+- tapOn: "Sign in"
+- extendedWaitUntil:
+    visible: "The new version did not start.*"
+    timeout: 120000
+- tapOn: "Go back to the previous version"
+# Going back installs the previous version from GitHub.
+- extendedWaitUntil:
+    visible: "The previous version is installed. Restart Hermes to start it."
+    timeout: 300000
