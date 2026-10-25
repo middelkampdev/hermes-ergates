@@ -36,12 +36,12 @@ describe('approval and clarify requests', () => {
     expect(card('srq-000000000001')).toMatchObject({ state: 'resolved', choice: 'once' })
   })
 
-  it('answers a clarify card with one {answers} frame; free text answers the first question and skips the rest', async () => {
+  it('answers a clarify card with one {answers} frame, a typed answer and a skipped question included', async () => {
     const questions = [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'] }, { qid: 'q1', question: 'Sugar?', choices: ['A) yes', 'B) no'] }]
     conn.serverRequest({ id: 'srq-000000000002', method: 'clarify', params: { session_id: live, questions } })
     conn.serverRequest({ id: 'srq-000000000003', method: 'clarify', params: { session_id: live, questions } })
     await controller.answerClarify('srq-000000000002', { q0: 'A', q1: 'B' })
-    await controller.dismissClarify('srq-000000000003', 'Water, please')
+    await controller.answerClarify('srq-000000000003', { q0: 'Water, please', q1: null })
     expect(conn.responses).toEqual([
       { id: 'srq-000000000002', result: { answers: { q0: 'A', q1: 'B' } } },
       { id: 'srq-000000000003', result: { answers: { q0: 'Water, please', q1: null } } }

@@ -128,8 +128,7 @@ export type SessionAction =
   /** A local failure the user should see once (a refused Stop, a failed response). */
   | { type: 'error/raised'; message: string }
   | { type: 'approval/responded'; requestId: string; choice: string }
-  | { type: 'clarify/responded'; requestId: string; answers: Record<string, string> }
-  | { type: 'clarify/dismissed'; requestId: string }
+  | { type: 'clarify/responded'; requestId: string; answers: Record<string, string | null> }
   /** A turn was already running when we (re)attached (`opened.running`, `session.activate`). */
   | { type: 'turn/observed-running'; at?: number }
   /** Durable transcript rows arrived for live-only observations; drop the duplicates. */
@@ -289,12 +288,6 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         revision: state.revision + 1,
         items: state.items.map(i => (i.kind === 'clarify' && i.requestId === action.requestId ? { ...i, state: 'answered', answers: action.answers, error: undefined } : i))
       }
-    case 'clarify/dismissed':
-      return {
-        ...state,
-        revision: state.revision + 1,
-        items: state.items.map(i => (i.kind === 'clarify' && i.requestId === action.requestId ? { ...i, state: 'dismissed' } : i))
-      }
     case 'turn/observed-running':
       // We did not see this turn start, so it may be one whose completion we
       // already missed: `unknown`, unless a send of ours is still waiting.
@@ -327,7 +320,10 @@ function requestCard(request: ServerRequestFrame): Extract<ChatItem, { kind: 'ap
   if (request.method === 'clarify') {
     const asked = (request.params as Partial<ClarifyRequestParams>).questions
     const questions = (Array.isArray(asked) ? asked : []).map(q => ({ qid: q.qid, question: q.question, choices: Array.isArray(q.choices) ? q.choices : [], multi_select: q.multi_select ?? false }))
-    return { kind: 'clarify', id: `clarify-${request.id}`, requestId: request.id, questions, state: 'pending' }
+    // A replay carries the answers another client already locked (null = skipped); the card's frame leaves those questions to the lock.
+    const replayed = (request.params as Partial<ClarifyRequestParams>).answers
+    const locked = replayed && typeof replayed === 'object' && !Array.isArray(replayed) ? replayed : undefined
+    return { kind: 'clarify', id: `clarify-${request.id}`, requestId: request.id, questions, state: 'pending', ...(locked ? { locked } : {}) }
   }
   return null
 }
@@ -351,6 +347,10 @@ function receiveRequest(state: SessionState, request: ServerRequestFrame): Sessi
   const index = state.items.findIndex(i => i.kind === card.kind && i.requestId === request.id)
   const existing = index >= 0 ? state.items[index] : undefined
   if (existing && (existing.kind === 'approval' || existing.kind === 'clarify') && existing.state === 'pending') {
+    // A pending card stays, but takes the answers another client locked since it was first delivered.
+    if (existing.kind === 'clarify' && card.kind === 'clarify' && card.locked !== undefined) {
+      return { ...state, revision: state.revision + 1, items: state.items.map((i, at) => (at === index ? { ...existing, locked: card.locked } : i)) }
+    }
     return state
   }
   const items = existing ? state.items.map((i, at) => (at === index ? card : i)) : [...state.items, card]

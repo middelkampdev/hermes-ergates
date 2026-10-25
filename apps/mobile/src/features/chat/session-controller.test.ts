@@ -182,7 +182,7 @@ describe('createSessionController', () => {
     expect(controller.getView().state.lastError).toBe('There was no running turn to stop.')
   })
 
-  it('dismisses a clarify card with free text', async () => {
+  it('answers a clarify card per question, with typed text for one and null for a skipped one', async () => {
     const gateway = new FakeGateway()
     const respond = vi.spyOn(gateway.sessions, 'respondClarify')
     const controller = controllerFor(gateway)
@@ -191,13 +191,23 @@ describe('createSessionController', () => {
     gateway.connectionFor('thijs').serverRequest({
       id: 'srq-0000000000c1',
       method: 'clarify',
-      params: { session_id: live, questions: [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'], multi_select: false }] }
+      params: {
+        session_id: live,
+        questions: [
+          { qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'], multi_select: false },
+          { qid: 'q1', question: 'Sugar?', choices: ['A) yes', 'B) no'], multi_select: false }
+        ]
+      }
     })
 
-    await controller.dismissClarify('srq-0000000000c1', 'water, please')
+    await controller.answerClarify('srq-0000000000c1', { q0: 'water, please', q1: null })
 
-    expect(respond).toHaveBeenCalledWith({ session_id: live, request_id: 'srq-0000000000c1', answers: { q0: 'water, please' } })
-    expect(controller.getView().state.items.find(i => i.kind === 'clarify')).toMatchObject({ requestId: 'srq-0000000000c1', state: 'dismissed' })
+    expect(respond).toHaveBeenCalledWith({ session_id: live, request_id: 'srq-0000000000c1', answers: { q0: 'water, please', q1: null } })
+    expect(controller.getView().state.items.find(i => i.kind === 'clarify')).toMatchObject({
+      requestId: 'srq-0000000000c1',
+      state: 'answered',
+      answers: { q0: 'water, please', q1: null }
+    })
   })
 
   it('keeps a clarify card open when the answer fails', async () => {
