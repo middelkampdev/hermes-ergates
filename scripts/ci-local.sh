@@ -17,7 +17,7 @@ NAMED_JOBS=(contract-live)
 # then shellcheck), including the release scripts that otherwise first run in
 # a release.
 job_lint() {
-  local scripts=("$ROOT/scripts/ci-local.sh" "$ROOT/scripts/device-hermes.sh" "$ROOT/.gflow/set-version.sh" "$ROOT"/apps/mobile/scripts/release/*.sh)
+  local scripts=("$ROOT/scripts/ci-local.sh" "$ROOT/scripts/device-hermes.sh" "$ROOT/scripts/device-check.sh" "$ROOT/.gflow/set-version.sh" "$ROOT"/apps/mobile/scripts/release/*.sh)
   local script
   for script in "${scripts[@]}"; do
     bash -n "$script"

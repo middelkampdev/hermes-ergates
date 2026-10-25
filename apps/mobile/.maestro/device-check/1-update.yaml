@@ -1,0 +1,17 @@
+# Device check of plugin updates, part 1 of 3. scripts/device-check.sh runs the
+# parts, and changes the server between them.
+#
+# The app connects through its DEV connect hook to a Hermes with an older
+# plugin, so Update ready opens by itself. The update installs the plugin at
+# the build commit, and Finish asks for a restart.
+appId: dev.middelkamp.ergates
+---
+# The first launch also bundles the app in Metro.
+- extendedWaitUntil:
+    visible: "Update now"
+    timeout: 300000
+- tapOn: "Update now"
+# The update installs the plugin from GitHub.
+- extendedWaitUntil:
+    visible: "The update is installed. Restart Hermes to start the new version."
+    timeout: 300000

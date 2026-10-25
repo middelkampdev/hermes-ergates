@@ -44,9 +44,27 @@ The integration package's tests are a separate project, `integrations/ergates-te
 
 ## Device check of plugin updates
 
-Unit tests do not reach the screens of a plugin update. Before a release candidate, walk through one on the iOS simulator against a throwaway Hermes. `scripts/device-hermes.sh` runs that Hermes at the pin. It keeps everything in `.cache/device-check` and never touches `~/.hermes` or a Hermes you run: it has its own root, `HOME` and lock folder, and runs `hermes serve --isolated`.
+Unit tests do not reach the screens of a plugin update. Before a release candidate, run one on the iOS simulator against a throwaway Hermes. `scripts/device-hermes.sh` runs that Hermes at the pin. It keeps everything in `.cache/device-check` and never touches `~/.hermes` or a Hermes you run: it has its own root, `HOME` and lock folder, and runs `hermes serve --isolated`.
 
-1. Push the build commit, because the app installs the plugin from GitHub at that commit. Start the throwaway Hermes with an older plugin commit, also pushed. The first start prepares Hermes's dependency runtime and takes a few minutes.
+`scripts/device-check.sh` runs the whole check with [Maestro](https://docs.maestro.dev/getting-started/installing-maestro). You need Maestro, a development build of the app (`npx expo run:ios` in `apps/mobile`), and a simulator you keep for tests, because the check removes the app from it at the end. The app updates the plugin to `HEAD`, so commit and push your plugin changes, and pick an older plugin commit that is pushed too: both install from GitHub.
+
+```bash
+scripts/device-check.sh --device <simulator udid> --old <older commit>
+```
+
+`--app` sets the build to install (default: the newest one in Xcode's DerivedData). The first start of Hermes prepares its dependency runtime and takes a few minutes. The check:
+
+1. Starts Hermes with the plugin at `--old`, and Metro on port 8082 with the app's DEV connect hook.
+2. Installs and opens the app. The flows in `apps/mobile/.maestro/device-check` tap **Update now** on Update ready and wait until Finish asks for a restart.
+3. Makes the new version fail at its next load, and restarts Hermes with a new session token.
+4. Signs in again, waits for "The new version did not start.", and taps **Go back to the previous version**.
+5. Restarts Hermes, and waits for "The previous version is back." with the rest of the sentence that fits the older plugin: "Your server is ready." when it has this app's API level, or that this app needs a newer plugin when its level is lower.
+
+At the end it stops Hermes and Metro and removes the app. When a step fails, Metro's log and Maestro's screenshots stay in `.cache/device-check-logs`.
+
+On the Android emulator, walk through the same steps by hand. A phone cannot reach this Hermes, because it listens on `127.0.0.1` only.
+
+1. Start the throwaway Hermes:
 
    ```bash
    scripts/device-hermes.sh start --commit <older commit>
@@ -65,7 +83,7 @@ Unit tests do not reach the screens of a plugin update. Before a release candida
    scripts/device-hermes.sh restart --new-token
    ```
 
-   The app asks you to sign in again. On the simulator, copy the token with `xcrun simctl pbcopy booted < .cache/device-check/token` and paste it. Finish then says "The new version did not start." Tap **Go back to the previous version**, run `scripts/device-hermes.sh restart`, and check that Finish ends on "The previous version is back. Your server is ready."
+   The app asks you to sign in again with the token in `.cache/device-check/token`. Finish then says "The new version did not start." Tap **Go back to the previous version**, run `scripts/device-hermes.sh restart`, and check that Finish says "The previous version is back."
 
 4. `scripts/device-hermes.sh status` shows what the plugin reports at any point. Run `scripts/device-hermes.sh stop` when you are done; it removes `.cache/device-check`.
 
