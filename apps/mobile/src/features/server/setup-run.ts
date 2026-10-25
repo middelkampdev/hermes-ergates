@@ -24,8 +24,8 @@ import { isGatewayError, type GatewayError } from '@/gateway/errors'
 import { PLUGIN_INSTALL_TIMEOUT_MS, type GatewayPort } from '@/gateway/port'
 import type { PluginInstallCode, PluginInstallResult, PluginProbe, SetupState } from '@/gateway/types'
 
-import { COMMIT_PATTERN, PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
-import { clearPendingSetupIfUnchanged, isGoingBack, isSetupRunning, markPendingSetup, pendingSnapshot, runningKind } from './pending-setup'
+import { PLUGIN_IDENTIFIER, PLUGIN_NAME, type BuildRecord } from './build-record'
+import { clearPendingSetupIfUnchanged, isGoingBack, isSetupRunning, markPendingSetup, pendingSnapshot, runningKind, setupCommitOf } from './pending-setup'
 import { Flights } from './run-flights'
 import { hubRow, pluginPresence, waitsForRestart } from './server-check'
 
@@ -273,16 +273,12 @@ class SetupRun {
     if (probe.state !== 'answered') {
       return false
     }
-    const { install } = probe.health
-    if (install?.kind !== 'git install') {
+    const commit = setupCommitOf(probe.health.install, waitsForRestart(probe.health, this.build))
+    if (commit === null) {
       return false
     }
-    const commit = waitsForRestart(probe.health, this.build) ? install.commit : install.loaded_commit
-    if (typeof commit === 'string' && COMMIT_PATTERN.test(commit)) {
-      markPendingSetup(this.connectionId, commit)
-      return true
-    }
-    return false
+    markPendingSetup(this.connectionId, commit)
+    return true
   }
 
   private async requestInstall(): Promise<SetupOutcome | null> {

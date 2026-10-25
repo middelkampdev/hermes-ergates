@@ -11,9 +11,10 @@
  */
 
 import type { GatewayPort } from '@/gateway/port'
-import type { SetupState } from '@/gateway/types'
+import type { ErgatesHealth, SetupState } from '@/gateway/types'
 import { useDeviceStore, type Connection } from '@/state/device-store'
 
+import { COMMIT_PATTERN } from './build-record'
 import type { ServerCheck } from './server-check'
 
 /** The setup that is going for each connection. */
@@ -123,6 +124,33 @@ export function forgetWentBackIfMoved(connectionId: string, check: ServerCheck):
   }
 }
 
+/**
+ * The commit of the code that can take the plugin's setup on a git install:
+ * the commit the answering code was loaded from, or, while the files changed
+ * under that code and Hermes has to restart (`restartPending`), the commit of
+ * the files, which loads then. Null for any other install, and for a commit
+ * that is not a full hash.
+ */
+export function setupCommitOf(install: ErgatesHealth['install'], restartPending: boolean): string | null {
+  if (install?.kind !== 'git install') {
+    return null
+  }
+  const commit = restartPending ? install.commit : install.loaded_commit
+  return typeof commit === 'string' && COMMIT_PATTERN.test(commit) ? commit : null
+}
+
+/**
+ * The commit a ready git install settled on, when the pending setup belongs to
+ * it now, or null. The answering code must be the install's own commit (no
+ * restart is left that would start other code), and the check must no longer
+ * offer the pending commit: while it does, the user may still install it by
+ * hand, and its setup waits for it.
+ */
+function settledCommit(check: Extract<ServerCheck, { kind: 'ready' }>, pending: string): string | null {
+  const commit = setupCommitOf(check.health.install, false)
+  return commit !== null && commit === check.health.install?.commit && check.update?.commit !== pending ? commit : null
+}
+
 async function runPendingSetup(port: GatewayPort, connectionId: string, seen: PendingSnapshot): Promise<PendingSetupResult> {
   const report = await port.ergates.setup()
   clearPendingSetupIfUnchanged(connectionId, seen)
@@ -141,7 +169,11 @@ async function runPendingSetup(port: GatewayPort, connectionId: string, seen: Pe
  * again. It also answers `waiting` for a check that is not ready, and while a
  * git install answers with other code than the pending commit: after an
  * update the old code keeps answering until Hermes restarts, and the setup
- * belongs to the new code. A manual copy and a plugin that says nothing about
+ * belongs to the new code. A git install that settled on another commit
+ * (installed by hand, or by another phone) ends that wait: once the code that
+ * answers is its install's own commit and the check no longer offers the
+ * pending commit, the flag moves to that commit and its setup runs, as a setup
+ * run's first look does. A manual copy and a plugin that says nothing about
  * its install name no commit, so they run.
  *
  * The flag is read from the device store by `connection.id`, so a connection
@@ -154,8 +186,7 @@ export async function finishPendingSetup(port: GatewayPort, connection: Connecti
   if (isSetupRunning(connection.id)) {
     return WAITING
   }
-  const seen = pendingSnapshot(connection.id)
-  const { pending } = seen
+  const { pending } = pendingSnapshot(connection.id)
   if (pending === undefined) {
     return NONE
   }
@@ -164,13 +195,18 @@ export async function finishPendingSetup(port: GatewayPort, connection: Connecti
   }
   const { install } = check.health
   if (install?.kind === 'git install' && install.loaded_commit !== pending) {
-    return WAITING
+    const settled = settledCommit(check, pending)
+    if (settled === null) {
+      return WAITING
+    }
+    markPendingSetup(connection.id, settled)
   }
   const going = finishing.get(connection.id)
   if (going) {
     return going
   }
-  const attempt = runPendingSetup(port, connection.id, seen)
+  // Read after the flag may have moved, so the setup clears the flag it ran for.
+  const attempt = runPendingSetup(port, connection.id, pendingSnapshot(connection.id))
   finishing.set(connection.id, attempt)
   const forget = () => {
     finishing.delete(connection.id)
