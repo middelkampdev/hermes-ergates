@@ -92,6 +92,8 @@ function UpdateReady({ connection }: { connection: Connection }) {
   // What a run left on the server is for every screen to see; Finish opens on it, not on the check from before the run.
   const settle = useCallback(
     async (outcome: UpdateOutcome) => {
+      // Not after a sign-in end: the session is gone, so a check would only answer 401 again. This screen
+      // shows the sign-in view of the run, and Home asks the server again when it comes back into view.
       if (outcome.kind !== 'sign_in') {
         await queryClient.invalidateQueries({ queryKey: serverCheckKey(connection.id) })
       }

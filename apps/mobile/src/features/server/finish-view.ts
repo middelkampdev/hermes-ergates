@@ -18,6 +18,7 @@ import manualCommands from './manual-commands.json'
 import type { PendingSetupResult } from './pending-setup'
 import { pluginNotice } from './plugin-notice'
 import type { InstallKind, ServerCheck } from './server-check'
+import { failureLine } from './manual-failure'
 import type { ManualFailure, StepStatus } from './setup-run'
 import type { LastUpdateRun, UpdateOutcome } from './update-run'
 import { updateSteps, type UpdateRunState, type UpdateTarget } from './update-view'
@@ -213,9 +214,6 @@ const GO_BACK = { label: 'Go back to the previous version', action: 'go_back' } 
 const DONE = { label: 'Done', action: 'done' } as const
 const SIGN_IN = { label: 'Sign in again', action: 'sign_in' } as const
 
-/** Hermes's own text is cut here, as the gateway cuts it, so it cannot fill the screen. */
-const MAX_DETAIL = 200
-
 function installVariant(manual: FinishManual | null, restart: boolean): FinishVariant {
   return { kind: 'install', restart, failure: manual?.failure ?? null, detail: manual?.detail ?? null }
 }
@@ -376,40 +374,6 @@ function installCommand(commit: string, force: boolean): string {
 
 const ENABLE_COMMAND = manualCommands.enable.replace('{name}', PLUGIN_NAME)
 
-/**
- * White space and the characters that end a line or do not show: the control characters (U+0000 to U+001F and U+007F to U+009F, U+0085 among them) and the
- * line and paragraph separators. Written out, because the app's JavaScript engine may lack Unicode property escapes.
- */
-const LINE_BREAKING = /[\s\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g
-/** The characters that hide or reorder text: zero-width marks, the direction marks, and the bidirectional embeddings, overrides and isolates. */
-const HIDING = /[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g
-
-/** Hermes's text on one line and in the order it is written: a line break would let it put a line of its own beside the command, and a hidden or reordering character would let it show something else. */
-function oneLine(text: string | null): string | null {
-  const line = text?.replace(HIDING, '').replace(LINE_BREAKING, ' ').trim().slice(0, MAX_DETAIL).trim()
-  return line ? line : null
-}
-
-function failureLine(failure: ManualFailure, detail: string | null): string {
-  switch (failure) {
-    case 'scan_blocked':
-      return "Hermes's security check stopped the install. Run the command to see the findings."
-    case 'no_git':
-      return 'Your server has no Git, which Hermes needs to install plugins. Install Git first.'
-    case 'download_failed':
-      return 'Your server could not download the plugin from GitHub.'
-    case 'enable_refused':
-      return refusalLine('Hermes refused to turn it on', detail)
-    case 'refused':
-      return refusalLine('Hermes refused the install', detail)
-  }
-}
-
-function refusalLine(refusal: string, detail: string | null): string {
-  const text = oneLine(detail)
-  return text === null ? `${refusal}.` : `${refusal}: ${text}`
-}
-
 function anchorOf(variant: FinishVariant | null): string {
   if (variant?.kind === 'not_started') {
     return variant.goBack ? '#manual' : '#restart'
@@ -542,6 +506,13 @@ export function finishView(
   }
   if (runIsGoing(run)) {
     return { title: TITLE, intro: [], command: null, restartLines: null, guide, status: GOING_BACK, done: false, steps, primary: null }
+  }
+  if (variant?.kind === 'went_back' && check?.kind === 'outdated') {
+    // Nothing is pending: the previous version is back and too old for this app. The guide says what to
+    // check, and Home offers the update again, so the page waits for nothing and closes. A go back that
+    // ended on this page still says how it ended.
+    const status = runStatus(run?.outcome ?? null) ?? ''
+    return { title: TITLE, intro: [WENT_BACK_OUTDATED, WENT_BACK_GUIDE], command: null, restartLines: null, guide, status, done: false, steps, primary: DONE }
   }
   const status = runStatus(run?.outcome ?? null) ?? statusOf(variant, check, setup)
   if (variant === null || (check?.kind === 'ready' && !updateStillOpen(variant, check) && setup.state !== 'waiting')) {

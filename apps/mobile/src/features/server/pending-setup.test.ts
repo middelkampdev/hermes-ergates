@@ -11,7 +11,7 @@ import { useDeviceStore, type Connection } from '@/state/device-store'
 import { FAKE_PLUGIN_HEALTH, FAKE_SETUP } from '@test/fake-gateway/fake-ergates'
 import { FakeGateway } from '@test/fake-gateway/fake-gateway'
 
-import { clearPendingSetup, finishPendingSetup, forgetWentBackIfMoved, markPendingSetup, trackRun } from './pending-setup'
+import { clearPendingSetup, finishPendingSetup, forgetWentBack, forgetWentBackIfMoved, markPendingSetup, trackRun } from './pending-setup'
 import type { UpdateOffer } from './plugin-version'
 import type { ServerCheck } from './server-check'
 
@@ -421,6 +421,24 @@ describe('finishPendingSetup: a server that settled on another commit', () => {
     await expect(finishPendingSetup(gateway, stored('c-1'), settledOn(OTHER))).rejects.toThrow()
 
     expect(stored('c-1').pendingPluginSetup).toBe(OTHER)
+  })
+})
+
+describe('forgetWentBack: the previous version the app put back, once Finish ended done', () => {
+  it('forgets it, so a later visit on the same commit does not say it is back again', () => {
+    useDeviceStore.getState().updateConnection('c-1', { pluginWentBack: { to: OLD_COMMIT, from: COMMIT } })
+
+    forgetWentBack('c-1')
+
+    expect(stored('c-1').pluginWentBack).toBeUndefined()
+  })
+
+  it('writes nothing without a record, since every screen that reads the store would redraw', () => {
+    const before = useDeviceStore.getState().connections
+
+    forgetWentBack('c-1')
+
+    expect(useDeviceStore.getState().connections).toBe(before)
   })
 })
 
