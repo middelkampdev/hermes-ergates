@@ -128,7 +128,8 @@ export type SessionAction =
   /** A local failure the user should see once (a refused Stop, a failed response). */
   | { type: 'error/raised'; message: string }
   | { type: 'approval/responded'; requestId: string; choice: string }
-  | { type: 'clarify/responded'; requestId: string; answers: Record<string, string | null> }
+  /** `answers: null`: the user skipped the whole card. */
+  | { type: 'clarify/responded'; requestId: string; answers: Record<string, string | null> | null }
   /** A turn was already running when we (re)attached (`opened.running`, `session.activate`). */
   | { type: 'turn/observed-running'; at?: number }
   /** Durable transcript rows arrived for live-only observations; drop the duplicates. */
@@ -286,7 +287,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return {
         ...state,
         revision: state.revision + 1,
-        items: state.items.map(i => (i.kind === 'clarify' && i.requestId === action.requestId ? { ...i, state: 'answered', answers: action.answers, error: undefined } : i))
+        items: state.items.map(i => (i.kind === 'clarify' && i.requestId === action.requestId ? respondedClarify(i, action.answers) : i))
       }
     case 'turn/observed-running':
       // We did not see this turn start, so it may be one whose completion we
@@ -310,6 +311,14 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
     default:
       return state
   }
+}
+
+/** A clarify card after the user's response. A skipped card shows the answers another client locked, which Hermes keeps. */
+function respondedClarify(card: Extract<ChatItem, { kind: 'clarify' }>, answers: Record<string, string | null> | null): Extract<ChatItem, { kind: 'clarify' }> {
+  if (answers !== null) {
+    return { ...card, state: 'answered', answers, error: undefined }
+  }
+  return { ...card, state: 'skipped', answers: card.locked, error: undefined }
 }
 
 /** The card a server request shows, or null for a method the phone shows no card for. */

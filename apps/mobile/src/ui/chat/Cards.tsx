@@ -33,18 +33,20 @@ function letterOf(choice: string, index: number): { letter: string; label: strin
  */
 export type ClarifyDrafts = Map<string, ClarifyDraft>
 
+const CLARIFY_STATE: Record<ClarifyItem['state'], string | null> = { pending: null, answered: 'Answered', skipped: 'Skipped', expired: 'Expired' }
+
 /**
  * Each question has its choices and its own text field; a question left open
- * is sent as skipped (`clarify-answers.ts`). Confirm needs one answer.
+ * is sent as skipped (`clarify-answers.ts`). Confirm needs one answer. Skip
+ * (`onAnswer(null)`) skips every question at once, as Hermes Desktop's Skip does.
  */
-export function ClarifyCard({ item, drafts, onAnswer }: { item: ClarifyItem; drafts: ClarifyDrafts; onAnswer: (answers: Record<string, string | null>) => void }) {
+export function ClarifyCard({ item, drafts, onAnswer }: { item: ClarifyItem; drafts: ClarifyDrafts; onAnswer: (answers: Record<string, string | null> | null) => void }) {
   const theme = useTheme()
   const [draft, setDraft] = useState<ClarifyDraft>(() => drafts.get(item.requestId) ?? {})
   useEffect(() => {
     drafts.set(item.requestId, draft)
   }, [drafts, item.requestId, draft])
   const pending = item.state === 'pending'
-  const stateLabel = item.state === 'answered' ? 'Answered' : item.state === 'expired' ? 'Expired' : null
 
   return (
     <View style={[styles.card, { backgroundColor: theme.colors.muted, borderRadius: RADIUS.extraLarge }]} accessibilityLabel="Question from the assistant">
@@ -96,9 +98,10 @@ export function ClarifyCard({ item, drafts, onAnswer }: { item: ClarifyItem; dra
         <View style={styles.actions}>
           {item.error ? <Text style={[styles.hint, { color: theme.colors.destructive }]}>{item.error}</Text> : null}
           <Button label="Confirm" onPress={() => onAnswer(clarifyAnswers(item.questions, draft, item.locked))} disabled={!canConfirm(item.questions, draft)} />
+          <Button label="Skip" variant="secondary" accessibilityLabel={item.questions.length > 1 ? 'Skip all questions' : 'Skip the question'} onPress={() => onAnswer(null)} />
         </View>
       ) : (
-        <Text style={[styles.hint, { color: theme.colors.mutedForeground }]}>{stateLabel}</Text>
+        <Text style={[styles.hint, { color: theme.colors.mutedForeground }]}>{CLARIFY_STATE[item.state]}</Text>
       )}
     </View>
   )

@@ -204,6 +204,11 @@ describe('server requests', () => {
     await flush()
     await gateway.sessions.respondClarify({ session_id: 's1', request_id: 'srq-00000000000c', answers: { q0: 'A' } })
     expect(ws.sent.filter(f => f.id === 'srq-00000000000c')).toEqual([{ jsonrpc: '2.0', id: 'srq-00000000000c', result: { answers: { q0: 'A' } } }])
+    // Skip sends the frame without `answers`, which Hermes ends as cancelled.
+    ws.serverRequest('srq-00000000000e', 'clarify', { session_id: 's1', questions: [{ qid: 'q0', question: 'Tea?' }] })
+    await flush()
+    await gateway.sessions.respondClarify({ session_id: 's1', request_id: 'srq-00000000000e', answers: null })
+    expect(ws.sent.filter(f => f.id === 'srq-00000000000e')).toEqual([{ jsonrpc: '2.0', id: 'srq-00000000000e', result: {} }])
     expect(ws.sent.some(f => f.method === 'clarify.respond' || f.method === 'approval.respond')).toBe(false)
     await expect(gateway.sessions.respondApproval({ session_id: 's1', request_id: 'srq-00000000000d', choice: 'once' })).rejects.toMatchObject({ kind: 'not_found' })
     gateway.disconnectAll()

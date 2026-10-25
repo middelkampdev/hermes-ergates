@@ -91,6 +91,11 @@ describe('recorded turns', () => {
     expect(tools[0]).toMatchObject({ name: 'clarify', done: false })
     const answered = sessionReducer(end, { type: 'clarify/responded', requestId: 'srq-5c1e9a0b7d42', answers: { q0: 'A' } })
     expect(answered.items.find(i => i.kind === 'clarify')).toMatchObject({ state: 'answered', answers: { q0: 'A' } })
+    const skipped = sessionReducer(end, { type: 'clarify/responded', requestId: 'srq-5c1e9a0b7d42', answers: null })
+    const skippedCard = skipped.items.find(i => i.kind === 'clarify')
+    expect(skippedCard).toMatchObject({ state: 'skipped' })
+    expect(skippedCard).not.toHaveProperty('answers.q0')
+    expect(skipped.revision).toBe(end.revision + 1)
   })
 })
 

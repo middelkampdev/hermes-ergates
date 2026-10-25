@@ -46,7 +46,8 @@ export interface SessionCommands {
   send(text: string): Promise<void>
   retry(localId: string): Promise<void>
   stop(): Promise<void>
-  answerClarify(requestId: string, answers: Record<string, string | null>): Promise<void>
+  /** `answers: null` skips every question (Skip on the card). */
+  answerClarify(requestId: string, answers: Record<string, string | null> | null): Promise<void>
   answerApproval(requestId: string, choice: ApprovalChoice): Promise<void>
   /** Pull-to-refresh: force a full durable refetch. Rejects when the gateway refuses. */
   refetchHistory(): Promise<void>
@@ -457,18 +458,26 @@ export function createSessionController(options: SessionControllerOptions): Sess
     }
   }
 
-  async function answerClarify(requestId: string, answers: Record<string, string | null>): Promise<void> {
+  // Clarify answers on their way. A second tap on Confirm or Skip before the card re-renders sends
+  // nothing: Hermes settled the request with the first frame, and a second one would only fail.
+  const answering = new Set<string>()
+
+  async function answerClarify(requestId: string, answers: Record<string, string | null> | null): Promise<void> {
     const live = liveId
-    if (!live) {
+    if (!live || answering.has(requestId) || !pendingRequestIds(state).includes(requestId)) {
       return
     }
+    answering.add(requestId)
     try {
-      // One response frame answers the whole set, `null` for a skipped question (tui_gateway/contracts/server_requests.py:48-52).
+      // One response frame answers the whole set, `null` for a skipped question (tui_gateway/contracts/server_requests.py:48-52),
+      // or skips it all without `answers` (server_requests.py:287-288).
       await port.sessions.respondClarify({ session_id: live, request_id: requestId, answers })
     } catch (err) {
       // Nothing reached Hermes: the card stays open and says what happened.
       dispatch({ type: 'clarify/failed', requestId, message: userMessage(err) })
       return
+    } finally {
+      answering.delete(requestId)
     }
     dispatch({ type: 'clarify/responded', requestId, answers })
   }
