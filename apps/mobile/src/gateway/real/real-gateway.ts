@@ -427,7 +427,7 @@ export class RealGateway implements GatewayPort {
     },
     respondClarify: async p => {
       const c = await this.sessionSocket(p.session_id)
-      requireSent(c.respond(p.request_id, { answers: p.answers }))
+      requireSent(c.respond(p.request_id, p.answers === null ? {} : { answers: p.answers }))
     },
     attachImageBytes: async p => {
       const c = await this.sessionSocket(p.session_id)

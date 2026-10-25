@@ -48,6 +48,29 @@ describe('approval and clarify requests', () => {
     ])
   })
 
+  it('skips a clarify card with one response frame without answers, and keeps the answers another client locked', async () => {
+    const questions = [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'] }, { qid: 'q1', question: 'Sugar?', choices: ['A) yes', 'B) no'] }]
+    conn.serverRequest({ id: 'srq-000000000007', method: 'clarify', params: { session_id: live, questions, answers: { q0: 'A' } } })
+    await controller.answerClarify('srq-000000000007', null)
+    // Hermes ends a set answered without `answers` as cancelled and keeps the locked answers (server_requests.py:287-288).
+    expect(conn.responses).toEqual([{ id: 'srq-000000000007', result: {} }])
+    expect(card('srq-000000000007')).toMatchObject({ state: 'skipped', answers: { q0: 'A' } })
+  })
+
+  it('sends one frame for a double tap, and keeps a Skip that cannot be sent open with its error', async () => {
+    const questions = [{ qid: 'q0', question: 'Tea or coffee?', choices: ['A) tea', 'B) coffee'] }]
+    conn.serverRequest({ id: 'srq-000000000008', method: 'clarify', params: { session_id: live, questions } })
+    await Promise.all([controller.answerClarify('srq-000000000008', null), controller.answerClarify('srq-000000000008', null)])
+    await controller.answerClarify('srq-000000000008', { q0: 'A' })
+    expect(conn.responses).toEqual([{ id: 'srq-000000000008', result: {} }])
+    expect(controller.getView().state.lastError).toBeFalsy()
+
+    conn.serverRequest({ id: 'srq-000000000009', method: 'clarify', params: { session_id: live, questions } })
+    conn.simulateOffline()
+    await controller.answerClarify('srq-000000000009', null)
+    expect(card('srq-000000000009')).toMatchObject({ state: 'pending', error: 'No connection to the gateway.' })
+  })
+
   it('expires the card Hermes cancels and keeps one card for a request re-delivered after a reconnect', async () => {
     conn.serverRequest({ id: 'srq-000000000004', method: 'approval', params: { session_id: live, request_id: 'ap4' } })
     conn.serverRequest({ id: 'srq-000000000005', method: 'approval', params: { session_id: live, request_id: 'ap5' } })

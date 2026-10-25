@@ -106,8 +106,12 @@ export interface SessionsApi {
    * waits for it.
    */
   respondApproval(p: { session_id: string; request_id: string; choice: T.ApprovalChoice }): Promise<void>
-  /** Answers every question of a `clarify` request at once; `null` skips a question. Rejects like `respondApproval`. */
-  respondClarify(p: { session_id: string; request_id: string; answers: Record<string, string | null> }): Promise<void>
+  /**
+   * Answers every question of a `clarify` request at once; `null` skips a question. `answers: null` skips
+   * them all: the frame carries no `answers`, so Hermes ends the request as cancelled and keeps the answers
+   * another client locked. Rejects like `respondApproval`.
+   */
+  respondClarify(p: { session_id: string; request_id: string; answers: Record<string, string | null> | null }): Promise<void>
   attachImageBytes(p: { session_id: string; content_base64: string; filename?: string; ext?: string }): Promise<unknown>
   /** Either a server `path` or a `data_url` + `name` (the gateway stores it and returns `ref_text`). */
   attachFile(p: { session_id: string; path?: string; data_url?: string; name?: string }): Promise<{ attached?: boolean; name?: string; path?: string; ref_text?: string; [k: string]: unknown }>

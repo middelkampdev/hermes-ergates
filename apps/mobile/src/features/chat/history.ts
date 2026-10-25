@@ -68,7 +68,7 @@ export type ChatItem =
   | { kind: 'tool'; id: string; toolId?: string; name: string; context?: string; args?: Record<string, unknown>; result?: unknown; durationS?: number; done: boolean; error?: string }
   | { kind: 'event'; id: string; text: string; at?: number }
   /** On this card and the approval card, `requestId` is the server request id (`srq-<12 hex>`) the answer goes back to. */
-  | { kind: 'clarify'; id: string; requestId: string; questions: ClarifyQuestion[]; state: 'pending' | 'answered' | 'expired'; answers?: Record<string, string | null>; locked?: Record<string, string | null>; error?: string }
+  | { kind: 'clarify'; id: string; requestId: string; questions: ClarifyQuestion[]; state: 'pending' | 'answered' | 'skipped' | 'expired'; answers?: Record<string, string | null>; locked?: Record<string, string | null>; error?: string }
   | { kind: 'approval'; id: string; requestId: string; payload: ApprovalRequestParams; state: 'pending' | 'resolved' | 'expired'; choice?: string }
   /** Inbound agent-to-agent message, from a validated `a2a_message` stamp or the legacy inferred text grammar (spec 5.1/5.6). */
   | { kind: 'bot_message'; id: string; rowId?: number; handle: string; name: string; text: string; at?: number; provenance: 'structured' | 'inferred'; senderId?: string; deliveryId?: string }
