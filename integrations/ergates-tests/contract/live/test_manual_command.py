@@ -19,11 +19,23 @@ without a restart.
 from __future__ import annotations
 
 import shlex
+import time
 
 from app_messages import hermes_plugin_messages, manual_commands
 
 API = "/api/plugins/ergates"
 HUB = "/api/dashboard/plugins/hub"
+
+
+def hub_cache_seconds() -> float:
+    """How long Hermes serves the plugin list from its cache (5 s at the pin,
+    hermes_cli/web_server_dashboard.py:596). Hermes clears that cache only after its own REST
+    changes; a CLI command runs in another process, so a list read just before it can still be
+    served after it. Read from the Hermes under test, so the weekly run against the newest release
+    waits as long as that release caches."""
+    from hermes_cli.web_server_dashboard import _PLUGINS_HUB_CACHE_TTL_SECONDS
+
+    return float(_PLUGINS_HUB_CACHE_TTL_SECONDS)
 
 
 def command(template: str, **values: str) -> list[str]:
@@ -47,6 +59,24 @@ def runtime_status(web, headers: dict) -> str | None:
     return next((row["runtime_status"] for row in reply.json()["plugins"] if row["name"] == "ergates"), None)
 
 
+def settled_status(web, headers: dict, expected: str) -> str | None:
+    """``runtime_status`` once it reads ``expected``, or the last value read once the hub's cache has had
+    time to expire: what the app sees after a CLI command, without the cache in the way."""
+    deadline = time.monotonic() + hub_cache_seconds() + 2
+    status = runtime_status(web, headers)
+    while status != expected and time.monotonic() < deadline:
+        time.sleep(0.25)
+        status = runtime_status(web, headers)
+    return status
+
+
+def fresh_status(web, headers: dict) -> str | None:
+    """``runtime_status`` after the cache of an earlier read expired, so it shows what a CLI command
+    left even when that matches the cached value."""
+    time.sleep(hub_cache_seconds() + 0.5)
+    return runtime_status(web, headers)
+
+
 def test_the_install_and_update_commands_leave_the_plugin_enabled_and_served_without_a_terminal_or_a_restart(
         web_without_plugin, root_without_plugin, token_headers, run_hermes, plugin_monorepo):
     web = web_without_plugin
@@ -66,7 +96,8 @@ def test_the_install_and_update_commands_leave_the_plugin_enabled_and_served_wit
     updated = run_hermes(root_without_plugin, command(templates["update"], **pin))
 
     assert updated.returncode == 0
-    assert runtime_status(web, token_headers) == "enabled"
+    # The read after the install cached `enabled`: only a read past that cache shows what the update left.
+    assert fresh_status(web, token_headers) == "enabled"
     assert web.get(f"{API}/health", headers=token_headers).status_code == 200
 
 
@@ -92,5 +123,6 @@ def test_without_yes_deps_the_install_leaves_the_plugin_off_and_the_enable_comma
     enabled = run_hermes(root_without_plugin, command(templates["enable"], name="ergates"))
 
     assert enabled.returncode == 0
-    assert runtime_status(web, token_headers) == "enabled"
+    # The read above cached `inactive`; a quick enable lands inside that cache's lifetime.
+    assert settled_status(web, token_headers, "enabled") == "enabled"
     assert web.get(f"{API}/health", headers=token_headers).status_code == 200
