@@ -218,6 +218,18 @@ export class RealGateway implements GatewayPort {
     throw new GatewayError('unauthorized', 'Sign-in required.')
   }
 
+  /**
+   * Whether the stored sign-in still works, for a socket whose upgrade was
+   * refused. Token mode asks the roster route, which the token gates, as
+   * `login` does. Password mode needs no question: each dial mints a ticket
+   * over REST first, and that mint already answers 401 for a dead session.
+   */
+  private async verifySocketCredential(): Promise<void> {
+    if (this.auth.mode === 'token') {
+      await this.http.get('/api/profiles')
+    }
+  }
+
   // ── sockets ────────────────────────────────────────────────────────────
 
   connect(profile: string): Promise<GatewayConnection> {
@@ -238,7 +250,8 @@ export class RealGateway implements GatewayPort {
       // credential that stopped authenticating) must not stay cached: every later
       // connect(profile) would hand out the same dead promise, so the connection
       // stayed bricked until the process restarted — even after a re-login.
-      onTerminal: () => this.evict(profile)
+      onTerminal: () => this.evict(profile),
+      verifyCredential: () => this.verifySocketCredential()
     })
     this.sockets.set(profile, opening)
     opening.catch(() => this.sockets.delete(profile))

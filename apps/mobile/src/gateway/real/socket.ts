@@ -11,7 +11,7 @@
 import type { ServerRequest } from '@vendor/hermes/shared/json-rpc-channel'
 import { JsonRpcGatewayClient, type ConnectionState as ClientState, type GatewayEvent, type WebSocketLike } from '@vendor/hermes/shared/json-rpc-gateway'
 
-import { GatewayError, mapRpcError, mapSocketClose, requireSecureTransport, userMessage, type RespondOutcome } from '../errors'
+import { GatewayError, isGatewayError, mapRpcError, mapSocketClose, requireSecureTransport, userMessage, type RespondOutcome } from '../errors'
 import type { ConnectionFailure, ConnectionState, GatewayConnection } from '../port'
 import type { GatewayEventFrame, GatewayReadyPayload, ReplayResult, ServerRequestFrame } from '../types'
 import { buildSocketUrl } from './auth'
@@ -38,6 +38,15 @@ export interface SocketSessionOptions {
    * the same dead promise forever.
    */
   onTerminal?: (error: GatewayError) => void
+  /**
+   * Asks the server whether the credential still works, after a dial whose
+   * socket closed before it opened. Hermes refuses the upgrade of a dead token
+   * with an HTTP 403, which the socket reports as close 1006, the same as a
+   * network drop. Rejects with an `unauthorized` or `forbidden` `GatewayError`
+   * when the credential no longer works; any other outcome leaves the dial a
+   * network failure.
+   */
+  verifyCredential?: () => Promise<void>
 }
 
 /** Is this failure one that reconnecting cannot fix? */
@@ -74,6 +83,8 @@ export class SocketSession implements GatewayConnection {
   private lastFailure: GatewayError | null = null
   /** Non-null once this session is beyond repair without a new credential. */
   private terminalError: GatewayError | null = null
+  /** True once the socket of the dial in flight opened; a refused upgrade never does. */
+  private openedThisDial = false
   private terminalReported = false
   /** The approval and clarify requests Hermes still waits on, by id. */
   private readonly openRequests = new Map<string, ServerRequest>()
@@ -183,10 +194,13 @@ export class SocketSession implements GatewayConnection {
    * A ticket mint that returns 401/403, or an authentication/guard close, is the
    * end of the line for this socket: a re-dial would loop on a dead credential
    * every backoff tick. Record it, stop reconnecting, and let the owner
-   * (`RealGateway`) drop this session so a re-login can build a fresh one.
+   * (`RealGateway`) drop this session so a re-login can build a fresh one. A
+   * session closed meanwhile (the mint or the credential check awaits) reports
+   * nothing: its owner may already hold a newer socket for the profile, which
+   * an eviction would drop.
    */
   private markTerminal(error: GatewayError): void {
-    if (this.terminalError) {
+    if (this.terminalError || this.closedByUser) {
       return
     }
     this.terminalError = error
@@ -206,12 +220,16 @@ export class SocketSession implements GatewayConnection {
     // A stale close error must not be reported as the cause of a later network
     // drop, and must not keep scheduleReconnect() disarmed for the object's life.
     this.lastCloseError = null
+    this.openedThisDial = false
     try {
       await this.dialOnce()
       // A recovered connection must not keep reporting the failure it recovered from.
       this.lastFailure = null
     } catch (err) {
-      const mapped = err instanceof GatewayError ? err : mapRpcError(err)
+      let mapped = err instanceof GatewayError ? err : mapRpcError(err)
+      if (mapped.kind === 'network' && !this.openedThisDial) {
+        mapped = await this.refusalCause(mapped)
+      }
       this.lastFailure = mapped
       if (isTerminalKind(mapped.kind)) {
         this.markTerminal(mapped)
@@ -219,6 +237,22 @@ export class SocketSession implements GatewayConnection {
       }
       throw mapped
     }
+  }
+
+  /**
+   * Why a dial whose socket never opened failed: a credential the server no
+   * longer takes (`verifyCredential` rejects with a terminal kind), or else the
+   * network failure itself.
+   */
+  private async refusalCause(networkError: GatewayError): Promise<GatewayError> {
+    try {
+      await this.options.verifyCredential?.()
+    } catch (err) {
+      if (isGatewayError(err) && isTerminalKind(err.kind)) {
+        return err
+      }
+    }
+    return networkError
   }
 
   private async dialOnce(): Promise<void> {
@@ -296,6 +330,7 @@ export class SocketSession implements GatewayConnection {
       // delivery. Cleared before any frame of this socket is read, and `respond`
       // sends nothing until `dialOnce` reports `open` after gateway.ready.
       this.answeredHere.clear()
+      this.openedThisDial = true
       return
     }
     const mapped: ConnectionState = state === 'connecting' ? 'connecting' : state === 'error' ? 'error' : 'closed'

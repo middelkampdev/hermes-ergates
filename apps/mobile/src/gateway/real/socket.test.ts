@@ -184,6 +184,115 @@ describe('SocketSession', () => {
   })
 })
 
+describe('SocketSession: a connection the server refuses', () => {
+  // Hermes refuses the upgrade of a dead token with an HTTP 403, which the socket reports as close 1006 before it
+  // opens, the same as a network drop. Only a question over REST tells the two apart.
+  const REFUSED = new GatewayError('unauthorized', 'Sign-in required.', { status: 401 })
+
+  it('asks whether the credential still works once a reconnect is refused before it opens, and goes terminal when it does not', async () => {
+    installFakeWebSocket({})
+    const terminal: string[] = []
+    const verifyCredential = vi.fn(async () => {
+      throw REFUSED
+    })
+    const session = await SocketSession.open({ ...OPTS, backoffMs: [5], verifyCredential, onTerminal: err => terminal.push(err.kind) })
+    FakeWebSocket.script = { closeOnOpen: { code: 1006 } }
+    FakeWebSocket.instances[0]!.serverClose(1006)
+
+    await vi.waitFor(() => expect(session.terminal).toBe(true))
+    expect(session.lastError).toMatchObject({ kind: 'unauthorized', terminal: true })
+    expect(terminal).toEqual(['unauthorized'])
+    await flush(40)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    expect(verifyCredential).toHaveBeenCalledTimes(1)
+    session.close()
+  })
+
+  it('fails the first open as unauthorized, not as a network drop, when the server refuses the credential', async () => {
+    installFakeWebSocket({ closeOnOpen: { code: 1006 } })
+    const terminal: string[] = []
+    const verifyCredential = async () => {
+      throw REFUSED
+    }
+
+    await expect(SocketSession.open({ ...OPTS, backoffMs: [5], verifyCredential, onTerminal: err => terminal.push(err.kind) })).rejects.toSatisfy(
+      (e: unknown) => isGatewayError(e) && e.kind === 'unauthorized'
+    )
+    expect(terminal).toEqual(['unauthorized'])
+  })
+
+  it.each<[string, () => Promise<void>]>([
+    ['still works', async () => undefined],
+    [
+      'cannot be checked either',
+      async () => {
+        throw new GatewayError('network', 'The gateway could not be reached.')
+      }
+    ]
+  ])('keeps reconnecting after a refused dial when the credential %s, as after a network drop', async (_title, verifyCredential) => {
+    installFakeWebSocket({})
+    const session = await SocketSession.open({ ...OPTS, backoffMs: [5], verifyCredential })
+    FakeWebSocket.script = { closeOnOpen: { code: 1006 } }
+    FakeWebSocket.instances[0]!.serverClose(1006)
+
+    await vi.waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(3))
+    expect(session.terminal).toBe(false)
+    expect(session.lastError).toMatchObject({ kind: 'network', terminal: false })
+    FakeWebSocket.script = {}
+    await vi.waitFor(() => expect(session.state).toBe('open'))
+    session.close()
+  })
+
+  it('does not ask about the credential when the socket opened and then dropped', async () => {
+    installFakeWebSocket({})
+    const verifyCredential = vi.fn(async () => undefined)
+    const session = await SocketSession.open({ ...OPTS, backoffMs: [5], verifyCredential })
+    FakeWebSocket.instances[0]!.serverClose(1006)
+
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    await vi.waitFor(() => expect(session.state).toBe('open'))
+    expect(verifyCredential).not.toHaveBeenCalled()
+    session.close()
+  })
+
+  it('does not ask about the credential when the socket opened but never announced readiness', async () => {
+    installFakeWebSocket({ withholdReady: ws => FakeWebSocket.instances.indexOf(ws) === 1 })
+    const verifyCredential = vi.fn(async () => undefined)
+    const session = await SocketSession.open({ ...OPTS, backoffMs: [5], readyTimeoutMs: 30, verifyCredential })
+    FakeWebSocket.instances[0]!.serverClose(1006)
+
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(3))
+    await vi.waitFor(() => expect(session.state).toBe('open'))
+    expect(verifyCredential).not.toHaveBeenCalled()
+    session.close()
+  })
+
+  it('reports nothing when the session was closed while it asked about the credential', async () => {
+    installFakeWebSocket({})
+    const terminal: string[] = []
+    let release: () => void = () => undefined
+    const gate = new Promise<void>(resolve => {
+      release = resolve
+    })
+    const verifyCredential = vi.fn(async () => {
+      await gate
+      throw REFUSED
+    })
+    const session = await SocketSession.open({ ...OPTS, backoffMs: [5], verifyCredential, onTerminal: err => terminal.push(err.kind) })
+    FakeWebSocket.script = { closeOnOpen: { code: 1006 } }
+    FakeWebSocket.instances[0]!.serverClose(1006)
+    await vi.waitFor(() => expect(verifyCredential).toHaveBeenCalled())
+
+    // A sign-out closes the session; its owner may build a new socket for the profile at once.
+    session.close()
+    release()
+    await flush(40)
+
+    expect(terminal).toEqual([])
+    expect(session.terminal).toBe(false)
+  })
+})
+
 describe('SocketSession transport guard', () => {
   it.each(['http://8.8.8.8:9119', 'http://hermes.example.com', 'http://hermes.tail1234.ts.net', 'http://HERMES.TAIL1234.TS.NET:9119'])(
     'refuses %s over plain http before it asks for a credential or opens a socket',
