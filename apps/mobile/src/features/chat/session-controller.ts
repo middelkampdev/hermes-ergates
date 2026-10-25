@@ -46,8 +46,7 @@ export interface SessionCommands {
   send(text: string): Promise<void>
   retry(localId: string): Promise<void>
   stop(): Promise<void>
-  answerClarify(requestId: string, answers: Record<string, string>): Promise<void>
-  dismissClarify(requestId: string, freeText: string): Promise<void>
+  answerClarify(requestId: string, answers: Record<string, string | null>): Promise<void>
   answerApproval(requestId: string, choice: ApprovalChoice): Promise<void>
   /** Pull-to-refresh: force a full durable refetch. Rejects when the gateway refuses. */
   refetchHistory(): Promise<void>
@@ -458,13 +457,13 @@ export function createSessionController(options: SessionControllerOptions): Sess
     }
   }
 
-  async function answerClarify(requestId: string, answers: Record<string, string>): Promise<void> {
+  async function answerClarify(requestId: string, answers: Record<string, string | null>): Promise<void> {
     const live = liveId
     if (!live) {
       return
     }
     try {
-      // One response frame answers the whole set (tui_gateway/contracts/server_requests.py:48-52).
+      // One response frame answers the whole set, `null` for a skipped question (tui_gateway/contracts/server_requests.py:48-52).
       await port.sessions.respondClarify({ session_id: live, request_id: requestId, answers })
     } catch (err) {
       // Nothing reached Hermes: the card stays open and says what happened.
@@ -472,25 +471,6 @@ export function createSessionController(options: SessionControllerOptions): Sess
       return
     }
     dispatch({ type: 'clarify/responded', requestId, answers })
-  }
-
-  async function dismissClarify(requestId: string, freeText: string): Promise<void> {
-    const live = liveId
-    if (!live) {
-      return
-    }
-    const card = state.items.find(i => i.kind === 'clarify' && i.requestId === requestId)
-    const qids = card?.kind === 'clarify' && card.questions.length > 0 ? card.questions.map(q => q.qid) : ['q0']
-    // The card's one free-text field answers the first question (FR-121); `null` skips
-    // the others, as Hermes reads it (server_requests.py:296-299).
-    const answers: Record<string, string | null> = Object.fromEntries(qids.map((qid, index) => [qid, index === 0 ? freeText : null]))
-    try {
-      await port.sessions.respondClarify({ session_id: live, request_id: requestId, answers })
-    } catch (err) {
-      dispatch({ type: 'clarify/failed', requestId, message: userMessage(err) })
-      return
-    }
-    dispatch({ type: 'clarify/dismissed', requestId })
   }
 
   async function answerApproval(requestId: string, choice: ApprovalChoice): Promise<void> {
@@ -521,7 +501,6 @@ export function createSessionController(options: SessionControllerOptions): Sess
     retry,
     stop,
     answerClarify,
-    dismissClarify,
     answerApproval,
     refetchHistory,
     dispatchReconciled(ids) {

@@ -207,6 +207,15 @@ describe('requests', () => {
     expect(s.items.filter(i => i.kind === 'clarify' || i.kind === 'approval')).toMatchObject([{ state: 'expired' }, { state: 'pending' }])
   })
 
+  it('keeps the answers another client locked on a replayed clarify, also when the pending card is delivered again', () => {
+    const questions = [{ qid: 'q0', question: 'Tea or coffee?' }, { qid: 'q1', question: 'Sugar?' }]
+    const first = run(bound(), [req('srq-000000000021', 'clarify', { questions, answers: { q0: 'tea' } }, true)])
+    expect(first.items.find(i => i.kind === 'clarify')).toMatchObject({ state: 'pending', locked: { q0: 'tea' } })
+
+    const again = run(first, [req('srq-000000000021', 'clarify', { questions, answers: { q0: 'tea', q1: null } }, true)])
+    expect(again.items.filter(i => i.kind === 'clarify')).toMatchObject([{ state: 'pending', locked: { q0: 'tea', q1: null } }])
+  })
+
   it('takes no card for a method the phone does not show', () => {
     const s = run(bound(), [req('srq-00000000000f', 'sudo', { command: 'apt install x' })])
     expect(s).toEqual(bound())

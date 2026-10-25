@@ -293,7 +293,6 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
                   item={item}
                   drafts={clarifyDrafts}
                   onAnswer={answers => runWithAlert('Could not send your answer', () => session.answerClarify(item.requestId, answers))}
-                  onDismiss={text => runWithAlert('Could not send your answer', () => session.dismissClarify(item.requestId, text))}
                 />
               )
             case 'approval':
