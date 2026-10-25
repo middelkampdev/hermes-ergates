@@ -135,6 +135,7 @@ This cuts `release/0.3.0`, commits `chore: set version 0.3.0` there, and pushes 
 
 ## Every release
 
+- **Before a release candidate:** run the device check of plugin updates in `CONTRIBUTING.md`.
 - **Release candidate:** `gflow start release --minor` (or `--major`) on `develop`. Fixes go to the release branch through `gflow start release-fix --name <name>` and its pull request; `gflow bump` then tags the next RC.
 - **Final release:** `gflow finish` on the release branch. It opens a pull request into `master`; merge it and run `gflow finish` again, which tags `vX.Y.0` and opens the pull request into `develop`; merge that and run it once more. gflow refuses to finish a release branch with commits after its last RC tag: run `gflow bump` first, so every commit on `master` was tested as an RC.
 - **Hotfix:** `gflow start hotfix-fix --name <name>` on `master` creates `hotfix/X.Y.Z` with the version set, then `gflow finish`.

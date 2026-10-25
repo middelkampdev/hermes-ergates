@@ -42,6 +42,33 @@ Behavior changes need tests. Both the mobile app (Vitest, `apps/mobile/vitest.co
 
 The integration package's tests are a separate project, `integrations/ergates-tests`, so the folder users install (`integrations/ergates`) holds only runtime code. Put new tests and fixtures there. The `contract` job runs Hermes's install scan on the files git tracks in `integrations/ergates` and fails unless the verdict is `safe`.
 
+## Device check of plugin updates
+
+Unit tests do not reach the screens of a plugin update. Before a release candidate, walk through one on the iOS simulator against a throwaway Hermes. `scripts/device-hermes.sh` runs that Hermes at the pin. It keeps everything in `.cache/device-check` and never touches `~/.hermes` or a Hermes you run: it has its own root, `HOME` and lock folder, and runs `hermes serve --isolated`.
+
+1. Push the build commit, because the app installs the plugin from GitHub at that commit. Start the throwaway Hermes with an older plugin commit, also pushed. The first start prepares Hermes's dependency runtime and takes a few minutes.
+
+   ```bash
+   scripts/device-hermes.sh start --commit <older commit>
+   ```
+
+2. Start Metro for a development build. `metro.env` holds the server address and session token for the app's DEV connect hook. On the Android emulator, also run `adb reverse tcp:9131 tcp:9131`.
+
+   ```bash
+   cd apps/mobile && set -a && . ../../.cache/device-check/metro.env && set +a && ERGATES_PLUGIN_COMMIT=<build commit> npx expo start --clear --port 8082
+   ```
+
+3. In the app, connect and tap **Update now** on Update ready. Then, in a second terminal at the repository root (Metro keeps the first), make the new version fail, with a new session token:
+
+   ```bash
+   scripts/device-hermes.sh break
+   scripts/device-hermes.sh restart --new-token
+   ```
+
+   The app asks you to sign in again. On the simulator, copy the token with `xcrun simctl pbcopy booted < .cache/device-check/token` and paste it. Finish then says "The new version did not start." Tap **Go back to the previous version**, run `scripts/device-hermes.sh restart`, and check that Finish ends on "The previous version is back. Your server is ready."
+
+4. `scripts/device-hermes.sh status` shows what the plugin reports at any point. Run `scripts/device-hermes.sh stop` when you are done; it removes `.cache/device-check`.
+
 ## Commit messages
 
 This repository uses [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, for example `fix(mobile): keep the outbox stall per connection` or `docs: plan the store release pipeline`. Check `git log` for the types and scopes already in use before picking your own.
