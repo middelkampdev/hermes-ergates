@@ -61,8 +61,9 @@ function outdated(installKind: InstallKind): ServerCheck {
 
 const install = (extra: Partial<Extract<FinishVariant, { kind: 'install' }>> = {}): FinishVariant => ({ kind: 'install', restart: false, failure: null, detail: null, ...extra })
 
+// Hermes names its service hermes-dashboard or hermes-serve, depending on the setup; the guide's #restart says the same.
 const RESTART_LINES = [
-  'Hermes service: systemctl --user restart hermes-dashboard',
+  'Hermes service: systemctl --user restart hermes-dashboard (or hermes-serve)',
   'Docker: docker restart <container name>',
   'Hermes Desktop: quit it and open it again',
   'Started by hand: stop hermes serve and start it again'

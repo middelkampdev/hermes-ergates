@@ -200,8 +200,9 @@ const READY = 'Your server is ready.'
 const SIGNED_OUT = 'Your server restarted. Sign in again to continue.'
 const UNEXPECTED_PROBLEM = 'Could not set up your agents.'
 
+// Hermes installs no service for `hermes serve`; the units it knows are hermes-dashboard and hermes-serve.
 const RESTART_LINES: readonly string[] = [
-  'Hermes service: systemctl --user restart hermes-dashboard',
+  'Hermes service: systemctl --user restart hermes-dashboard (or hermes-serve)',
   'Docker: docker restart <container name>',
   'Hermes Desktop: quit it and open it again',
   'Started by hand: stop hermes serve and start it again'
