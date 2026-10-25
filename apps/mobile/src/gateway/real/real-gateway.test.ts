@@ -157,6 +157,37 @@ describe('socket cache', () => {
     expect(FakeWebSocket.instances).toHaveLength(2)
     gateway.disconnectAll()
   })
+
+  it('fails a connect as unauthorized when the server refuses the socket and the roster route refuses the token', async () => {
+    const secrets = new MemorySecretStore()
+    const handlers: Parameters<typeof routes>[0] = { '/api/profiles': { status: 200, body: { profiles: [] } } }
+    const { impl, seen } = routes(handlers)
+    const gateway = new RealGateway({ connectionId: 'c1', baseUrl: 'http://gw.local', secrets, fetchImpl: impl, socketFactory: fakeSocketFactory })
+    await gateway.login({ mode: 'token', token: 'tok-1' })
+
+    // The token was revoked: Hermes refuses the upgrade (a close before open) and the roster route answers 401.
+    handlers['/api/profiles'] = { status: 401, body: { detail: 'Unauthorized' } }
+    installFakeWebSocket({ closeOnOpen: { code: 1006 } })
+
+    await expect(gateway.connect('thijs')).rejects.toSatisfy((e: unknown) => isGatewayError(e) && e.kind === 'unauthorized')
+    // Once for the login, once for the refused socket.
+    expect(seen.filter(path => path === '/api/profiles')).toHaveLength(2)
+  })
+
+  it('asks nothing more in password mode, where the ticket mint before each dial already checks the session', async () => {
+    const secrets = new MemorySecretStore()
+    const { impl, seen } = routes({
+      '/auth/password-login': { status: 200, body: { ok: true }, headers: { 'set-cookie': 'hermes_session_at=abc; Path=/' } },
+      '/api/auth/me': { status: 200, body: { user_id: 'u1' } },
+      '/api/auth/ws-ticket': { status: 200, body: { ticket: 't1', ttl_seconds: 30 } }
+    })
+    const gateway = new RealGateway({ connectionId: 'c1', baseUrl: 'http://gw.local', secrets, fetchImpl: impl, socketFactory: fakeSocketFactory })
+    await gateway.login({ mode: 'password', provider: 'basic', username: 'u', password: 'p' })
+    installFakeWebSocket({ closeOnOpen: { code: 1006 } })
+
+    await expect(gateway.connect('thijs')).rejects.toSatisfy((e: unknown) => isGatewayError(e) && e.kind === 'network')
+    expect(seen).not.toContain('/api/profiles')
+  })
 })
 
 describe('server requests', () => {

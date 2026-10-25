@@ -40,7 +40,7 @@ After login, mint a fresh ticket and open:
 ws://<private-gateway>:9119/api/ws?profile=default&ticket=<single-use-ticket>
 ```
 
-Use `wss` for an HTTPS gateway. Query values are URL-encoded and redacted from logs. Reconnect always mints another ticket. Handle 401/expired session, 429 login throttling and WebSocket closes 4401 (authentication) / 4403 (request guard). Native token exchange uses `code_verifier`, not a field named `verifier`.
+Use `wss` for an HTTPS gateway. Query values are URL-encoded and redacted from logs. Reconnect always mints another ticket. Handle 401/expired session, 429 login throttling and WebSocket closes 4401 (authentication) / 4403 (request guard). Hermes refuses the upgrade of a dead token with an HTTP 403 before the socket opens, and the client sees close 1006, the same as a network drop. After a dial whose socket never opened, the app therefore asks `GET /api/profiles` with the token: a 401 or 403 there ends the reconnects, and the chat offers Sign in again. In password mode every dial mints a ticket first, and that mint already answers 401 for a dead session. Native token exchange uses `code_verifier`, not a field named `verifier`.
 
 ## 3. Core JSON-RPC (source-confirmed subsets)
 
