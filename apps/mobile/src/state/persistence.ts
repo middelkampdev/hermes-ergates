@@ -114,10 +114,24 @@ export function createAesBlobCipher(): BlobCipher {
           return null
         }
         const { aesDecryptAsync, AESSealedData } = await import('expo-crypto')
-        const bytes = await aesDecryptAsync(AESSealedData.fromCombined(sealed), current)
+        const bytes = await aesDecryptAsync(AESSealedData.fromCombined(base64Bytes(sealed)), current)
         return new TextDecoder().decode(bytes)
       })
   }
+}
+
+/**
+ * The bytes of base64 text. expo-crypto 57 declares `fromCombined` for base64 text too, but its Android
+ * module takes only bytes (`combined: ByteArray`, AesCryptoModule.kt): text there throws, and every start
+ * found the device blob unreadable.
+ */
+function base64Bytes(base64: string): Uint8Array {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes
 }
 
 /** SecureStore-backed SecretStore. `key` is the full `ergates.<connectionId>.<kind>` string. */
