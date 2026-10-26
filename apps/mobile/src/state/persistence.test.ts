@@ -57,8 +57,13 @@ vi.mock('expo-crypto', async () => {
 
   class AESSealedData {
     constructor(readonly bytes: Buffer) {}
-    static fromCombined(base64: string) {
-      return new AESSealedData(Buffer.from(base64, 'base64'))
+    // As on Android, where the native function takes a ByteArray (AesCryptoModule.kt in expo-crypto 57):
+    // its iOS twin also reads base64 text, so a string passes there and fails only on Android.
+    static fromCombined(combined: Uint8Array | ArrayBuffer | string) {
+      if (typeof combined === 'string') {
+        throw new Error('Value is a string, expected an Object')
+      }
+      return new AESSealedData(Buffer.from(combined instanceof ArrayBuffer ? new Uint8Array(combined) : combined))
     }
     async combined(encoding: 'base64') {
       return this.bytes.toString(encoding)
