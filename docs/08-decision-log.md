@@ -363,3 +363,29 @@ What goes with it:
 - The shipped concierge and specialist profiles (`config.yaml` and `SOUL.md`). Hermes defaults apply until the owner changes them, for example `approvals.timeout`, which those profiles set to 1800 s. The proposal and role templates stay in `integrations/ergates/templates/`.
 
 Rejected: keeping `deploy/` as an optional example. A stack nobody runs, with its own secrets and CI job, costs upkeep for a path the app does not need. It had already shipped a placeholder signing secret that stopped Hermes at start (issue #33).
+
+## ADR-047 The app answers password prompts
+
+Decided 2026-10-26 (issue #15). Hermes asks its clients for a sudo password, a secret, the master password of a password manager, a site login and a one-time code with server requests. Until this record the app left them unanswered, so on a server where the phone is the only client the agent waited for a prompt nobody saw: 120 seconds for sudo and 300 seconds for a secret.
+
+Facts, checked at the pin (`818c13be`).
+
+1. The five requests are `sudo`, `secret`, `vault.unlock_prompt`, `vault.save_login` and `vault.code`. Each is answered with `{value: string}`, and `""` means skipped or declined (`tui_gateway/contracts/server_requests.py:22-26`, `:137-189`; `_ask`, `tui_gateway/server.py:1398-1404`). `vault.save_login` takes the JSON text `{"identifier", "password"}` in `value`.
+2. `sudo` carries the command, redacted by Hermes before it is sent. Hermes may leave it empty.
+3. Hermes Desktop shows each of them as a dialog with a masked field, and its Cancel sends `""` (`apps/desktop/src/components/prompt-overlays.tsx`).
+4. `setup_choose` is the first-run setup of Hermes Desktop: `agent/initiate_setup_prompt.py` runs it only for the surface `desktop`. `display.install.sudo` belongs to Desktop's Bot Screen install and has no chat session.
+
+Decisions.
+
+1. The app shows the five requests as prompt cards in the chat, next to approval and clarify (FR-124). Each card says what Hermes asks for, shows the sudo command when Hermes sent one, and has a send and a decline button. Decline sends `""`.
+2. What the user types lives only in the card's component state. It goes to Hermes in the one response frame and is dropped when the card settles. It never enters the chat state, drafts, the outbox, logs or SecureStore, and the settled card says how it ended (Sent, the words of its decline button such as Cancelled or Kept locked, or Expired), never the value. The fields for a sudo password or a secret ask the phone not to autofill them; iOS still shows its Passwords button above the keyboard for any masked field (seen on the iOS 27 simulator). The master password and the site login ask for password autofill, because a password manager on the phone may hold them.
+3. A card follows the same life cycle as approval and clarify: `request.cancel` expires it, a reconnect that no longer lists it expires it, and a second tap before it re-renders sends nothing (`isRequestCard` in `src/features/chat/history.ts`).
+4. The app keeps leaving `setup_choose` and `display.install.sudo` unanswered (fact 4).
+
+Rejected: leaving the prompts to Hermes Desktop, because a phone-only setup then stalls. Rejected: a modal dialog as on Desktop, because the chat already shows approval and clarify as cards in the conversation, and a card keeps its place when the user scrolls away. Rejected: answering `setup_choose`, because a phone chat rarely gets it and its cards are Desktop's onboarding.
+
+Consequences. The phone now handles a password or secret in memory for as long as the card waits, so the privacy policy needs a line about it before a version with this change ships. The value travels on the chat socket, under the same connection grade as everything else (ADR-045); on a private address over plain `http` that is plain text on the local network, like the session token. When another client answers first, the phone's card stays pending until a reconnect leaves it out (06, section on server requests), and a send in that time reaches Hermes, which drops it.
+
+Owner items before a version with this change ships:
+
+- The privacy policy at `public/ergates/privacy/index.html` in the website repository needs a line: the app shows the password, secret and code prompts Hermes sends, and what the user types goes to their server once and is not kept on the phone.

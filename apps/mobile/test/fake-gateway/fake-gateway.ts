@@ -621,6 +621,9 @@ export class FakeGateway implements GatewayPort {
     respondClarify: async p => {
       requireSent(this.connectionForSession(p.session_id).respond(p.request_id, p.answers === null ? {} : { answers: p.answers }))
     },
+    respondValue: async p => {
+      requireSent(this.connectionForSession(p.session_id).respond(p.request_id, { value: p.value }))
+    },
     attachImageBytes: async () => ({}),
     attachFile: async () => ({}),
     close: async sessionId => {

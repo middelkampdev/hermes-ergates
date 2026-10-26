@@ -49,6 +49,8 @@ export interface SessionCommands {
   /** `answers: null` skips every question (Skip on the card). */
   answerClarify(requestId: string, answers: Record<string, string | null> | null): Promise<void>
   answerApproval(requestId: string, choice: ApprovalChoice): Promise<void>
+  /** Answers a password prompt card; `''` declines it. The value goes straight to Hermes and is kept nowhere. */
+  answerPrompt(requestId: string, value: string): Promise<void>
   /** Pull-to-refresh: force a full durable refetch. Rejects when the gateway refuses. */
   refetchHistory(): Promise<void>
   /** A merged transcript page made these live observations durable; drop the live twins (spec 5.8). */
@@ -458,28 +460,49 @@ export function createSessionController(options: SessionControllerOptions): Sess
     }
   }
 
-  // Clarify answers on their way. A second tap on Confirm or Skip before the card re-renders sends
-  // nothing: Hermes settled the request with the first frame, and a second one would only fail.
+  // Clarify and prompt answers on their way. A second tap before the card re-renders sends nothing:
+  // Hermes settled the request with the first frame, and a second one would only fail.
   const answering = new Set<string>()
 
-  async function answerClarify(requestId: string, answers: Record<string, string | null> | null): Promise<void> {
+  /**
+   * Sends the one answer of a pending clarify or prompt card. When nothing reached Hermes, the card
+   * stays open and says what happened (`failed`); otherwise `done` settles it.
+   */
+  async function answerOnce(requestId: string, send: (live: string) => Promise<void>, failed: (message: string) => SessionAction, done: SessionAction): Promise<void> {
     const live = liveId
     if (!live || answering.has(requestId) || !pendingRequestIds(state).includes(requestId)) {
       return
     }
     answering.add(requestId)
     try {
-      // One response frame answers the whole set, `null` for a skipped question (tui_gateway/contracts/server_requests.py:48-52),
-      // or skips it all without `answers` (server_requests.py:287-288).
-      await port.sessions.respondClarify({ session_id: live, request_id: requestId, answers })
+      await send(live)
     } catch (err) {
-      // Nothing reached Hermes: the card stays open and says what happened.
-      dispatch({ type: 'clarify/failed', requestId, message: userMessage(err) })
+      dispatch(failed(userMessage(err)))
       return
     } finally {
       answering.delete(requestId)
     }
-    dispatch({ type: 'clarify/responded', requestId, answers })
+    dispatch(done)
+  }
+
+  function answerClarify(requestId: string, answers: Record<string, string | null> | null): Promise<void> {
+    return answerOnce(
+      requestId,
+      // One response frame answers the whole set, `null` for a skipped question (tui_gateway/contracts/server_requests.py:48-52),
+      // or skips it all without `answers` (server_requests.py:287-288).
+      live => port.sessions.respondClarify({ session_id: live, request_id: requestId, answers }),
+      message => ({ type: 'clarify/failed', requestId, message }),
+      { type: 'clarify/responded', requestId, answers }
+    )
+  }
+
+  function answerPrompt(requestId: string, value: string): Promise<void> {
+    return answerOnce(
+      requestId,
+      live => port.sessions.respondValue({ session_id: live, request_id: requestId, value }),
+      message => ({ type: 'prompt/failed', requestId, message }),
+      { type: 'prompt/responded', requestId, declined: value === '' }
+    )
   }
 
   async function answerApproval(requestId: string, choice: ApprovalChoice): Promise<void> {
@@ -510,6 +533,7 @@ export function createSessionController(options: SessionControllerOptions): Sess
     retry,
     stop,
     answerClarify,
+    answerPrompt,
     answerApproval,
     refetchHistory,
     dispatchReconciled(ids) {

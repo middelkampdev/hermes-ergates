@@ -3,7 +3,7 @@
  * local (not yet durable) user items. Pure; no React Native imports.
  */
 
-import type { ApprovalRequestParams, ClarifyQuestion, HistoryMessage } from '@/gateway/types'
+import type { ApprovalRequestParams, ClarifyQuestion, HistoryMessage, PromptMethod } from '@/gateway/types'
 
 import { classifyUserRow, A2A_DISPLAY_KIND, PROCESS_COMPLETE_DISPLAY_KIND, type RowClass } from './agent-traffic/classify'
 import type { ParsedReceipt } from './agent-traffic/receipt'
@@ -70,6 +70,8 @@ export type ChatItem =
   /** On this card and the approval card, `requestId` is the server request id (`srq-<12 hex>`) the answer goes back to. */
   | { kind: 'clarify'; id: string; requestId: string; questions: ClarifyQuestion[]; state: 'pending' | 'answered' | 'skipped' | 'expired'; answers?: Record<string, string | null>; locked?: Record<string, string | null>; error?: string }
   | { kind: 'approval'; id: string; requestId: string; payload: ApprovalRequestParams; state: 'pending' | 'resolved' | 'expired'; choice?: string }
+  /** A password, secret or code Hermes asks for. The card keeps what the request says, never what the user types. */
+  | { kind: 'prompt'; id: string; requestId: string; method: PromptMethod; fields: PromptFields; state: 'pending' | 'sent' | 'declined' | 'expired'; error?: string }
   /** Inbound agent-to-agent message, from a validated `a2a_message` stamp or the legacy inferred text grammar (spec 5.1/5.6). */
   | { kind: 'bot_message'; id: string; rowId?: number; handle: string; name: string; text: string; at?: number; provenance: 'structured' | 'inferred'; senderId?: string; deliveryId?: string }
   /**
@@ -79,6 +81,25 @@ export type ChatItem =
   | { kind: 'receipt'; id: string; rowId?: number; receipt: ParsedReceipt; at?: number; displayKind?: typeof PROCESS_COMPLETE_DISPLAY_KIND }
   /** A receipt-shaped row that failed to parse, or another `[IMPORTANT: …]` notice. `displayKind` as on a receipt. */
   | { kind: 'notice'; id: string; rowId?: number; noticeKind: 'delivery_update' | 'process' | 'batch' | 'unknown'; at?: number; detail: string; live?: boolean; displayKind?: typeof PROCESS_COMPLETE_DISPLAY_KIND }
+
+/** What a prompt card shows from its request (`PromptRequestParams`), each text trimmed and left out when empty. */
+export interface PromptFields {
+  command?: string
+  envVar?: string
+  prompt?: string
+  /** The password manager's display name, or else its backend. */
+  manager?: string
+  origin?: string
+  site?: string
+  hint?: string
+}
+
+/** A card for a server request Hermes waits on: approval, clarify or prompt. They live outside the transcript. */
+export type RequestCard = Extract<ChatItem, { kind: 'approval' | 'clarify' | 'prompt' }>
+
+export function isRequestCard(item: ChatItem): item is RequestCard {
+  return item.kind === 'approval' || item.kind === 'clarify' || item.kind === 'prompt'
+}
 
 const HIDDEN_KINDS = new Set(['hidden'])
 

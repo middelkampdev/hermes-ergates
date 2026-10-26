@@ -13,7 +13,7 @@ import { JsonRpcGatewayClient, type ConnectionState as ClientState, type Gateway
 
 import { GatewayError, isGatewayError, mapRpcError, mapSocketClose, requireSecureTransport, userMessage, type RespondOutcome } from '../errors'
 import type { ConnectionFailure, ConnectionState, GatewayConnection } from '../port'
-import type { GatewayEventFrame, GatewayReadyPayload, ReplayResult, ServerRequestFrame } from '../types'
+import { PROMPT_METHODS, type GatewayEventFrame, type GatewayReadyPayload, type ReplayResult, type ServerRequestFrame } from '../types'
 import { buildSocketUrl } from './auth'
 
 export interface SocketCredential {
@@ -62,7 +62,7 @@ const DEFAULT_READY_TIMEOUT_MS = 15_000
 const DEFAULT_BACKOFF = [1_000, 2_000, 5_000, 10_000]
 
 /** The server requests the phone shows as a card. */
-const CARD_METHODS = new Set(['approval', 'clarify'])
+const CARD_METHODS = new Set<string>(['approval', 'clarify', ...PROMPT_METHODS])
 /** Requests only the Hermes Desktop window showing the chat can answer (tui_gateway/server_requests.py:24-28). */
 const WINDOW_METHODS = new Set(['preview.act', 'preview.read', 'terminal.read', 'window.read', 'tour'])
 const NOT_SHOWN_MESSAGE = 'This phone shows no preview, terminal, window or tour.'
@@ -123,12 +123,12 @@ export class SocketSession implements GatewayConnection {
   }
 
   /**
-   * Approval and clarify become cards. A window-owned request gets the 4404
-   * decline, which settles only when every answering client declined
-   * (server_requests.py:221-250). Everything else (sudo, secret, vault
-   * prompts, setup_choose) stays unanswered: Hermes's own deadline ends it
-   * (the one-string prompts then get an empty answer, server.py:1398-1404),
-   * and a Hermes Desktop window on the same chat can still answer it first.
+   * Approval, clarify and the password prompts (`PROMPT_METHODS`) become
+   * cards. A window-owned request gets the 4404 decline, which settles only
+   * when every answering client declined (server_requests.py:221-250).
+   * Everything else (`setup_choose`, `display.install.sudo`) stays
+   * unanswered: Hermes's own deadline ends it, and a Hermes Desktop window on
+   * the same chat can still answer it first.
    */
   private takeRequest(request: ServerRequest): void {
     if (WINDOW_METHODS.has(request.method)) {

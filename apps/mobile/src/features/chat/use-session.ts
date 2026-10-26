@@ -86,6 +86,7 @@ export function useSession(port: GatewayPort, profile: string, summary: ProfileS
       stop: controller.stop,
       answerClarify: controller.answerClarify,
       answerApproval: controller.answerApproval,
+      answerPrompt: controller.answerPrompt,
       refetchHistory: controller.refetchHistory,
       dispatchReconciled: controller.dispatchReconciled,
       devInjectEvent: controller.devInjectEvent,

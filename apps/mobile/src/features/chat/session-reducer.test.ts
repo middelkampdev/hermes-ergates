@@ -222,8 +222,49 @@ describe('requests', () => {
   })
 
   it('takes no card for a method the phone does not show', () => {
-    const s = run(bound(), [req('srq-00000000000f', 'sudo', { command: 'apt install x' })])
+    const s = run(bound(), [req('srq-00000000000f', 'setup_choose', { kind: 'question', question: 'Name?' }), req('srq-000000000010', 'display.install.sudo', {})])
     expect(s).toEqual(bound())
+  })
+
+  it('opens a prompt card per password prompt, with what each request says and nothing it left empty', () => {
+    const s = run(bound(), [
+      req('srq-000000000031', 'sudo', { command: '  apt install ripgrep ' }),
+      req('srq-000000000032', 'secret', { env_var: 'GITHUB_TOKEN', prompt: 'For the GitHub skill', metadata: { skill: 'github' } }),
+      req('srq-000000000033', 'vault.unlock_prompt', { backend: 'bitwarden', display_name: '' }),
+      req('srq-000000000034', 'vault.save_login', { origin: 'https://github.com/login', site: 'GitHub' }),
+      req('srq-000000000035', 'vault.code', { site: null, hint: 'From your authenticator app' })
+    ])
+    expect(s.items.filter(i => i.kind === 'prompt')).toEqual([
+      { kind: 'prompt', id: 'prompt-srq-000000000031', requestId: 'srq-000000000031', method: 'sudo', fields: { command: 'apt install ripgrep' }, state: 'pending' },
+      { kind: 'prompt', id: 'prompt-srq-000000000032', requestId: 'srq-000000000032', method: 'secret', fields: { envVar: 'GITHUB_TOKEN', prompt: 'For the GitHub skill' }, state: 'pending' },
+      { kind: 'prompt', id: 'prompt-srq-000000000033', requestId: 'srq-000000000033', method: 'vault.unlock_prompt', fields: { manager: 'bitwarden' }, state: 'pending' },
+      { kind: 'prompt', id: 'prompt-srq-000000000034', requestId: 'srq-000000000034', method: 'vault.save_login', fields: { origin: 'https://github.com/login', site: 'GitHub' }, state: 'pending' },
+      { kind: 'prompt', id: 'prompt-srq-000000000035', requestId: 'srq-000000000035', method: 'vault.code', fields: { hint: 'From your authenticator app' }, state: 'pending' }
+    ])
+  })
+
+  it('settles a prompt card as sent or declined, expires it on request.cancel, and keeps it pending after a failure', () => {
+    const asked = run(bound(), [req('srq-000000000041', 'sudo', {}), req('srq-000000000042', 'secret', { env_var: 'X' }), req('srq-000000000043', 'vault.code', {})])
+    const s = run(asked, [
+      { type: 'prompt/failed', requestId: 'srq-000000000041', message: 'No connection to the gateway.' },
+      { type: 'prompt/responded', requestId: 'srq-000000000042', declined: true },
+      ev({ type: 'request.cancel', seq: 1, payload: { id: 'srq-000000000043', method: 'vault.code', reason: 'timeout' } })
+    ])
+    expect(s.items.filter(i => i.kind === 'prompt')).toMatchObject([
+      { requestId: 'srq-000000000041', state: 'pending', error: 'No connection to the gateway.' },
+      { requestId: 'srq-000000000042', state: 'declined' },
+      { requestId: 'srq-000000000043', state: 'expired' }
+    ])
+    expect(pendingRequestIds(s)).toEqual(['srq-000000000041'])
+    const sent = sessionReducer(s, { type: 'prompt/responded', requestId: 'srq-000000000041', declined: false })
+    expect(sent.items.find(i => i.kind === 'prompt')).toMatchObject({ state: 'sent' })
+    expect(sent.items.find(i => i.kind === 'prompt')).not.toHaveProperty('error', expect.anything())
+  })
+
+  it('keeps a pending prompt card through a history refetch, and drops a settled one', () => {
+    const s = run(bound(), [req('srq-000000000051', 'sudo', {}), req('srq-000000000052', 'secret', {}), { type: 'prompt/responded', requestId: 'srq-000000000052', declined: false }])
+    const refetched = sessionReducer(s, { type: 'history/loaded', messages: [] })
+    expect(refetched.items.filter(i => i.kind === 'prompt')).toMatchObject([{ requestId: 'srq-000000000051', state: 'pending' }])
   })
 })
 

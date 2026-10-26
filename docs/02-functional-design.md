@@ -104,6 +104,7 @@ Requirement IDs: **FR-xxx** functional, **NFR-xxx** non-functional, **BR-xx** bu
 | FR-121 | Each question is answered on its own, by tap or by typed text, which may name letters ("A, C"). On a single-choice question the last of the two counts; on a multi-select question the typed text adds to the tapped choices. A question left open is sent as skipped, and Confirm needs one answered question. The answered card shows, per question, the chosen options, the typed answer, or "Skipped". | M | BR-14 |
 | FR-122 | An answered card shows the chosen options greyed with a check; unanswered cards follow the backend waiting/expiry state. The app does not promise the agent can continue while a blocking clarify request is pending. | M | F3 |
 | FR-123 | Cards are usable on a phone with one thumb (large tap targets, no hover). | M | C5 |
+| FR-124 | An agent can ask for a password, a secret or a code with a card: the sudo password for a command (the card shows the command), a value for a named secret, the master password of a password manager, a login for a site, or a one-time code. Each card has its fields, a send button and a decline button, and a settled card says how it ended. The app never keeps what the user typed (04, section 6; ADR-047). | M | F3 |
 
 ### 3.3 Agents
 | ID | Requirement | Pri | BR |

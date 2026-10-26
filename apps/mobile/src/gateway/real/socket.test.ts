@@ -370,17 +370,29 @@ describe('SocketSession server requests', () => {
     session.close()
   })
 
-  it('declines window-owned requests and leaves sudo and secret unanswered', async () => {
+  it('declines window-owned requests, hands the password prompts to subscribers, and leaves setup_choose unanswered', async () => {
     installFakeWebSocket({ onRequest: m => (m === 'client.capabilities' ? { server_requests: ['approval'], declines_not_shown: true } : {}) })
     const session = await SocketSession.open(OPTS)
+    const seen: ServerRequestFrame[] = []
+    session.onRequest(r => seen.push(r))
     const ws = FakeWebSocket.instances[0]!
     await flush()
     ws.serverRequest('srq-000000000001', 'preview.read', { session_id: 's1' })
     ws.serverRequest('srq-000000000002', 'sudo', { session_id: 's1', command: 'apt install x' })
     ws.serverRequest('srq-000000000003', 'secret', { session_id: 's1', env_var: 'API_KEY', prompt: 'Key?' })
+    ws.serverRequest('srq-000000000005', 'vault.unlock_prompt', { session_id: 's1', backend: 'bitwarden', display_name: 'Bitwarden' })
+    ws.serverRequest('srq-000000000006', 'vault.save_login', { session_id: 's1', origin: 'https://example.com', site: 'Example' })
+    ws.serverRequest('srq-000000000007', 'vault.code', { session_id: 's1', site: 'Example' })
+    ws.serverRequest('srq-000000000008', 'setup_choose', { session_id: 's1', kind: 'question', question: 'Name?' })
+    ws.serverRequest('srq-000000000009', 'display.install.sudo', { session_id: 's1' })
     await flush()
     expect(framesFor(ws, 'srq-000000000001')).toMatchObject([{ error: { code: 4404 } }])
-    expect([...framesFor(ws, 'srq-000000000002'), ...framesFor(ws, 'srq-000000000003')]).toEqual([])
+    expect(seen.map(r => r.method)).toEqual(['sudo', 'secret', 'vault.unlock_prompt', 'vault.save_login', 'vault.code'])
+    // Nothing answers a prompt until the user does, and nothing ever answers the other two.
+    expect(['02', '03', '05', '06', '07', '08', '09'].flatMap(n => framesFor(ws, `srq-0000000000${n}`))).toEqual([])
+    expect(session.respond('srq-000000000002', { value: 'hunter2' })).toBe('sent')
+    expect(framesFor(ws, 'srq-000000000002')).toEqual([{ jsonrpc: '2.0', id: 'srq-000000000002', result: { value: 'hunter2' } }])
+    expect(session.respond('srq-000000000008', { value: 'x' })).toBe('unknown')
     session.close()
   })
 

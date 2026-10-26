@@ -209,6 +209,11 @@ describe('server requests', () => {
     await flush()
     await gateway.sessions.respondClarify({ session_id: 's1', request_id: 'srq-00000000000e', answers: null })
     expect(ws.sent.filter(f => f.id === 'srq-00000000000e')).toEqual([{ jsonrpc: '2.0', id: 'srq-00000000000e', result: {} }])
+    // A password prompt is answered with `{value}`, and `''` declines it.
+    ws.serverRequest('srq-00000000000f', 'sudo', { session_id: 's1', command: 'apt install x' })
+    await flush()
+    await gateway.sessions.respondValue({ session_id: 's1', request_id: 'srq-00000000000f', value: '' })
+    expect(ws.sent.filter(f => f.id === 'srq-00000000000f')).toEqual([{ jsonrpc: '2.0', id: 'srq-00000000000f', result: { value: '' } }])
     expect(ws.sent.some(f => f.method === 'clarify.respond' || f.method === 'approval.respond')).toBe(false)
     await expect(gateway.sessions.respondApproval({ session_id: 's1', request_id: 'srq-00000000000d', choice: 'once' })).rejects.toMatchObject({ kind: 'not_found' })
     gateway.disconnectAll()

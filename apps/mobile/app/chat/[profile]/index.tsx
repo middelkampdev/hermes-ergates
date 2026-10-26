@@ -17,7 +17,7 @@ import { ICON_SIZE, LEADING, RADIUS, RULE, SIZE, SPACE, TYPE } from '@/theme/tok
 import { Avatar } from '@/ui/Avatar'
 import { BotMessageBubble } from '@/ui/chat/BotMessageBubble'
 import { AssistantBubble, StreamingBubble, UserBubble } from '@/ui/chat/Bubble'
-import { ApprovalCard, ClarifyCard, type ClarifyDrafts } from '@/ui/chat/Cards'
+import { ApprovalCard, ClarifyCard, PromptCard, type ClarifyDrafts } from '@/ui/chat/Cards'
 import { Composer } from '@/ui/chat/Composer'
 import { ExchangeRow } from '@/ui/chat/ExchangeRow'
 import { NoticeRow } from '@/ui/chat/NoticeRow'
@@ -297,6 +297,8 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
               )
             case 'approval':
               return <ApprovalCard item={item} onChoose={choice => runWithAlert('Could not send your decision', () => session.answerApproval(item.requestId, choice))} />
+            case 'prompt':
+              return <PromptCard item={item} onAnswer={value => runWithAlert('Could not send your answer', () => session.answerPrompt(item.requestId, value))} />
             default:
               return null
           }
@@ -363,6 +365,8 @@ function Chat({ devSend, devInject, devFocus }: { devSend?: string; devInject?: 
           onScroll={e => setAtBottom(e.nativeEvent.contentOffset.y < 40)}
           scrollEventThrottle={100}
           keyboardDismissMode="interactive"
+          // A tap on a card's button while its field has the keyboard up sends at once; a tap on empty space still closes the keyboard.
+          keyboardShouldPersistTaps="handled"
           // Keep the reader's place when rows arrive or regroup (an exchange row
           // replacing its tool row, a merged run), except near the bottom, where
           // the list follows new output (streamed deltas, the working line).

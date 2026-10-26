@@ -429,6 +429,10 @@ export class RealGateway implements GatewayPort {
       const c = await this.sessionSocket(p.session_id)
       requireSent(c.respond(p.request_id, p.answers === null ? {} : { answers: p.answers }))
     },
+    respondValue: async p => {
+      const c = await this.sessionSocket(p.session_id)
+      requireSent(c.respond(p.request_id, { value: p.value }))
+    },
     attachImageBytes: async p => {
       const c = await this.sessionSocket(p.session_id)
       return c.request('image.attach_bytes', p as unknown as Record<string, unknown>, 120_000)
