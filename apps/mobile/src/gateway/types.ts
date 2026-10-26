@@ -553,6 +553,33 @@ export interface ClarifyRequestParams {
   answers?: Record<string, string | null> | null
 }
 
+/**
+ * The one-string prompts the phone shows as a card (tui_gateway/contracts/server_requests.py:137-189). Each is
+ * answered with `{value}`, and `''` declines (`_ask`, server.py:1398-1404). `setup_choose`, Hermes Desktop's
+ * first-run setup, and the sessionless `display.install.sudo` of its Bot Screen stay unanswered.
+ */
+export const PROMPT_METHODS = ['sudo', 'secret', 'vault.unlock_prompt', 'vault.save_login', 'vault.code'] as const
+export type PromptMethod = (typeof PROMPT_METHODS)[number]
+
+/** What a prompt request says about itself. Each method uses some of these, and Hermes may leave any of them empty. */
+export interface PromptRequestParams {
+  session_id: string
+  /** `sudo`: the command, redacted by Hermes. */
+  command?: string
+  /** `secret`: the variable the value is for, and why. */
+  env_var?: string
+  prompt?: string
+  /** `vault.unlock_prompt`: the password manager. */
+  backend?: string
+  display_name?: string
+  /** `vault.save_login`: the sign-in page. */
+  origin?: string
+  /** `vault.save_login` and `vault.code`. */
+  site?: string | null
+  /** `vault.code`: where the code comes from. */
+  hint?: string | null
+}
+
 /** `request.cancel`: Hermes stopped waiting for request `id` (tui_gateway/contracts/server_requests.py:260-267). */
 export interface RequestCancelPayload {
   id: string

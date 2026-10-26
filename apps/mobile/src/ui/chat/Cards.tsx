@@ -5,9 +5,9 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native'
 
-import { answerParts, canConfirm, clarifyAnswers, pickChoice, stageOf, typeAnswer, type ChatItem, type ClarifyDraft } from '@/features/chat'
+import { answerParts, canConfirm, canSend, clarifyAnswers, pickChoice, promptStateLabel, promptValue, promptView, stageOf, typeAnswer, type ChatItem, type ClarifyDraft, type PromptEntries, type PromptEntry } from '@/features/chat'
 import type { ApprovalChoice } from '@/gateway/types'
 import { useTheme } from '@/theme/provider'
 import { LEADING, RADIUS, RULE, SIZE, SPACE, TYPE } from '@/theme/tokens'
@@ -107,6 +107,86 @@ export function ClarifyCard({ item, drafts, onAnswer }: { item: ClarifyItem; dra
   )
 }
 
+type PromptItem = Extract<ChatItem, { kind: 'prompt' }>
+
+/** The phone's autofill hints for a prompt field. `off` asks it not to autofill a server password or a secret; iOS still shows its Passwords button above the keyboard for a masked field. */
+function autofillProps(autofill: PromptEntry['autofill']): Pick<TextInputProps, 'autoComplete' | 'textContentType' | 'importantForAutofill'> {
+  switch (autofill) {
+    case 'off':
+      return { autoComplete: 'off', textContentType: 'none', importantForAutofill: 'no' }
+    case 'password':
+      return { autoComplete: 'password', textContentType: 'password' }
+    case 'username':
+      return { autoComplete: 'username', textContentType: 'username' }
+    case 'oneTimeCode':
+      return { autoComplete: Platform.OS === 'android' ? 'sms-otp' : 'one-time-code', textContentType: 'oneTimeCode' }
+  }
+}
+
+/**
+ * A password, secret or code Hermes asks for (`prompt-view.ts`). What the
+ * user types lives only in this card's state, never in the chat state or a
+ * draft, and is dropped once the card settles; the settled card says how it
+ * ended, never the value. `onAnswer('')` declines.
+ */
+export function PromptCard({ item, onAnswer }: { item: PromptItem; onAnswer: (value: string) => void }) {
+  const theme = useTheme()
+  const view = promptView(item.method, item.fields)
+  const [entries, setEntries] = useState<PromptEntries>({})
+  const pending = item.state === 'pending'
+  useEffect(() => {
+    if (!pending) {
+      setEntries({})
+    }
+  }, [pending])
+
+  return (
+    <View style={[styles.card, { backgroundColor: theme.colors.muted, borderRadius: RADIUS.extraLarge }]}>
+      <Text style={[styles.title, { color: theme.colors.foreground }]} accessibilityRole="header">
+        {view.title}
+      </Text>
+      {view.body.map((line, index) => (
+        <Text key={index} style={[styles.answer, { color: theme.colors.foreground }]}>
+          {line}
+        </Text>
+      ))}
+      {view.command ? (
+        // The whole command: the user judges it before the password goes out.
+        <Text style={[styles.command, { color: theme.colors.foreground, backgroundColor: theme.colors.background }]}>
+          {view.command}
+        </Text>
+      ) : null}
+      {pending ? (
+        <>
+          {view.entries.map(entry => (
+            <TextInput
+              key={entry.key}
+              value={entries[entry.key] ?? ''}
+              onChangeText={text => setEntries(e => ({ ...e, [entry.key]: text }))}
+              placeholder={entry.label}
+              placeholderTextColor={theme.colors.mutedForeground}
+              accessibilityLabel={entry.label}
+              secureTextEntry={entry.masked}
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+              {...autofillProps(entry.autofill)}
+              style={[styles.input, { backgroundColor: theme.colors.input, borderColor: theme.colors.border, color: theme.colors.foreground }]}
+            />
+          ))}
+          <View style={styles.actions}>
+            {item.error ? <Text style={[styles.hint, { color: theme.colors.destructive }]}>{item.error}</Text> : null}
+            <Button label={view.send} onPress={() => onAnswer(promptValue(item.method, entries))} disabled={!canSend(view, entries)} />
+            <Button label={view.decline} variant="secondary" onPress={() => onAnswer('')} />
+          </View>
+        </>
+      ) : (
+        <Text style={[styles.hint, { color: theme.colors.mutedForeground }]}>{promptStateLabel(item)}</Text>
+      )}
+    </View>
+  )
+}
+
 const CHOICE_LABEL: Record<ApprovalChoice, string> = { once: 'Allow once', session: 'Allow this chat', always: 'Always allow', deny: 'Deny' }
 
 export function ApprovalCard({ item, onChoose }: { item: ApprovalItem; onChoose: (choice: ApprovalChoice) => void }) {
@@ -117,7 +197,8 @@ export function ApprovalCard({ item, onChoose }: { item: ApprovalItem; onChoose:
     <View style={[styles.card, { backgroundColor: theme.colors.muted, borderRadius: RADIUS.extraLarge }]} accessibilityLabel="Approval request">
       <Text style={[styles.title, { color: theme.colors.foreground }]}>{item.payload.description || 'The assistant asks permission to run a command.'}</Text>
       {item.payload.command ? (
-        <Text style={[styles.command, { color: theme.colors.foreground, backgroundColor: theme.colors.background }]} numberOfLines={6}>
+        // The whole command: the user judges it before allowing it.
+        <Text style={[styles.command, { color: theme.colors.foreground, backgroundColor: theme.colors.background }]}>
           {item.payload.command}
         </Text>
       ) : null}

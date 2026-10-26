@@ -15,6 +15,8 @@ import type {
   MessageCompletePayload,
   MessageInterimPayload,
   OpenServerRequest,
+  PromptMethod,
+  PromptRequestParams,
   ReplayResult,
   RequestCancelPayload,
   ServerRequestFrame,
@@ -25,9 +27,10 @@ import type {
   ToolStartPayload,
   UsagePayload
 } from '@/gateway/types'
+import { PROMPT_METHODS } from '@/gateway/types'
 
 import { PROCESS_TITLE_RE, parseReceiptRow } from './agent-traffic/receipt'
-import { historyToItems, maxRowId, mergeHistory, newestInputRowId, type ChatItem, type DeliveryState, type LiveAnchor } from './history'
+import { historyToItems, isRequestCard, maxRowId, mergeHistory, newestInputRowId, type ChatItem, type DeliveryState, type LiveAnchor, type PromptFields, type RequestCard } from './history'
 
 export type { ChatItem, DeliveryState } from './history'
 
@@ -128,6 +131,9 @@ export type SessionAction =
   /** A local failure the user should see once (a refused Stop, a failed response). */
   | { type: 'error/raised'; message: string }
   | { type: 'approval/responded'; requestId: string; choice: string }
+  /** The answer to a prompt card went out: a value, or `declined` for the empty answer. */
+  | { type: 'prompt/responded'; requestId: string; declined: boolean }
+  | { type: 'prompt/failed'; requestId: string; message: string }
   /** `answers: null`: the user skipped the whole card. */
   | { type: 'clarify/responded'; requestId: string; answers: Record<string, string | null> | null }
   /** A turn was already running when we (re)attached (`opened.running`, `session.activate`). */
@@ -221,9 +227,8 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         return state
       }
       const fresh = historyToItems(action.messages)
-      const nonHistory = state.items.filter(i => i.kind === 'clarify' || i.kind === 'approval')
-      const merged = mergeHistory(state.items.filter(i => i.kind !== 'clarify' && i.kind !== 'approval'), fresh)
-      return { ...state, items: [...merged, ...nonHistory.filter(i => i.kind === 'approval' ? i.state === 'pending' : i.state === 'pending')] }
+      const merged = mergeHistory(state.items.filter(i => !isRequestCard(i)), fresh)
+      return { ...state, items: [...merged, ...state.items.filter(i => isRequestCard(i) && i.state === 'pending')] }
     }
     case 'history/refetched':
       return { ...state, replay: { ...state.replay, needsHistoryRefetch: false } }
@@ -289,6 +294,18 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         revision: state.revision + 1,
         items: state.items.map(i => (i.kind === 'clarify' && i.requestId === action.requestId ? respondedClarify(i, action.answers) : i))
       }
+    case 'prompt/responded':
+      return {
+        ...state,
+        revision: state.revision + 1,
+        items: state.items.map(i => (i.kind === 'prompt' && i.requestId === action.requestId ? { ...i, state: action.declined ? 'declined' : 'sent', error: undefined } : i))
+      }
+    case 'prompt/failed':
+      return {
+        ...state,
+        lastError: action.message,
+        items: state.items.map(i => (i.kind === 'prompt' && i.requestId === action.requestId ? { ...i, error: action.message } : i))
+      }
     case 'turn/observed-running':
       // We did not see this turn start, so it may be one whose completion we
       // already missed: `unknown`, unless a send of ours is still waiting.
@@ -322,7 +339,7 @@ function respondedClarify(card: Extract<ChatItem, { kind: 'clarify' }>, answers:
 }
 
 /** The card a server request shows, or null for a method the phone shows no card for. */
-function requestCard(request: ServerRequestFrame): Extract<ChatItem, { kind: 'approval' | 'clarify' }> | null {
+function requestCard(request: ServerRequestFrame): RequestCard | null {
   if (request.method === 'approval') {
     return { kind: 'approval', id: `approval-${request.id}`, requestId: request.id, payload: request.params as ApprovalRequestParams, state: 'pending' }
   }
@@ -334,7 +351,29 @@ function requestCard(request: ServerRequestFrame): Extract<ChatItem, { kind: 'ap
     const locked = replayed && typeof replayed === 'object' && !Array.isArray(replayed) ? replayed : undefined
     return { kind: 'clarify', id: `clarify-${request.id}`, requestId: request.id, questions, state: 'pending', ...(locked ? { locked } : {}) }
   }
+  if (isPromptMethod(request.method)) {
+    return { kind: 'prompt', id: `prompt-${request.id}`, requestId: request.id, method: request.method, fields: promptFields(request.params as Partial<PromptRequestParams>), state: 'pending' }
+  }
   return null
+}
+
+function isPromptMethod(method: string): method is PromptMethod {
+  return (PROMPT_METHODS as readonly string[]).includes(method)
+}
+
+/** The texts of a prompt request that its card shows; anything that is not a non-empty string is left out. */
+function promptFields(params: Partial<PromptRequestParams>): PromptFields {
+  const text = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined)
+  const fields: PromptFields = {
+    command: text(params.command),
+    envVar: text(params.env_var),
+    prompt: text(params.prompt),
+    manager: text(params.display_name) ?? text(params.backend),
+    origin: text(params.origin),
+    site: text(params.site),
+    hint: text(params.hint)
+  }
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined))
 }
 
 /**
@@ -355,7 +394,7 @@ function receiveRequest(state: SessionState, request: ServerRequestFrame): Sessi
   }
   const index = state.items.findIndex(i => i.kind === card.kind && i.requestId === request.id)
   const existing = index >= 0 ? state.items[index] : undefined
-  if (existing && (existing.kind === 'approval' || existing.kind === 'clarify') && existing.state === 'pending') {
+  if (existing && isRequestCard(existing) && existing.state === 'pending') {
     // A pending card stays, but takes the answers another client locked since it was first delivered.
     if (existing.kind === 'clarify' && card.kind === 'clarify' && card.locked !== undefined) {
       return { ...state, revision: state.revision + 1, items: state.items.map((i, at) => (at === index ? { ...existing, locked: card.locked } : i)) }
@@ -369,7 +408,7 @@ function receiveRequest(state: SessionState, request: ServerRequestFrame): Sessi
 
 /** The request ids of the approval and clarify cards still waiting for the user's answer. */
 export function pendingRequestIds(state: SessionState): string[] {
-  return state.items.flatMap(i => ((i.kind === 'approval' || i.kind === 'clarify') && i.state === 'pending' ? [i.requestId] : []))
+  return state.items.flatMap(i => (isRequestCard(i) && i.state === 'pending' ? [i.requestId] : []))
 }
 
 /**
@@ -383,7 +422,7 @@ function expireUnlisted(state: SessionState, open: OpenServerRequest[] | undefin
   const eligible = candidates === undefined ? null : new Set(candidates)
   let changed = false
   const items = state.items.map(i => {
-    if ((i.kind === 'approval' || i.kind === 'clarify') && i.state === 'pending' && !listed.has(i.requestId) && (eligible === null || eligible.has(i.requestId))) {
+    if (isRequestCard(i) && i.state === 'pending' && !listed.has(i.requestId) && (eligible === null || eligible.has(i.requestId))) {
       changed = true
       return { ...i, state: 'expired' as const }
     }
@@ -807,7 +846,7 @@ function applyEvent(state: SessionState, event: GatewayEventFrame, at?: number):
       return {
         ...next,
         revision: next.revision + 1,
-        items: next.items.map(i => ((i.kind === 'approval' || i.kind === 'clarify') && i.requestId === p.id && i.state === 'pending' ? { ...i, state: 'expired' as const } : i))
+        items: next.items.map(i => (isRequestCard(i) && i.requestId === p.id && i.state === 'pending' ? { ...i, state: 'expired' as const } : i))
       }
     }
     case 'session.info':

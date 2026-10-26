@@ -112,6 +112,8 @@ export interface SessionsApi {
    * another client locked. Rejects like `respondApproval`.
    */
   respondClarify(p: { session_id: string; request_id: string; answers: Record<string, string | null> | null }): Promise<void>
+  /** Answers a password prompt (`PromptMethod`) with `{value}`; `''` declines it. Rejects like `respondApproval`. */
+  respondValue(p: { session_id: string; request_id: string; value: string }): Promise<void>
   attachImageBytes(p: { session_id: string; content_base64: string; filename?: string; ext?: string }): Promise<unknown>
   /** Either a server `path` or a `data_url` + `name` (the gateway stores it and returns `ref_text`). */
   attachFile(p: { session_id: string; path?: string; data_url?: string; name?: string }): Promise<{ attached?: boolean; name?: string; path?: string; ref_text?: string; [k: string]: unknown }>

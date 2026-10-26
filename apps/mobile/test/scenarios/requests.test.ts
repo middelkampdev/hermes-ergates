@@ -16,7 +16,7 @@ describe('approval and clarify requests', () => {
   let controller: SessionController
   let conn: FakeConnection
   let live: string
-  const card = (id: string) => controller.getView().state.items.find(i => (i.kind === 'approval' || i.kind === 'clarify') && i.requestId === id)
+  const card = (id: string) => controller.getView().state.items.find(i => (i.kind === 'approval' || i.kind === 'clarify' || i.kind === 'prompt') && i.requestId === id)
 
   beforeEach(async () => {
     const gateway = new FakeGateway()
@@ -69,6 +69,31 @@ describe('approval and clarify requests', () => {
     conn.simulateOffline()
     await controller.answerClarify('srq-000000000009', null)
     expect(card('srq-000000000009')).toMatchObject({ state: 'pending', error: 'No connection to the gateway.' })
+  })
+
+  it('answers each password prompt with one {value} frame, a login as JSON, and an empty value to decline', async () => {
+    conn.serverRequest({ id: 'srq-000000000011', method: 'sudo', params: { session_id: live, command: 'apt install ripgrep' } })
+    conn.serverRequest({ id: 'srq-000000000012', method: 'vault.save_login', params: { session_id: live, origin: 'https://example.com/login', site: 'Example' } })
+    conn.serverRequest({ id: 'srq-000000000013', method: 'secret', params: { session_id: live, env_var: 'API_KEY', prompt: 'Key?' } })
+    await controller.answerPrompt('srq-000000000011', 'hunter2')
+    await controller.answerPrompt('srq-000000000012', JSON.stringify({ identifier: 'me@example.com', password: 'pw' }))
+    await Promise.all([controller.answerPrompt('srq-000000000013', ''), controller.answerPrompt('srq-000000000013', '')])
+    expect(conn.responses).toEqual([
+      { id: 'srq-000000000011', result: { value: 'hunter2' } },
+      { id: 'srq-000000000012', result: { value: '{"identifier":"me@example.com","password":"pw"}' } },
+      { id: 'srq-000000000013', result: { value: '' } }
+    ])
+    expect(controller.getView().state.items.filter(i => i.kind === 'prompt')).toMatchObject([{ state: 'sent' }, { state: 'sent' }, { state: 'declined' }])
+    // The card never holds the value.
+    expect(JSON.stringify(controller.getView().state)).not.toContain('hunter2')
+  })
+
+  it('keeps a password prompt open with its error when the answer cannot be sent', async () => {
+    conn.serverRequest({ id: 'srq-000000000014', method: 'sudo', params: { session_id: live } })
+    conn.simulateOffline()
+    await controller.answerPrompt('srq-000000000014', 'hunter2')
+    expect(conn.responses).toEqual([])
+    expect(card('srq-000000000014')).toMatchObject({ state: 'pending', error: 'No connection to the gateway.' })
   })
 
   it('expires the card Hermes cancels and keeps one card for a request re-delivered after a reconnect', async () => {

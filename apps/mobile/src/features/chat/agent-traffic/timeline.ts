@@ -7,7 +7,7 @@
 
 import { formatClock, formatDateSeparator } from '@/lib/time'
 
-import { FAILED_TURN_DISPLAY_KIND, hasText, isInputRow, type ChatItem } from '../history'
+import { FAILED_TURN_DISPLAY_KIND, hasText, isInputRow, isRequestCard, type ChatItem } from '../history'
 import type { LiveTurn } from '../session-reducer'
 
 import { buildExchanges, collectEvidence, exchangeCopy, exchangeIdentities, isOpenable, mergeConsecutive, peerName, type Completion, type Evidence, type Exchange, type WindowBounds } from './exchange'
@@ -331,7 +331,7 @@ function foldTurn(items: ChatItem[], turn: Turn, opts: FoldOptions): Folded | un
   if (answersOwnDispatch(items, turn.start)) return messageOnlyFold(head, opts.roster)
 
   const body = items.slice(turn.start + 1, turn.end)
-  if (body.some(item => item.kind === 'clarify' || item.kind === 'approval')) return undefined
+  if (body.some(isRequestCard)) return undefined
   if (body.some(item => item.kind === 'assistant' && item.error !== undefined)) return undefined
 
   let answerIndex = -1
@@ -694,7 +694,7 @@ function assemble(input: TimelineInput): Assembled {
     pushLine({ key: 'state', kind: 'state', text: WINDOW_ERROR_TEXT })
   }
 
-  const hasCard = items.some(item => (item.kind === 'clarify' || item.kind === 'approval') && item.state === 'pending')
+  const hasCard = items.some(item => isRequestCard(item) && item.state === 'pending')
   const hasReasoning = items.some(item => item.kind === 'assistant' && item.reasoning !== undefined) || live.reasoningText.trim().length > 0
   const hasActivity = hasCard || hasReasoning || lines.some(line => line.kind === 'tool' || line.kind === 'notice' || line.kind === 'exchange')
 
