@@ -67,6 +67,7 @@ done
 build="$(git -C "$ROOT" rev-parse HEAD)"
 
 command -v maestro >/dev/null || fail "Maestro is not installed (https://docs.maestro.dev/getting-started/installing-maestro)"
+command -v npm >/dev/null || fail "npm is not on the PATH"
 git -C "$ROOT" fetch --quiet origin
 pushed "$old" || fail "--old must be a full commit that is pushed to GitHub"
 pushed "$build" || fail "HEAD must be pushed to GitHub"
@@ -76,6 +77,11 @@ if [[ -z "$app" ]]; then
   app="$(ls -dt "$HOME"/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug-iphonesimulator/Ergates.app 2>/dev/null | head -1 || true)"
 fi
 [[ -d "$app" ]] || fail "no development build of the app; build one with npx expo run:ios, or pass --app"
+# Metro bundles from apps/mobile/node_modules, and an install older than package.json fails only once the app loads.
+# npm names the wrong packages on stderr.
+if ! (cd "$ROOT/apps/mobile" && npm ls --depth=0 >/dev/null); then
+  fail "the packages in apps/mobile/node_modules do not match package.json; run npm ci there first (stop a Metro that uses them)"
+fi
 [[ -n "$(simulator_state)" ]] || fail "no simulator $device; xcrun simctl list devices shows them"
 [[ ! -e "$STATE" ]] || fail "a device check runs already, or one did not clean up; run scripts/device-hermes.sh stop first"
 if lsof -nP -iTCP:"$METRO_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
