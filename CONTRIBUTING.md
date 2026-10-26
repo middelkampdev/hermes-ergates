@@ -46,7 +46,7 @@ The integration package's tests are a separate project, `integrations/ergates-te
 
 Unit tests do not reach the screens of a plugin update. Before a release candidate, run one on the iOS simulator against a throwaway Hermes. `scripts/device-hermes.sh` runs that Hermes at the pin. It keeps everything in `.cache/device-check` and never touches `~/.hermes` or a Hermes you run: it has its own root, `HOME` and lock folder, and runs `hermes serve --isolated`.
 
-`scripts/device-check.sh` runs the whole check with [Maestro](https://docs.maestro.dev/getting-started/installing-maestro). You need Maestro, a development build of the app (`npx expo run:ios` in `apps/mobile`), and a simulator you keep for tests, because the check removes the app from it at the end. The app updates the plugin to `HEAD`, so commit and push your plugin changes, and pick an older plugin commit that is pushed too: both install from GitHub.
+`scripts/device-check.sh` runs the whole check with [Maestro](https://docs.maestro.dev/getting-started/installing-maestro). You need Maestro, a development build of the app (`npx expo run:ios` in `apps/mobile`, again after a native change), packages that match `package.json` (`npm ci` in `apps/mobile`; the script checks), and a simulator you keep for tests, because the check removes the app from it at the end. The app updates the plugin to `HEAD`, so commit and push your plugin changes, and pick an older plugin commit that is pushed too: both install from GitHub.
 
 ```bash
 scripts/device-check.sh --device <simulator udid> --old <older commit>
